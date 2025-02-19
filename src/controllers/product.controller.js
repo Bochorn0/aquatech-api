@@ -93,27 +93,27 @@ export const getProductById = async (req, res) => {
     const { id } = req.params;
     console.log('Fetching product details for:', id);
     
-    const product = await Product.findOne({ id });
-    if (!product) {
-      console.log('Fetching product from Tuya API...');
-      const { id } = req.params;
+    
+    // const product = await Product.findOne({ id });
+    // if (!product) {
+    //   console.log('Fetching product from Tuya API...');
+    //   const { id } = req.params;
       const response = await tuyaService.getDeviceDetail(id);
+    //   if (!response || !response.result) {
+    //     return res.status(404).json({ message: 'Device not found in Tuya API' });
+    //   }
   
-      if (!response || !response.result) {
-        return res.status(404).json({ message: 'Device not found in Tuya API' });
-      }
+    //   // Create new product object
+    //   const newProduct = new Product(response.result[0]);
   
-      // Create new product object
-      const newProduct = new Product(response.result[0]);
-  
-      // Save to MongoDB
-      await newProduct.save();
-      console.log(`Product ${id} saved to MongoDB.`);
-      console.log('newProduct', newProduct);
-      res.json(newProduct);
-    }
+    //   // Save to MongoDB
+    //   await newProduct.save();
+    //   console.log(`Product ${id} saved to MongoDB.`);
+    //   console.log('newProduct', newProduct);
+      res.json(response.result);
+    // }
 
-    res.json(product);
+    // res.json(product);
   } catch (error) {
     console.error('Error fetching product details:', error);
     res.status(500).json({ message: 'Error fetching product details' });
