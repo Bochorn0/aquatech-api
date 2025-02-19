@@ -21,6 +21,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
+app.get('/health', (req, res) => {
+  res.json({ message: 'API Working'});
+});
 app.use('/api/products', productRoutes);
 
 // Error handling middleware
