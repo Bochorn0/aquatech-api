@@ -5,7 +5,10 @@ import { getAllProducts, generateAllProducts, getProductById, getProductMetrics 
 const router = Router();
 
 // Get all products
-router.get('/', generateAllProducts);
+router.get('/', getAllProducts);
+
+// get multiple mocked
+router.get('/mocked', generateAllProducts);
 
 // Get specific product by ID
 router.get('/:id', getProductById);
