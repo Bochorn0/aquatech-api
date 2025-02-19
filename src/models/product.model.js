@@ -1,70 +1,36 @@
-import mongoose from 'mongoose';  // Use ES Module import
+// src/models/product.model.js
+import mongoose from 'mongoose';
 
-const productSchema = new mongoose.Schema({
-  deviceId: {
-    type: String,
-    required: true,
-    unique: true,
-  },
-  name: {
-    type: String,
-    required: true,
-  },
-  status: {
-    type: String,
-    enum: ['online', 'offline'],
-    default: 'offline',
-  },
-  metrics: {
-    tds: {
-      type: Number,
-      default: 0,
-    },
-    waterFlow: {
-      type: Number,
-      default: 0,
-    },
-    filterLife: {
-      type: Number,
-      default: 100,
-    },
-    waterQuality: {
-      type: String,
-      enum: ['excellent', 'good', 'fair', 'poor'],
-      default: 'good',
-    },
-  },
-  lastUpdated: {
-    type: Date,
-    default: Date.now,
-  },
-  settings: {
-    type: Map,
-    of: mongoose.Schema.Types.Mixed,
-    default: {},
-  },
-  alerts: [{
-    type: {
-      type: String,
-      required: true,
-    },
-    message: {
-      type: String,
-      required: true,
-    },
-    timestamp: {
-      type: Date,
-      default: Date.now,
-    },
-    resolved: {
-      type: Boolean,
-      default: false,
-    },
-  }],
-}, {
-  timestamps: true,
+const StatusSchema = new mongoose.Schema({
+  code: String,
+  value: mongoose.Schema.Types.Mixed,
 });
 
-// Default export for ES Modules
-const Product = mongoose.model('Product', productSchema);
+const ProductSchema = new mongoose.Schema({
+  active_time: Number,
+  biz_type: Number,
+  category: String,
+  create_time: Number,
+  icon: String,
+  id: { type: String, unique: true }, // Ensuring unique device ID
+  ip: String,
+  lat: String,
+  local_key: String,
+  lon: String,
+  model: String,
+  name: String,
+  online: Boolean,
+  owner_id: String,
+  product_id: String,
+  product_name: String,
+  status: [StatusSchema],
+  sub: Boolean,
+  time_zone: String,
+  uid: String,
+  update_time: Number,
+  uuid: String,
+}, { timestamps: true });
+
+const Product = mongoose.model('Product', ProductSchema);
+
 export default Product;

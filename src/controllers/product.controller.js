@@ -1,26 +1,39 @@
 // src/controllers/product.controller.js
-// import Product from '../models/product.model.js';  
+ import Product from '../models/product.model.js';
 import * as tuyaService from '../services/tuya.service.js';  
 
 export const getAllProducts = async (req, res) => {
   try {
-    console.log('Fetching devices from Tuya API...');
-    const devices = await tuyaService.getAllDevices();
-    return res.json(devices.result);
-    // res.json(products);
+    console.log('Fetching products from MongoDB...');
+    
+    // Check if products exist in MongoDB
+    let products = await Product.find({});
+
+    if (products.length === 0) {
+      console.log('No products found in database. Fetching from Tuya API...');
+      
+      // Fetch products from Tuya API
+      const tuyaResponse = await tuyaService.getAllDevices();
+
+      if (!tuyaResponse || !tuyaResponse.result) {
+        return res.status(404).json({ message: 'No products found in Tuya API' });
+      }
+
+      // Store products in MongoDB
+      const storedProducts = await Product.insertMany(tuyaResponse.result);
+      console.log(`${storedProducts.length} products saved to database.`);
+
+      // Return stored products
+      products = storedProducts;
+    }
+
+    res.json(products);
   } catch (error) {
-    console.error('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      response: error.response?.data
-    });
-    res.status(500).json({ 
-      message: 'Error fetching products',
-      error: error.message,
-      details: error.response?.data 
-    });
+    console.error('Error fetching products:', error);
+    res.status(500).json({ message: 'Error fetching products' });
   }
 };
+
 
 export const generateAllProducts = async (req, res) => {
     try {
@@ -74,30 +87,69 @@ export const generateAllProducts = async (req, res) => {
     }
 };
 
+// Fetch a single product by ID from MongoDB
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
     console.log('Fetching product details for:', id);
-    const product = await tuyaService.getDeviceDetail(id)
+    
+    const product = await Product.findOne({ id });
+    if (!product) {
+      console.log('Fetching product from Tuya API...');
+      const { id } = req.params;
+      const response = await tuyaService.getDeviceDetail(id);
+  
+      if (!response || !response.result) {
+        return res.status(404).json({ message: 'Device not found in Tuya API' });
+      }
+  
+      // Create new product object
+      const newProduct = new Product(response.result[0]);
+  
+      // Save to MongoDB
+      await newProduct.save();
+      console.log(`Product ${id} saved to MongoDB.`);
+      console.log('newProduct', newProduct);
+      res.json(newProduct);
+    }
+
     res.json(product);
   } catch (error) {
-    console.error('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      response: error.response?.data
-    });
-    res.status(500).json({ 
-      message: 'Error fetching product details',
-      error: error.message,
-      details: error.response?.data 
-    });
+    console.error('Error fetching product details:', error);
+    res.status(500).json({ message: 'Error fetching product details' });
   }
 };
 
+// Save a product from Tuya API to MongoDB
+export const saveProduct = async (req, res) => {
+  try {
+    console.log('Fetching product from Tuya API...');
+    const { id } = req.params;
+    const response = await tuyaService.getDeviceDetail(id);
+
+    if (!response || !response.result) {
+      return res.status(404).json({ message: 'Device not found in Tuya API' });
+    }
+
+    // Create new product object
+    const newProduct = new Product(response.result);
+
+    // Save to MongoDB
+    await newProduct.save();
+    console.log(`Product ${id} saved to MongoDB.`);
+
+    res.status(201).json(newProduct);
+  } catch (error) {
+    console.error('Error saving product:', error);
+    res.status(500).json({ message: 'Error saving product' });
+  }
+};
+
+// Fetch and update product metrics
 export const getProductMetrics = async (req, res) => {
   try {
     const { id } = req.params;
-    const product = await Product.findOne({ deviceId: id });
+    const product = await Product.findOne({ id });
 
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
@@ -106,18 +158,12 @@ export const getProductMetrics = async (req, res) => {
     console.log('Fetching status from Tuya API...');
     const status = await tuyaService.getDeviceStatus(id);
 
-    product.metrics = {
-      ...product.metrics,
-      tds: status.find(s => s.code === 'tds')?.value || 0,
-      waterFlow: status.find(s => s.code === 'water_flow')?.value || 0,
-      filterLife: status.find(s => s.code === 'filter_life')?.value || 100,
-      waterQuality: status.find(s => s.code === 'water_quality')?.value || 'good',
-    };
-
-    product.lastUpdated = Date.now();
+    // Update product metrics
+    product.status = status;
+    product.update_time = Date.now();
     await product.save();
 
-    res.json(product.metrics);
+    res.json(product);
   } catch (error) {
     console.error('Error fetching product metrics:', error);
     res.status(500).json({ message: 'Error fetching product metrics' });

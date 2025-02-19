@@ -7,7 +7,7 @@ import express from 'express';  // Import express
 import cors from 'cors';  // Import cors
 import helmet from 'helmet';  // Import helmet
 import morgan from 'morgan';  // Import morgan
-// import mongoose from 'mongoose';  // Import mongoose
+import mongoose from 'mongoose';  // Import mongoose
 
 import productRoutes from './routes/product.routes.js';  // Use `import` for productRoutes
 
@@ -33,13 +33,13 @@ app.use((err, req, res, next) => {
 });
 
 // Database connection
-// mongoose
-//   .connect(process.env.MONGODB_URI, {
-//     useNewUrlParser: true,
-//     useUnifiedTopology: true,
-//   })
-//   .then(() => console.log('Connected to MongoDB'))
-//   .catch((err) => console.error('MongoDB connection error:', err));
+mongoose
+  .connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log('Connected to MongoDB'))
+  .catch((err) => console.error('MongoDB connection error:', err));
 
 // Start server
 const PORT = process.env.PORT || 5000;
