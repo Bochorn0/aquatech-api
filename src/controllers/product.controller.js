@@ -120,6 +120,40 @@ export const getProductById = async (req, res) => {
   }
 };
 
+// Fetch a single product by ID from MongoDB
+export const getProductLogsById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('Fetching product logs for:', id);
+    
+    
+    // const product = await Product.findOne({ id });
+    // if (!product) {
+    //   console.log('Fetching product from Tuya API...');
+    //   const { id } = req.params;
+      const response = await tuyaService.getDeviceLogs(id);
+      console.log('response', response);
+    //   if (!response || !response.result) {
+    //     return res.status(404).json({ message: 'Device not found in Tuya API' });
+    //   }
+  
+    //   // Create new product object
+    //   const newProduct = new Product(response.result[0]);
+  
+    //   // Save to MongoDB
+    //   await newProduct.save();
+    //   console.log(`Product ${id} saved to MongoDB.`);
+    //   console.log('newProduct', newProduct);
+      res.json(response.result);
+    // }
+
+    // res.json(product);
+  } catch (error) {
+    console.error('Error fetching product details:', error);
+    res.status(500).json({ message: 'Error fetching product details' });
+  }
+};
+
 // Save a product from Tuya API to MongoDB
 export const saveProduct = async (req, res) => {
   try {

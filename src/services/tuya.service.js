@@ -43,3 +43,18 @@ export async function getAllDevices() {
     return null;
   }
 }
+
+// Fetch device details by device_id
+export async function getDeviceLogs(deviceId) {
+  console.log('Fetching device details for:', deviceId);
+  try {
+    // Get the details of the device using TuyaContext
+    return await context.request({
+      method: 'GET',
+      path: `/v1.0/iot-03/devices/${deviceId}/report-logs?start_time=1739852056836&end_time=1740025560000&codes=flowrate_speed_2`
+    });
+  } catch (error) {
+    console.error('Error fetching device details:', error);
+    return null;
+  }
+}
