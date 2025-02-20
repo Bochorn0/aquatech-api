@@ -132,7 +132,6 @@ export const getProductLogsById = async (req, res) => {
     //   console.log('Fetching product from Tuya API...');
     //   const { id } = req.params;
       const response = await tuyaService.getDeviceLogs(id);
-      console.log('response', response);
     //   if (!response || !response.result) {
     //     return res.status(404).json({ message: 'Device not found in Tuya API' });
     //   }
