@@ -15,7 +15,7 @@ export const getDashboardMetrics = async (req, res) => {
       metrics = [
         {
           "total": 150,
-          "label": "Productos Conectados",
+          "label": "Conectados",
           "icon": "/assets/icons/glass/ic-glass-bag.svg",
           "totalOnline": 120,
           "percentage": 0.8,
@@ -26,7 +26,7 @@ export const getDashboardMetrics = async (req, res) => {
         },
         {
           "total": 100,
-          "label": "Equipos en rango",
+          "label": "En Rango",
           "totalOnline": 85,
           "percentage": 0.85,
           "color":"secondary",
@@ -38,7 +38,7 @@ export const getDashboardMetrics = async (req, res) => {
         },
         {
           "total": 50,
-          "label": "Equipos fuera de Rango",
+          "label": "Fuera de Rango",
           "totalOnline": 10,
           "percentage": 0.2,
           "color":"warning",
