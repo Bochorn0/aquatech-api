@@ -85,6 +85,8 @@ export const generateAllProducts = async (req, res) => {
             });
         }
         mockedData.result[0].id = 'eb5741b947793cb5d0ozyb';
+        mockedData.result[1].id = 'ebf9738480d78e0132gnru';
+        
         res.status(200).json(mockedData.result);
     } catch (error) {
         console.error("Error generating product data:", error);
