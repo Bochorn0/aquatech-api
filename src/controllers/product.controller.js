@@ -56,7 +56,7 @@ export const generateAllProducts = async (req, res) => {
 
         // Generate 100 random records
         const mockedData = { result: [] };
-        for (let i = 0; i < 100; i++) {
+        for (let i = 0; i < 1000; i++) {
             mockedData.result.push({
                 ...baseData,
                 // id: `device_${i}`,
