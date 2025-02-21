@@ -70,16 +70,20 @@ export const generateAllProducts = async (req, res) => {
                 uuid: `${randomValue(100000, 999999)}`,
                 status: [
                   { code: "tds_out", value: randomValue(5, 20) },
-                  { code: "work_error", value: randomValue(0, 1) },
                   { code: "water_overflow", value: Math.random() < 0.5 },
                   { code: "water_wash", value: Math.random() < 0.5 },
+                  { code: "filter_element_1", value: randomValue(0, 180) },
+                  { code: "filter_element_2", value: randomValue(0, 270) },
+                  { code: "filter_element_3", value: randomValue(0, 270) },
+                  { code: "filter_element_4", value: randomValue(0, 270) },
                   { code: "flowrate_total_1", value: randomValue(10, 50) },
                   { code: "flowrate_total_2", value: randomValue(10, 50) },
+                  { code: "flowrate_speed_1", value: randomValue(0, 15) },
+                  { code: "flowrate_speed_2", value: randomValue(0, 20) },
                   { code: "temperature", value: randomValue(20, 40) }
               ],
             });
         }
-        console.log('Generated product data:', mockedData);
         res.status(200).json(mockedData.result);
     } catch (error) {
         console.error("Error generating product data:", error);
