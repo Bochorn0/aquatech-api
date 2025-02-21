@@ -1,4 +1,3 @@
-// src/models/product.model.js
 import mongoose from 'mongoose';
 
 const StatusSchema = new mongoose.Schema({
