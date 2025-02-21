@@ -59,7 +59,7 @@ export const generateAllProducts = async (req, res) => {
         for (let i = 0; i < 1000; i++) {
             mockedData.result.push({
                 ...baseData,
-                // id: `device_${i}`,
+                id: `device_${i}`,
                 name: `Device CB-5 - #${i}`,
                 model: `model_${randomValue(100, 999)}`,
                 online: Math.random() < 0.5,
@@ -84,6 +84,7 @@ export const generateAllProducts = async (req, res) => {
               ],
             });
         }
+        mockedData.result[0].id = 'eb5741b947793cb5d0ozyb';
         res.status(200).json(mockedData.result);
     } catch (error) {
         console.error("Error generating product data:", error);
@@ -206,3 +207,27 @@ export const getProductMetrics = async (req, res) => {
     res.status(500).json({ message: 'Error fetching product metrics' });
   }
 };
+
+// Execute commands on a device
+export const sendDeviceCommands = async (req, res) => {
+  try {
+    const { id, commands } = req.body; // Extract from request body
+
+    if (!id || !commands || !Array.isArray(commands)) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for 2 seconds
+      return res.status(400).json({ message: "Invalid request payload" });
+    }
+
+    console.log(`Sending commands to device ${id}:`, commands);
+
+    // const response = await tuyaService.executeCommands(id, commands);
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Simulating delay
+    const response = { executed: true };
+
+    res.json(response);
+  } catch (error) {
+    console.error("Error executing device command:", error);
+    res.status(500).json({ message: "Error executing device command" });
+  }
+};
+

@@ -58,3 +58,23 @@ export async function getDeviceLogs(deviceId) {
     return null;
   }
 }
+
+// execute command to device
+export async function executeCommands(data) {
+  console.log('Executing commands for:', data);
+
+  const { deviceId, commands } = data;
+  try {
+    // Get the details of the device using TuyaContext
+    return await context.request({
+      method: 'POST',
+      path: `/v1.0/devices/${deviceId}/commands`,
+      body: {
+        commands
+      }
+    });
+  } catch (error) {
+    console.error('Error executting commands on devices:', error);
+    return null;
+  }
+}
