@@ -71,12 +71,12 @@ export async function getDeviceLogs(deviceId) {
 export async function executeCommands(data) {
   console.log('Executing commands for:', data);
 
-  const { deviceId, commands } = data;
+  const { id, commands } = data;
   try {
     // Get the details of the device using TuyaContext
     return await context.request({
       method: 'POST',
-      path: `/v1.0/iot-03/devices/${deviceId}/commands`,
+      path: `/v1.0/iot-03/devices/${id}/commands`,
       body: {
         commands
       }

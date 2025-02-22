@@ -214,6 +214,7 @@ export const getProductMetrics = async (req, res) => {
 // Execute commands on a device
 export const sendDeviceCommands = async (req, res) => {
   try {
+    console.log('Executing device commands...', req.body);
     const { id, commands } = req.body; // Extract from request body
 
     if (!id || !commands || !Array.isArray(commands)) {
@@ -223,7 +224,7 @@ export const sendDeviceCommands = async (req, res) => {
 
     console.log(`Sending commands to device ${id}:`, commands);
 
-    const response = await tuyaService.executeCommands(id, commands);
+    const response = await tuyaService.executeCommands({id, commands});
     console.log('response commands:', response);
     // await new Promise(resolve => setTimeout(resolve, 2000)); // Simulating delay
     // const response = { executed: true };
