@@ -223,11 +223,12 @@ export const sendDeviceCommands = async (req, res) => {
 
     console.log(`Sending commands to device ${id}:`, commands);
 
-    // const response = await tuyaService.executeCommands(id, commands);
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Simulating delay
-    const response = { executed: true };
+    const response = await tuyaService.executeCommands(id, commands);
+    // await new Promise(resolve => setTimeout(resolve, 2000)); // Simulating delay
+    // const response = { executed: true };
+    const deviceData = tuyaService.getDeviceDetail(id);
 
-    res.json(response);
+    res.json({executed: true, deviceData});
   } catch (error) {
     console.error("Error executing device command:", error);
     res.status(500).json({ message: "Error executing device command" });
