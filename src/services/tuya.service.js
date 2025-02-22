@@ -76,7 +76,7 @@ export async function executeCommands(data) {
     // Get the details of the device using TuyaContext
     return await context.request({
       method: 'POST',
-      path: `/v1.0/devices/${deviceId}/commands`,
+      path: `/v1.0/iot-03/devices/${deviceId}/commands`,
       body: {
         commands
       }
