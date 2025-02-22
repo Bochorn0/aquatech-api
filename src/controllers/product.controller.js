@@ -224,6 +224,7 @@ export const sendDeviceCommands = async (req, res) => {
     console.log(`Sending commands to device ${id}:`, commands);
 
     const response = await tuyaService.executeCommands(id, commands);
+    console.log('response commands:', response);
     // await new Promise(resolve => setTimeout(resolve, 2000)); // Simulating delay
     // const response = { executed: true };
     const deviceData = tuyaService.getDeviceDetail(id);
