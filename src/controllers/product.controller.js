@@ -85,10 +85,21 @@ export const generateAllProducts = async (req, res) => {
               ],
             });
         }
+        // console.log('mockedData', mockedData);
+        const mapedResults = mockedData.result.map((product) => {
+          product.status.map((stat) => {
+            const arrayCodes = ["flowrate_total_1", "flowrate_total_2", "flowrate_speed_1", "flowrate_speed_2"];
+            if (arrayCodes.includes(stat.code) && stat.value > 0) {
+              stat.value = stat.value / 10;
+            }
+            return stat;
+          });
+          return product
+        });
         // mockedData.result[0].id = 'eb5741b947793cb5d0ozyb';
         // mockedData.result[1].id = 'ebf9738480d78e0132gnru';
         
-        res.status(200).json(mockedData.result);
+        res.status(200).json(mapedResults);
     } catch (error) {
         console.error("Error generating product data:", error);
         res.status(500).json({ error: "Internal Server Error" });
@@ -228,9 +239,9 @@ export const sendDeviceCommands = async (req, res) => {
     console.log('response commands:', response);
     // await new Promise(resolve => setTimeout(resolve, 2000)); // Simulating delay
     // const response = { executed: true };
-    const deviceData = tuyaService.getDeviceDetail(id);
+    const deviceData = await tuyaService.getDeviceDetail(id);
 
-    res.json({executed: true, deviceData});
+    res.json({executed: true, deviceData: deviceData.result});
   } catch (error) {
     console.error("Error executing device command:", error);
     res.status(500).json({ message: "Error executing device command" });
