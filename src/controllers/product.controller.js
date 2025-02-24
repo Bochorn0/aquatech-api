@@ -36,75 +36,84 @@ export const getAllProducts = async (req, res) => {
 
 
 export const generateAllProducts = async (req, res) => {
-    try {
+  try {
       const realProducts = await tuyaService.getAllDevices();
-        const randomValue = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+      realProducts.result.map((product) => {
+          product.city = "Hermosillo";
+          product.drive = "BochoApp";
+      });
+      const randomValue = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-        const baseData = {
-            id: 'eb5741b947793cb5d0ozyb',
-            active_time: Date.now(),
-            biz_type: 0,
-            category: "js",
-            create_time: Date.now(),
-            icon: "smart/icon/bay17049404440506Gfw/21e41e127c1218287e740739d48af02c.png",
-            owner_id: "234238561",
-            product_id: "lztrcjsskc1hlltu",
-            product_name: "Sample Product",
-            sub: false,
-            time_zone: "-07:00",
-            update_time: Date.now(),
-        };
+      const cities = ["Tijuana", "Culiacan", "Cd. Juarez", "Hermosillo"];
+      const drives = ["Humalla", "Piaxtla", "Tierra Blanca", "Estadio", "Sarzana", "Buena vista", "Valle marquez", "Aeropuerto", "Navarrete", "Planta2", "Pinos", "Perisur"];
 
-        // Generate 100 random records
-        const mockedData = { result: realProducts.result };
-        for (let i = 0; i < 1000; i++) {
-            mockedData.result.push({
-                ...baseData,
-                id: `device_${i}`,
-                name: `Device CB-5 - #${i}`,
-                model: `model_${randomValue(100, 999)}`,
-                online: Math.random() < 0.5,
-                ip: `${randomValue(10, 255)}.${randomValue(10, 255)}.${randomValue(10, 255)}.${randomValue(10, 255)}`,
-                lat: (Math.random() * 180 - 90).toFixed(2),
-                lon: (Math.random() * 360 - 180).toFixed(2),
-                uid: `user_${randomValue(1000, 9999)}`,
-                uuid: `${randomValue(100000, 999999)}`,
-                status: [
-                  { code: "tds_out", value: randomValue(5, 20) },
-                  { code: "water_overflow", value: Math.random() < 0.5 },
-                  { code: "water_wash", value: Math.random() < 0.5 },
-                  { code: "filter_element_1", value: randomValue(0, 180) },
-                  { code: "filter_element_2", value: randomValue(0, 270) },
-                  { code: "filter_element_3", value: randomValue(0, 270) },
-                  { code: "filter_element_4", value: randomValue(0, 270) },
-                  { code: "flowrate_total_1", value: randomValue(10, 50) },
-                  { code: "flowrate_total_2", value: randomValue(10, 50) },
-                  { code: "flowrate_speed_1", value: randomValue(0, 15) },
-                  { code: "flowrate_speed_2", value: randomValue(0, 20) },
-                  { code: "temperature", value: randomValue(20, 40) }
-              ],
-            });
-        }
-        // console.log('mockedData', mockedData);
-        const mapedResults = mockedData.result.map((product) => {
-          product.status.map((stat) => {
-            const arrayCodes = ["flowrate_total_1", "flowrate_total_2", "flowrate_speed_1", "flowrate_speed_2"];
-            if (arrayCodes.includes(stat.code) && stat.value > 0) {
-              stat.value = stat.value / 10;
-            }
-            return stat;
+      const baseData = {
+          id: 'eb5741b947793cb5d0ozyb',
+          active_time: Date.now(),
+          biz_type: 0,
+          category: "js",
+          create_time: Date.now(),
+          icon: "smart/icon/bay17049404440506Gfw/21e41e127c1218287e740739d48af02c.png",
+          owner_id: "234238561",
+          product_id: "lztrcjsskc1hlltu",
+          product_name: "Sample Product",
+          sub: false,
+          time_zone: "-07:00",
+          update_time: Date.now(),
+      };
+
+      // Generate 1000 random records
+      const mockedData = { result: realProducts.result };
+      for (let i = 0; i < 1000; i++) {
+          mockedData.result.push({
+              ...baseData,
+              id: `device_${i}`,
+              name: `Device CB-5 - #${i}`,
+              model: `model_${randomValue(100, 999)}`,
+              online: Math.random() < 0.5,
+              ip: `${randomValue(10, 255)}.${randomValue(10, 255)}.${randomValue(10, 255)}.${randomValue(10, 255)}`,
+              lat: (Math.random() * 180 - 90).toFixed(2),
+              lon: (Math.random() * 360 - 180).toFixed(2),
+              uid: `user_${randomValue(1000, 9999)}`,
+              uuid: `${randomValue(100000, 999999)}`,
+              city: cities[randomValue(0, cities.length - 1)],  // Random city
+              drive: drives[randomValue(0, drives.length - 1)],  // Random drive
+              status: [
+                { code: "tds_out", value: randomValue(5, 20) },
+                { code: "water_overflow", value: Math.random() < 0.5 },
+                { code: "water_wash", value: Math.random() < 0.5 },
+                { code: "filter_element_1", value: randomValue(0, 180) },
+                { code: "filter_element_2", value: randomValue(0, 270) },
+                { code: "filter_element_3", value: randomValue(0, 270) },
+                { code: "filter_element_4", value: randomValue(0, 270) },
+                { code: "flowrate_total_1", value: randomValue(10, 50) },
+                { code: "flowrate_total_2", value: randomValue(10, 50) },
+                { code: "flowrate_speed_1", value: randomValue(0, 15) },
+                { code: "flowrate_speed_2", value: randomValue(0, 20) },
+                { code: "temperature", value: randomValue(20, 40) }
+            ],
           });
-          return product
-        });
-        // mockedData.result[0].id = 'eb5741b947793cb5d0ozyb';
-        // mockedData.result[1].id = 'ebf9738480d78e0132gnru';
-        
-        res.status(200).json(mapedResults);
-    } catch (error) {
-        console.error("Error generating product data:", error);
-        res.status(500).json({ error: "Internal Server Error" });
-    }
+      }
+
+      // Process the product status to adjust certain flowrate values
+      const mapedResults = mockedData.result.map((product) => {
+          product.status.map((stat) => {
+              const arrayCodes = ["flowrate_total_1", "flowrate_total_2", "flowrate_speed_1", "flowrate_speed_2"];
+              if (arrayCodes.includes(stat.code) && stat.value > 0) {
+                  stat.value = stat.value / 10;
+              }
+              return stat;
+          });
+          return product;
+      });
+
+      res.status(200).json(mapedResults);
+  } catch (error) {
+      console.error("Error generating product data:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+  }
 };
+
 
 // Fetch a single product by ID from MongoDB
 export const getProductById = async (req, res) => {
