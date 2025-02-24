@@ -45,21 +45,20 @@ export async function getAllDevices() {
 }
 
 // Fetch device details by device_id
-export async function getDeviceLogs(deviceId) {
-  console.log('Fetching device details for:', deviceId);
+export async function getDeviceLogs(query) {
+  console.log('query:', query);
   try {
+    const { id, start_date, end_date, fields } = query;
+    console.log('Fetching device details for:', id);
     // Get the details of the device using TuyaContext
     // Get current time (end_time)
-    const end_time = Date.now();
+    // const end_time = Date.now();
 
     // Get the time 10 minutes ago (start_time)
-    const start_time = end_time - (10 * 60 * 1000); // 10 minutes in milliseconds
-
-    console.log('start_time:', start_time);
-    console.log('end_time:', end_time);
+    // const start_time = end_time - (10 * 60 * 1000); // 10 minutes in milliseconds
     return await context.request({
       method: 'GET',
-      path: `/v1.0/iot-03/devices/${deviceId}/report-logs?start_time=${start_time}&end_time=${end_time}&codes=flowrate_speed_2`
+      path: `/v1.0/iot-03/devices/${id}/report-logs?start_time=${start_date}&end_time=${end_date}&codes=${fields}`
     });
   } catch (error) {
     console.error('Error fetching device details:', error);

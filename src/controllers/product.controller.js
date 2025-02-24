@@ -151,15 +151,11 @@ export const getProductById = async (req, res) => {
 // Fetch a single product by ID from MongoDB
 export const getProductLogsById = async (req, res) => {
   try {
-    const { id } = req.params;
-    console.log('Fetching product logs for:', id);
-    
-    
     // const product = await Product.findOne({ id });
     // if (!product) {
     //   console.log('Fetching product from Tuya API...');
-    //   const { id } = req.params;
-      const response = await tuyaService.getDeviceLogs(id);
+    // const { id } = req.params;
+    const response = await tuyaService.getDeviceLogs(req.query);
     //   if (!response || !response.result) {
     //     return res.status(404).json({ message: 'Device not found in Tuya API' });
     //   }
