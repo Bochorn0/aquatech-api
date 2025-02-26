@@ -1,5 +1,6 @@
 // src/controllers/product.controller.js
- import Metric from '../models/metric.model.js';
+import Metric from '../models/metric.model.js';
+import { mockedProducts } from './product.controller.js';
 
 export const getDashboardMetrics = async (req, res) => {
   try {
@@ -7,65 +8,120 @@ export const getDashboardMetrics = async (req, res) => {
     
     // Check if products exist in MongoDB
     let metrics = await Metric.find({});
-
+    let total = 0;
+    let totalOnline = 0;
+    let totalRangoOnline = 0;
+    let totalFueraRangoOnline = 0;
+    let totalOportunidadesOnline = 0;
+    let enRango = [];
+    let fueraRango = [];
+    let oportunidades = [];
+    let totalByCity = [];
+    const mockProducts = await mockedProducts();
     if (metrics.length === 0) {
-      // Store products in MongoDB
-
+      // Generate Mocked Metrics
+      total = mockProducts.length;
+      totalOnline = mockProducts.filter((product) => product.online).length;
+      // get city indicators
+      mockProducts.forEach((product) => {
+        const cityIndex = totalByCity.findIndex((city) => city.name === product.city);
+        if (cityIndex === -1) {
+          const prodByCity = mockProducts.filter((prod) => prod.city === product.city);
+          totalByCity.push({ name: product.city, total: prodByCity.total, categories: getSortedDataByMonth(prodByCity) });
+        }
+      });
+      // Get products in range
+      enRango = mockProducts.filter((product) => {
+        const flowrate = product.status.find(s => s.code === 'flowrate_total_2')?.value;
+        return flowrate && flowrate >= 2;
+      });
+      totalRangoOnline = enRango.filter((product) => product.online).length;
+      // Get products out of range
+      fueraRango = mockProducts.filter((product) => {
+        const flowrate = product.status.find(s => s.code === 'flowrate_total_2')?.value;
+        return flowrate && flowrate < 2;
+      });
+      totalFueraRangoOnline = fueraRango.filter((product) => product.online).length;
+      // Get opportunities
+      oportunidades = mockProducts.filter((product) => product.drive === 'BochoApp');
+      totalOportunidadesOnline = oportunidades.filter((product) => product.online).length;
+      
       // Return stored products
       metrics = [
         {
-          "total": 150,
+          "total": total,
           "label": "Equipos Conectados",
           "icon": "/assets/icons/glass/ic-glass-bag.svg",
-          "totalOnline": 120,
-          "percentage": 0.8,
-          "chart": {
-            "categories": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"],
-            "series": [22, 8, 35, 50, 82, 84, 77, 12]
-          }
+          "totalOnline": totalOnline,
+          "percentage": (totalOnline / total),
+          "color":"primary",
+          "chart":getSortedDataByMonth(mockProducts)
         },
         {
-          "total": 100,
+          "total": enRango.length,
           "label": "Equipos en rango",
-          "totalOnline": 85,
-          "percentage": 0.85,
+          "totalOnline": totalRangoOnline,
+          "percentage": (totalRangoOnline / enRango.length),
           "color":"secondary",
           "icon":"/assets/icons/glass/ic-glass-users.svg",
-          "chart":{
-            "categories": ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
-            "series": [56, 47, 40, 62, 73, 30, 23, 54],
-          }
+          "chart":getSortedDataByMonth(enRango)
         },
         {
-          "total": 50,
+          "total": fueraRango.length,
           "label": "Equipos fuera de Rango",
-          "totalOnline": 10,
-          "percentage": 0.2,
-          "color":"warning",
+          "totalOnline": totalFueraRangoOnline,
+          "percentage": (totalFueraRangoOnline / fueraRango.length),
+          "color":"error",
           "icon":"/assets/icons/glass/ic-glass-buy.svg",
-          "chart":{
-            "categories": ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
-            "series": [40, 70, 50, 28, 70, 75, 7, 64],
-          }
+          "chart":getSortedDataByMonth(fueraRango)
         },
         {
-          "total": 200,
+          "total": oportunidades.length,
           "label": "Oportunidades",
-          "totalOnline": 150,
-          "percentage": 0.75,
-          "color":"error",
+          "totalOnline": totalOportunidadesOnline,
+          "percentage": (totalOportunidadesOnline / oportunidades.length),
+          "color":"warning",
           "icon": "/assets/icons/glass/ic-glass-message.svg",
-          "chart": {
-            "categories": ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
-            "series": [56, 30, 23, 54, 47, 40, 62, 73]
-          }
+          "chart":getSortedDataByMonth(oportunidades)
         },
       ];
     }
-
-    res.json(metrics);
+    const series = totalByCity.map((city) => { 
+      return {name: city.name, data: city.categories.series}
+    });
+    const response = {
+      metrics,
+      total,
+      totalOnline,
+      totalOffline: total - totalOnline,
+      totalRango: enRango.length,
+      totalRangoOnline,
+      totalFueraRango: fueraRango.length,
+      totalFueraRangoOnline,
+      totalOportunidades: oportunidades.length,
+      totalOportunidadesOnline,
+      serieCovertura: {
+        categories: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
+        series
+      }
+    }
+    res.json(response);
   } catch (error) {
     console.error('Error fetching metrics:', error);
     res.status(500).json({ message: 'Error fetching dashboard metrics' });
   }
 };
+
+function getSortedDataByMonth(data) {
+  const categories = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+  const series = new Array(12).fill(0);
+
+  data.forEach(item => {
+      const timestamp = item.create_time * 1000; // Convert to milliseconds
+      const date = new Date(timestamp);
+      const monthIndex = date.getUTCMonth(); // Get month index (0-11)
+      series[monthIndex] += 1; // Increment count for the month
+  });
+
+  return { categories, series };
+} 
