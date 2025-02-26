@@ -108,6 +108,10 @@ export const mockedProducts = async () => {
   };
 
   // Generate 1000 random records
+  realProducts.result[0].lat  = '29.0729';
+  realProducts.result[0].lon = '-110.9559';
+  realProducts.result[1].lat  = '29.0729';
+  realProducts.result[1].lon = '-110.9559';
   const mockedData = { result: realProducts.result };
   for (let i = 0; i < 1000; i++) {
     const { lat, lon } = getRandomCoordinateInMexico();
