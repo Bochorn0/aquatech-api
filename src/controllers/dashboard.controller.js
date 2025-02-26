@@ -32,14 +32,14 @@ export const getDashboardMetrics = async (req, res) => {
       });
       // Get products in range
       enRango = mockProducts.filter((product) => {
-        const flowrate = product.status.find(s => s.code === 'flowrate_total_2')?.value;
-        return flowrate && flowrate >= 2;
+        const flowrate = product.status.find(s => s.code === 'flowrate_total_1')?.value;
+        return flowrate && flowrate >= 20;
       });
       totalRangoOnline = enRango.filter((product) => product.online).length;
       // Get products out of range
       fueraRango = mockProducts.filter((product) => {
-        const flowrate = product.status.find(s => s.code === 'flowrate_total_2')?.value;
-        return flowrate && flowrate < 2;
+        const flowrate = product.status.find(s => s.code === 'flowrate_total_1')?.value;
+        return flowrate && flowrate < 20;
       });
       totalFueraRangoOnline = fueraRango.filter((product) => product.online).length;
       // Get opportunities
