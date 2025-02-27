@@ -108,15 +108,11 @@ export const mockedProducts = async () => {
   };
 
   // Generate 1000 random records
-  const result = realProducts.result.map((product) => {
-    if (!product.lat || !product.lon) {
-      product.lat = '29.0729';
-      product.lon = '-110.9559';
-    }
-    product.city = "Hermosillo";
-    product.drive = "BochoApp";
-  });
-  const mockedData = { result };
+  realProducts.result[0].lat  = '29.0729';
+  realProducts.result[0].lon = '-110.9559';
+  realProducts.result[1].lat  = '29.0729';
+  realProducts.result[1].lon = '-110.9559';
+  const mockedData = { result: realProducts.result };
   for (let i = 0; i < 1000; i++) {
     const { lat, lon } = getRandomCoordinateInMexico();
     const city = getClosestCity(lat, lon).city;
