@@ -86,8 +86,13 @@ export const getDashboardMetrics = async (req, res) => {
         },
       ];
     }
-    const series = totalByCity.map((city) => { 
-      return {name: city.name, data: city.categories.series}
+    const visibleCities = ['Hermosillo', 'Tijuana', 'Monterrey', 'CDMX', 'Tijuana'];
+    const series = totalByCity.map((city) => {
+      let initiallyHidden = true;
+      if (visibleCities.includes(city.name)) {
+        initiallyHidden = false;
+      } 
+      return {name: city.name, data: city.categories.series, initiallyHidden}
     });
     const response = {
       metrics,
