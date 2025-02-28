@@ -2,6 +2,9 @@
 import Metric from '../models/metric.model.js';
 import { mockedProducts } from './product.controller.js';
 
+const categories = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const visibleCities = ['Hermosillo', 'Tijuana', 'Monterrey', 'CDMX', 'Tijuana'];
+
 export const getDashboardMetrics = async (req, res) => {
   try {
     console.log('Fetching dashboard Metrics from MongoDB...');
@@ -48,45 +51,12 @@ export const getDashboardMetrics = async (req, res) => {
       
       // Return stored products
       metrics = [
-        {
-          "total": total,
-          "label": "Equipos Conectados",
-          "icon": "/assets/icons/glass/ic-glass-bag.svg",
-          "totalOnline": totalOnline,
-          "percentage": (totalOnline / total),
-          "color":"primary",
-          "chart":getSortedDataByMonth(mockProducts)
-        },
-        {
-          "total": enRango.length,
-          "label": "Equipos en rango",
-          "totalOnline": totalRangoOnline,
-          "percentage": (totalRangoOnline / enRango.length),
-          "color":"secondary",
-          "icon":"/assets/icons/glass/ic-glass-users.svg",
-          "chart":getSortedDataByMonth(enRango)
-        },
-        {
-          "total": fueraRango.length,
-          "label": "Equipos fuera de Rango",
-          "totalOnline": totalFueraRangoOnline,
-          "percentage": (totalFueraRangoOnline / fueraRango.length),
-          "color":"error",
-          "icon":"/assets/icons/glass/ic-glass-buy.svg",
-          "chart":getSortedDataByMonth(fueraRango)
-        },
-        {
-          "total": oportunidades.length,
-          "label": "Oportunidades",
-          "totalOnline": totalOportunidadesOnline,
-          "percentage": (totalOportunidadesOnline / oportunidades.length),
-          "color":"warning",
-          "icon": "/assets/icons/glass/ic-glass-message.svg",
-          "chart":getSortedDataByMonth(oportunidades)
-        },
+        createMetricsData({data:mockProducts, total2:totalOnline, label: 'Equipos Conectados', color: 'primary', icon: '/assets/icons/glass/ic-glass-bag.svg'}),
+        createMetricsData({data:enRango, total2:totalRangoOnline, label: 'Equipos en rango', color: 'secondary', icon: '/assets/icons/glass/ic-glass-users.svg'}),
+        createMetricsData({data:fueraRango, total2:totalFueraRangoOnline, label: 'Equipos fuera de rango', color: 'error', icon: '/assets/icons/glass/ic-glass-buy.svg'}),
+        createMetricsData({data:oportunidades, total2:totalOportunidadesOnline, label: 'Oportunidades', color: 'warning', icon: '/assets/icons/glass/ic-glass-message.svg'}),
       ];
     }
-    const visibleCities = ['Hermosillo', 'Tijuana', 'Monterrey', 'CDMX', 'Tijuana'];
     const series = totalByCity.map((city) => {
       let initiallyHidden = true;
       if (visibleCities.includes(city.name)) {
@@ -106,7 +76,7 @@ export const getDashboardMetrics = async (req, res) => {
       totalOportunidades: oportunidades.length,
       totalOportunidadesOnline,
       serieCovertura: {
-        categories: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
+        categories,
         series
       }
     }
@@ -117,8 +87,21 @@ export const getDashboardMetrics = async (req, res) => {
   }
 };
 
+function createMetricsData({data, total2, label, color, icon}) {
+  const metric = {
+    "total": data.length,
+    "label": label,
+    "icon": icon,
+    "totalOnline": total2,
+    "percentage": (total2 / data.length),
+    "color":color,
+    "chart":getSortedDataByMonth(data)
+  }
+  return metric;
+}
+
 function getSortedDataByMonth(data) {
-  const categories = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
   const series = new Array(12).fill(0);
 
   data.forEach(item => {

@@ -36,6 +36,7 @@ const mexicoCities = [
   { state: "Yucatán", city: "Mérida", lat: 20.967, lon: -89.623 },
   { state: "Zacatecas", city: "Zacatecas", lat: 22.7709, lon: -102.5832 }
 ];
+const drives = ["Humalla", "Piaxtla", "Tierra Blanca", "Estadio", "Sarzana", "Buena vista", "Valle marquez", "Aeropuerto", "Navarrete", "Planta2", "Pinos", "Perisur"];
 
 export const getAllProducts = async (req, res) => {
   try {
@@ -90,7 +91,7 @@ export const mockedProducts = async () => {
   });
   const randomValue = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-  const drives = ["Humalla", "Piaxtla", "Tierra Blanca", "Estadio", "Sarzana", "Buena vista", "Valle marquez", "Aeropuerto", "Navarrete", "Planta2", "Pinos", "Perisur"];
+
 
   const baseData = {
       id: 'eb5741b947793cb5d0ozyb',
@@ -108,10 +109,13 @@ export const mockedProducts = async () => {
   };
 
   // Generate 1000 random records
-  realProducts.result[0].lat  = '29.0729';
-  realProducts.result[0].lon = '-110.9559';
-  realProducts.result[1].lat  = '29.0729';
-  realProducts.result[1].lon = '-110.9559';
+  realProducts.result.map((product) => {
+    if(!product.lat || !product.lon) {
+      product.lat = '29.0729';
+      product.lon = '-110.9559';
+    }
+    
+  });
   const mockedData = { result: realProducts.result };
   for (let i = 0; i < 1000; i++) {
     const { lat, lon } = getRandomCoordinateInMexico();
@@ -129,7 +133,7 @@ export const mockedProducts = async () => {
           uid: `user_${randomValue(1000, 9999)}`,
           uuid: `${randomValue(100000, 999999)}`,
           // city: cities[randomValue(0, cities.length - 1)],  // Random city
-          city,
+          city,  // Random client
           drive: drives[randomValue(0, drives.length - 1)],  // Random drive
           status: [
             { code: "tds_out", value: randomValue(5, 20) },
