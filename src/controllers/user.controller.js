@@ -30,3 +30,14 @@ export const getUsers = async (req, res) => {
     res.status(500).json({ message: 'Error fetching users' });
   }
 };
+
+export const getActiveUsers = async (req, res) => {
+  try {
+    const activeUsers = await User.find({ status: 'active' });
+    res.json(activeUsers);
+  } catch (error) {
+    console.error('Error fetching active users:', error);
+    res.status(500).json({ message: 'Error fetching active users' });
+  }
+};
+
