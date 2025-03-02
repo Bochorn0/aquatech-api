@@ -1,11 +1,14 @@
 import { Router } from 'express';
-import { getActiveUsers } from '../controllers/user.controller.js';
+import { getActiveUsers, updateUser } from '../controllers/user.controller.js';
 import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';  // Corrected import
 
 
 const router = Router();
 // Protected Route: Get Active Users (only admin can access)
 router.get('/', authenticate, authorizeRoles('admin'), getActiveUsers);
+
+// Protected Route: Update User (only user can access)
+router.patch('/:id', authenticate, authorizeRoles('admin'), updateUser);
 
 // Example protected route
 // router.get('/admin-dashboard', authenticate, authorizeRoles('admin'), (req, res) => {

@@ -20,6 +20,7 @@
     "helmet": "^7.0.0",
     "jsonwebtoken": "^9.0.2",
     "moment": "^2.30.1",
+    "mongodb": "^6.14.0",
     "mongoose": "^7.5.0",
     "morgan": "^1.10.0",
     "tuyapi": "github:codetheweb/tuyapi",

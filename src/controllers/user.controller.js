@@ -33,11 +33,51 @@ export const getUsers = async (req, res) => {
 
 export const getActiveUsers = async (req, res) => {
   try {
-    const activeUsers = await User.find({ status: 'active' });
-    res.json(activeUsers);
+    console.log('Fetching Active Users from MongoDB...');
+
+    const { status, role } = req.query;
+
+    // Build the query object dynamically
+    const filters = {};
+
+    if (status) {
+      filters.status = { $in: status.split(',') }; // Allow multiple statuses (e.g., "active,pending")
+    } else {
+      filters.status = { $in: ['active', 'pending'] }; // Default to active & pending
+    }
+
+    if (role) {
+      filters.role = role; // Filter by role if provided
+    }
+
+    const users = await User.find(filters);
+    
+    res.json(users);
   } catch (error) {
     console.error('Error fetching active users:', error);
     res.status(500).json({ message: 'Error fetching active users' });
   }
 };
 
+
+export const updateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updatedUser = req.body;
+    console.log('Updating user:', updatedUser);
+    const user = await User.findById
+    (id);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    user.set(updatedUser);
+
+    res.json(user);
+
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ message: 'Error updating user' });
+  }
+}
