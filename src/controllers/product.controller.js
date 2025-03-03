@@ -7,33 +7,33 @@ const mexicoCities = [
   { state: "Baja California", city: "Tijuana", lat: 32.5149, lon: -117.0382 },
   { state: "Baja California Sur", city: "La Paz", lat: 24.1426, lon: -110.3009 },
   { state: "Campeche", city: "Campeche", lat: 19.8301, lon: -90.5349 },
-  { state: "Chiapas", city: "Tuxtla Gutiérrez", lat: 16.7531, lon: -93.1167 },
+  { state: "Chiapas", city: "Tuxtla Gutierrez", lat: 16.7531, lon: -93.1167 },
   { state: "Chihuahua", city: "Chihuahua", lat: 28.6329, lon: -106.0691 },
   { state: "Coahuila", city: "Saltillo", lat: 25.4381, lon: -100.9762 },
   { state: "Colima", city: "Colima", lat: 19.2433, lon: -103.725 },
   { state: "Durango", city: "Durango", lat: 24.0277, lon: -104.6532 },
-  { state: "Guanajuato", city: "León", lat: 21.1221, lon: -101.68 },
+  { state: "Guanajuato", city: "Leon", lat: 21.1221, lon: -101.68 },
   { state: "Guerrero", city: "Acapulco", lat: 16.8531, lon: -99.8237 },
   { state: "Hidalgo", city: "Pachuca", lat: 20.125, lon: -98.7333 },
   { state: "Jalisco", city: "Guadalajara", lat: 20.6597, lon: -103.3496 },
   { state: "Mexico", city: "Toluca", lat: 19.2826, lon: -99.6557 },
-  { state: "Mexico City", city: "Mexico City", lat: 19.4326, lon: -99.1332 },
-  { state: "Michoacán", city: "Morelia", lat: 19.705, lon: -101.1944 },
+  { state: "Ciudad de Mexico", city: "CDMX", lat: 19.4326, lon: -99.1332 },
+  { state: "Michoacan", city: "Morelia", lat: 19.705, lon: -101.1944 },
   { state: "Morelos", city: "Cuernavaca", lat: 18.9186, lon: -99.2343 },
   { state: "Nayarit", city: "Tepic", lat: 21.5061, lon: -104.8937 },
-  { state: "Nuevo León", city: "Monterrey", lat: 25.6866, lon: -100.3161 },
-  { state: "Oaxaca", city: "Oaxaca de Juárez", lat: 17.0654, lon: -96.7237 },
+  { state: "Nuevo Leon", city: "Monterrey", lat: 25.6866, lon: -100.3161 },
+  { state: "Oaxaca", city: "Oaxaca de Juarez", lat: 17.0654, lon: -96.7237 },
   { state: "Puebla", city: "Puebla", lat: 19.0414, lon: -98.2063 },
-  { state: "Querétaro", city: "Querétaro", lat: 20.5881, lon: -100.3881 },
-  { state: "Quintana Roo", city: "Cancún", lat: 21.1619, lon: -86.8515 },
-  { state: "San Luis Potosí", city: "San Luis Potosí", lat: 22.1498, lon: -100.9792 },
-  { state: "Sinaloa", city: "Culiacán", lat: 24.8071, lon: -107.394 },
+  { state: "Queretaro", city: "Queretaro", lat: 20.5881, lon: -100.3881 },
+  { state: "Quintana Roo", city: "Cancun", lat: 21.1619, lon: -86.8515 },
+  { state: "San Luis Potosi", city: "San Luis Potosi", lat: 22.1498, lon: -100.9792 },
+  { state: "Sinaloa", city: "Culiacan", lat: 24.8071, lon: -107.394 },
   { state: "Sonora", city: "Hermosillo", lat: 29.0729, lon: -110.9559 },
   { state: "Tabasco", city: "Villahermosa", lat: 17.9869, lon: -92.9303 },
   { state: "Tamaulipas", city: "Ciudad Victoria", lat: 23.7369, lon: -99.1411 },
   { state: "Tlaxcala", city: "Tlaxcala", lat: 19.3139, lon: -98.2403 },
   { state: "Veracruz", city: "Xalapa", lat: 19.5438, lon: -96.9103 },
-  { state: "Yucatán", city: "Mérida", lat: 20.967, lon: -89.623 },
+  { state: "Yucatan", city: "Merida", lat: 20.967, lon: -89.623 },
   { state: "Zacatecas", city: "Zacatecas", lat: 22.7709, lon: -102.5832 }
 ];
 const clientes = ["Caffenio", "Bachoco", "Norson", "Otro"]
@@ -88,6 +88,7 @@ export const mockedProducts = async () => {
   const realProducts = await tuyaService.getAllDevices();
   realProducts.result.map((product) => {
       product.city = "Hermosillo";
+      product.state = "Sonora";
       product.drive = "BochoApp";
   });
   const randomValue = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -126,7 +127,9 @@ export const mockedProducts = async () => {
       drive =  drives[randomValue(0, drives.length - 1)];
     } 
     const { lat, lon } = getRandomCoordinateInMexico();
-    const city = getClosestCity(lat, lon).city;
+    const cityData = getClosestCity(lat, lon);
+    const city = cityData.city;
+    const state = cityData.state;
       mockedData.result.push({
           ...baseData,
           id: `device_${i}`,
@@ -140,7 +143,8 @@ export const mockedProducts = async () => {
           uid: `user_${randomValue(1000, 9999)}`,
           uuid: `${randomValue(100000, 999999)}`,
           // city: cities[randomValue(0, cities.length - 1)],  // Random city
-          city,  // Random client
+          city,  // Random client,
+          state,  // Random
           cliente,
           drive,
           status: [
@@ -374,31 +378,31 @@ function getRandomCoordinateInMexico() {
 }
 // cities detailed
 // const mexicoCities = [
-//   { state: "Aguascalientes", city: "Jesús María", lat: 21.9614, lon: -102.3436 },
+//   { state: "Aguascalientes", city: "Jesus Maria", lat: 21.9614, lon: -102.3436 },
 //   { state: "Aguascalientes", city: "Calvillo", lat: 21.8456, lon: -102.7181 },
   
 //   { state: "Baja California", city: "Mexicali", lat: 32.6245, lon: -115.4523 },
 //   { state: "Baja California", city: "Ensenada", lat: 31.8667, lon: -116.5997 },
 
 //   { state: "Baja California Sur", city: "Cabo San Lucas", lat: 22.8909, lon: -109.9124 },
-//   { state: "Baja California Sur", city: "San José del Cabo", lat: 23.0631, lon: -109.7028 },
+//   { state: "Baja California Sur", city: "San Jose del Cabo", lat: 23.0631, lon: -109.7028 },
 
 //   { state: "Campeche", city: "Ciudad del Carmen", lat: 18.6516, lon: -91.8078 },
-//   { state: "Campeche", city: "Champotón", lat: 19.3447, lon: -90.7261 },
+//   { state: "Campeche", city: "Champoton", lat: 19.3447, lon: -90.7261 },
 
 //   { state: "Chiapas", city: "Tapachula", lat: 14.9031, lon: -92.2575 },
-//   { state: "Chiapas", city: "San Cristóbal de las Casas", lat: 16.737, lon: -92.6376 },
+//   { state: "Chiapas", city: "San Cristobal de las Casas", lat: 16.737, lon: -92.6376 },
 
-//   { state: "Chihuahua", city: "Ciudad Juárez", lat: 31.7398, lon: -106.485 },
+//   { state: "Chihuahua", city: "Ciudad Juarez", lat: 31.7398, lon: -106.485 },
 //   { state: "Chihuahua", city: "Delicias", lat: 28.1915, lon: -105.4717 },
 
-//   { state: "Coahuila", city: "Torreón", lat: 25.5428, lon: -103.4068 },
+//   { state: "Coahuila", city: "Torreon", lat: 25.5428, lon: -103.4068 },
 //   { state: "Coahuila", city: "Monclova", lat: 26.9007, lon: -101.4208 },
 
 //   { state: "Colima", city: "Manzanillo", lat: 19.05, lon: -104.3333 },
-//   { state: "Colima", city: "Tecomán", lat: 18.9167, lon: -103.8833 },
+//   { state: "Colima", city: "Tecoman", lat: 18.9167, lon: -103.8833 },
 
-//   { state: "Durango", city: "Gómez Palacio", lat: 25.5647, lon: -103.4966 },
+//   { state: "Durango", city: "Gomez Palacio", lat: 25.5647, lon: -103.4966 },
 //   { state: "Durango", city: "Lerdo", lat: 25.5388, lon: -103.5248 },
 
 //   { state: "Guanajuato", city: "Irapuato", lat: 20.6761, lon: -101.3563 },
@@ -416,34 +420,34 @@ function getRandomCoordinateInMexico() {
 //   { state: "Mexico", city: "Ecatepec", lat: 19.6097, lon: -99.06 },
 //   { state: "Mexico", city: "Naucalpan", lat: 19.4785, lon: -99.2396 },
 
-//   { state: "Michoacán", city: "Uruapan", lat: 19.4167, lon: -102.05 },
-//   { state: "Michoacán", city: "Zamora", lat: 19.9856, lon: -102.2839 },
+//   { state: "Michoacan", city: "Uruapan", lat: 19.4167, lon: -102.05 },
+//   { state: "Michoacan", city: "Zamora", lat: 19.9856, lon: -102.2839 },
 
 //   { state: "Morelos", city: "Jiutepec", lat: 18.8826, lon: -99.1775 },
 //   { state: "Morelos", city: "Cuautla", lat: 18.8121, lon: -98.9542 },
 
-//   { state: "Nayarit", city: "Bahía de Banderas", lat: 20.8031, lon: -105.2048 },
+//   { state: "Nayarit", city: "Bahia de Banderas", lat: 20.8031, lon: -105.2048 },
 //   { state: "Nayarit", city: "Compostela", lat: 21.2333, lon: -104.9 },
 
-//   { state: "Nuevo León", city: "San Nicolás de los Garza", lat: 25.7492, lon: -100.289 },
-//   { state: "Nuevo León", city: "San Pedro Garza García", lat: 25.6578, lon: -100.4022 },
+//   { state: "Nuevo Leon", city: "San Nicolas de los Garza", lat: 25.7492, lon: -100.289 },
+//   { state: "Nuevo Leon", city: "San Pedro Garza Garcia", lat: 25.6578, lon: -100.4022 },
 
 //   { state: "Oaxaca", city: "Salina Cruz", lat: 16.1667, lon: -95.2 },
-//   { state: "Oaxaca", city: "Juchitán de Zaragoza", lat: 16.4342, lon: -95.0203 },
+//   { state: "Oaxaca", city: "Juchitan de Zaragoza", lat: 16.4342, lon: -95.0203 },
 
-//   { state: "Puebla", city: "Tehuacán", lat: 18.4667, lon: -97.4 },
+//   { state: "Puebla", city: "Tehuacan", lat: 18.4667, lon: -97.4 },
 //   { state: "Puebla", city: "Atlixco", lat: 18.9, lon: -98.4333 },
 
-//   { state: "Querétaro", city: "San Juan del Río", lat: 20.3833, lon: -99.9833 },
-//   { state: "Querétaro", city: "El Marqués", lat: 20.5667, lon: -100.2833 },
+//   { state: "Queretaro", city: "San Juan del Rio", lat: 20.3833, lon: -99.9833 },
+//   { state: "Queretaro", city: "El Marques", lat: 20.5667, lon: -100.2833 },
 
 //   { state: "Quintana Roo", city: "Playa del Carmen", lat: 20.6296, lon: -87.0739 },
 //   { state: "Quintana Roo", city: "Chetumal", lat: 18.5036, lon: -88.305 },
 
-//   { state: "San Luis Potosí", city: "Ciudad Valles", lat: 21.9833, lon: -99.0167 },
-//   { state: "San Luis Potosí", city: "Matehuala", lat: 23.65, lon: -100.65 },
+//   { state: "San Luis Potosi", city: "Ciudad Valles", lat: 21.9833, lon: -99.0167 },
+//   { state: "San Luis Potosi", city: "Matehuala", lat: 23.65, lon: -100.65 },
 
-//   { state: "Sinaloa", city: "Mazatlán", lat: 23.2167, lon: -106.4167 },
+//   { state: "Sinaloa", city: "Mazatlan", lat: 23.2167, lon: -106.4167 },
 //   { state: "Sinaloa", city: "Los Mochis", lat: 25.7903, lon: -108.99 },
 
 //   { state: "Sonora", city: "Nogales", lat: 31.305, lon: -110.9442 },
@@ -455,6 +459,6 @@ function getRandomCoordinateInMexico() {
 //   { state: "Veracruz", city: "Coatzacoalcos", lat: 18.1333, lon: -94.45 },
 //   { state: "Veracruz", city: "Orizaba", lat: 18.85, lon: -97.1 },
 
-//   { state: "Yucatán", city: "Valladolid", lat: 20.6897, lon: -88.2011 },
-//   { state: "Yucatán", city: "Tizimín", lat: 21.1422, lon: -88.1508 }
+//   { state: "Yucatan", city: "Valladolid", lat: 20.6897, lon: -88.2011 },
+//   { state: "Yucatan", city: "Tizimin", lat: 21.1422, lon: -88.1508 }
 // ];
