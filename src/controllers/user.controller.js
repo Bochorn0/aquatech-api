@@ -64,15 +64,22 @@ export const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
     const updatedUser = req.body;
-    console.log('Updating user:', updatedUser);
-    const user = await User.findById
-    (id);
+
+    const user = await User.findById(id);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    
+
+    // Ensure avatar is a valid base64 string or URL
+    // if (updatedUser.avatar && !updatedUser.avatar.startsWith('data:image/')) {
+    //   return res.status(400).json({ message: 'Invalid image format' });
+    // }
+
+    // Update user fields
     user.set(updatedUser);
+    // Save the updated user
+    await user.save();
 
     res.json(user);
 

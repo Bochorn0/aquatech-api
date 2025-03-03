@@ -5,7 +5,7 @@ import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js'
 
 const router = Router();
 // Protected Route: Get Active Users (only admin can access)
-router.get('/', authenticate, authorizeRoles('admin'), getActiveUsers);
+router.get('/', authenticate, getActiveUsers);
 
 // Protected Route: Update User (only user can access)
 router.patch('/:id', authenticate, authorizeRoles('admin'), updateUser);

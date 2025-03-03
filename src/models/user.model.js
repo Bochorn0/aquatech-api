@@ -6,7 +6,7 @@ const UserSchema = new mongoose.Schema({
   password: { type: String, required: true },
   role: { type: String, enum: ['admin', 'user'], default: 'user' },
   active_time: { type: Number, default: 0 },
-  status: { type: String, enum: ['active', 'inactive'], default: 'active' },
+  status: { type: String, enum: ['active', 'pending', 'inactive'], default: 'pending' },
   empresa: { type: String, default: 'Aquatech' },
   verified: { type: Boolean, default: false },
   avatar: { type: String, default: '/assets/icons/navbar/ic-user.svg' },

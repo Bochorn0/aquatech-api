@@ -9,6 +9,7 @@ import helmet from 'helmet';  // Import helmet
 import morgan from 'morgan';  // Import morgan
 import mongoose from 'mongoose';  // Import mongoose
 
+import notificationRoutes from './routes/notification.routes.js';  // Use `import` for notificationRoutes
 import dashboardRoutes from './routes/dashboard.routes.js';  // Use `import` for dashboardRoutes
 import productRoutes from './routes/product.routes.js';  // Use `import` for productRoutes
 import userRoutes from './routes/user.routes.js';  // Use `import` for userRoutes
@@ -32,16 +33,19 @@ app.get('/health', (req, res) => {
 
 // Apply authentication middleware to any route that needs protection
 // Example: Protect the `/api/dashboard` route
-app.use('/api/dashboard', authenticate, authorizeRoles('admin'), dashboardRoutes);
+app.use('/api/dashboard', authenticate, authorizeRoles('admin', 'user'), dashboardRoutes);
+
+// Example: Protect the `/api/dashboard` route
+app.use('/api/notifications', authenticate, authorizeRoles('admin', 'user'), notificationRoutes);
 
 // Example: Protect the `/api/products` route for both 'admin' and 'manager' roles
-app.use('/api/products', authenticate, authorizeRoles('admin', 'manager'), productRoutes);
+app.use('/api/products', authenticate, authorizeRoles('admin', 'user'), productRoutes);
 
 // Example: Protect the `/api/users` route for 'admin' only
-app.use('/api/users', authenticate, authorizeRoles('admin'), userRoutes);
+app.use('/api/users', authenticate, authorizeRoles('admin', 'user'), userRoutes);
 
 // Example: Protect the `/api/reportes` route for both 'admin' and 'manager' roles
-app.use('/api/reportes', authenticate, authorizeRoles('admin', 'manager'), reportRoutes);
+app.use('/api/reportes', authenticate, authorizeRoles('admin', 'user'), reportRoutes);
 
 // Example: Protect the `/api/users` route for 'admin' only
 app.use('/api/auth', authRoutes);

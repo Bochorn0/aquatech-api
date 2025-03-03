@@ -52,7 +52,8 @@ export const loginUser = async (req, res) => {
     // Generate Token if passwords match
     const token = jwt.sign({ id: user._id, role: user.role }, SECRET_KEY, { expiresIn: '8h' });
 
-    res.json({ token, role: user.role });
+    delete user._doc.password; // Remove password from user object
+    res.json({ token, user });
   } catch (error) {
     console.error('Login Error:', error);
     res.status(500).json({ message: 'Server Error' });
