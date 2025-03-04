@@ -1,12 +1,13 @@
 // src/controllers/product.controller.js
-import Metric from '../models/metric.model.js';
 import { mockedProducts } from './product.controller.js';
+import User from '../models/user.model.js';
+import Metric from '../models/metric.model.js';
 
 const categories = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const clientCategories = ['En Rango (> 25 L)', 'Rango Medio (10 - 25 L)', 'Rango Bajo (5 -10 L)', 'Fuera Rango (< 5 L)'];
 const visibleCities = ['Hermosillo', 'Tijuana', 'Monterrey', 'CDMX', 'Tijuana'];
 
-export const getDashboardMetrics = async (req, res) => {
+export const getOldDashboardMetrics = async (req, res) => {
   try {
     console.log('Fetching dashboard Metrics from MongoDB...');
     
@@ -101,17 +102,109 @@ export const getDashboardMetrics = async (req, res) => {
   }
 };
 
-function createMetricsData({data, total2, label, color, icon}) {
-  const metric = {
-    "total": data.length,
-    "label": label,
-    "icon": icon,
-    "totalOnline": total2,
-    "percentage": (total2 / data.length),
-    "color":color,
-    "chart":getSortedDataByMonth(data)
+export const getDashboardMetrics = async (req, res) => {
+  const user = req.user;
+  const { id, role } = user;
+  const { cliente } = await User.findById(id, {cliente: 1});
+  const mockProducts = await mockedProducts();
+  let productosByCliente = [];
+  if (role === 'admin' || cliente === 'Aquatech') {
+    productosByCliente = mockProducts;
+  } else {
+    productosByCliente = mockProducts.filter((product) => product.cliente === cliente);
   }
-  return metric;
+  //const productosByCliente = mockProducts;
+  const metrics = await getMetricsByProds(productosByCliente, cliente);
+  res.json({ productMetrics: metrics });
+};
+
+const getMetricsByProds = async (productosByCliente, cliente) => {
+  const metricsData = await Metric.findOne({cliente});
+  const tdsOnRangeProds = [];
+  const tdsOffRangeProds = [];
+  const proOnRangeProds = [];
+  const proOffRangeProds = [];
+  const rejectedOnRangeProds = [];
+  const rejectedOffRangeProds = [];
+  productosByCliente.filter((product) => {
+    const tdsRange = product.status.find(s => s.code === 'tds_out')?.value;
+    const productionVolume = product.status.find(s => s.code === 'flowrate_total_1')?.value;
+    const rejectedVolume = product.status.find(s => s.code === 'flowrate_total_2')?.value;
+    // TDS Range
+    if (tdsRange && tdsRange >= metricsData.tds_range) tdsOnRangeProds.push(product);
+    if (tdsRange && tdsRange < metricsData.tds_range) tdsOffRangeProds.push(product);
+    // Production Volume
+    if (productionVolume && productionVolume >= metricsData.production_volume_range / 10) proOnRangeProds.push(product);
+    if (productionVolume && productionVolume < metricsData.production_volume_range / 10) proOffRangeProds.push(product);
+    // Rejected Volume
+    if (rejectedVolume && rejectedVolume >= metricsData.rejected_volume_range / 10) rejectedOnRangeProds.push(product);
+    if (rejectedVolume && rejectedVolume < metricsData.rejected_volume_range / 10) rejectedOffRangeProds.push(product);
+    
+  });
+
+  const metrics = [
+    {
+      title: 'Equipos Conectados', 
+      series: [
+        {
+          label: 'Online',
+          value: productosByCliente.filter((product) => product.online).length,
+          products: productosByCliente.filter((product) => product.online)
+        },
+        {
+          label: 'Offline',
+          value: productosByCliente.filter((product) => !product.online).length,
+          products: productosByCliente.filter((product) => !product.online)
+        }
+      ]
+    },
+    {
+      title: 'TDS',
+      series: [
+        {
+          label: `Rango < ${metricsData.tds_range} ppm`,
+          value: tdsOffRangeProds.length,
+          products: tdsOffRangeProds
+        },
+        {
+          label: `Rango >= ${metricsData.tds_range} ppm`,
+          value: tdsOnRangeProds.length,
+          products: tdsOnRangeProds
+        }
+      ]
+    },
+    {
+      title: 'PRODUCCIÓN', 
+      series: [
+        {
+          label: `Rango < ${metricsData.production_volume_range} ml/min`,
+          value: proOnRangeProds.length,
+          products: proOnRangeProds
+        },
+        {
+          label: `Rango >= ${metricsData.production_volume_range} ml/min`,
+          value: proOffRangeProds.length,
+          products: proOffRangeProds
+        }
+      ]
+    },
+    {
+      title: 'RECHAZO', 
+      series: [
+        {
+          label: `Rango < ${metricsData.rejected_volume_range} ml/min`,
+          value: rejectedOnRangeProds.length,
+          products: rejectedOnRangeProds
+        },
+        {
+          label: `Rango >= ${metricsData.rejected_volume_range} ml/min`,
+          value: rejectedOffRangeProds.length,
+          products: rejectedOffRangeProds
+        }
+      ]
+    }
+  ]
+  return metrics;
 }
 
 function getSeriesByCliente(data) {

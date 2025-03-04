@@ -10,6 +10,7 @@ import morgan from 'morgan';  // Import morgan
 import mongoose from 'mongoose';  // Import mongoose
 
 import notificationRoutes from './routes/notification.routes.js';  // Use `import` for notificationRoutes
+import metricRoutes from './routes/metric.routes.js';  // Use `import` for metricRoutes
 import dashboardRoutes from './routes/dashboard.routes.js';  // Use `import` for dashboardRoutes
 import productRoutes from './routes/product.routes.js';  // Use `import` for productRoutes
 import userRoutes from './routes/user.routes.js';  // Use `import` for userRoutes
@@ -32,23 +33,26 @@ app.get('/health', (req, res) => {
 });
 
 // Apply authentication middleware to any route that needs protection
-// Example: Protect the `/api/dashboard` route
-app.use('/api/dashboard', authenticate, authorizeRoles('admin', 'user'), dashboardRoutes);
+// Example: Protect the `/api/v1.0/dashboard` route
+app.use('/api/v1.0/dashboard', authenticate, authorizeRoles('admin', 'user'), dashboardRoutes);
 
-// Example: Protect the `/api/dashboard` route
-app.use('/api/notifications', authenticate, authorizeRoles('admin', 'user'), notificationRoutes);
+// Example: Protect the `/api/v1.0/dashboard` route
+app.use('/api/v1.0/notifications', authenticate, authorizeRoles('admin', 'user'), notificationRoutes);
 
-// Example: Protect the `/api/products` route for both 'admin' and 'manager' roles
-app.use('/api/products', authenticate, authorizeRoles('admin', 'user'), productRoutes);
+// Example: Protect the `/api/v1.0/products` route for both 'admin' and 'manager' roles
+app.use('/api/v1.0/products', authenticate, authorizeRoles('admin', 'user'), productRoutes);
 
-// Example: Protect the `/api/users` route for 'admin' only
-app.use('/api/users', authenticate, authorizeRoles('admin', 'user'), userRoutes);
+// Example: Protect the `/api/v1.0/users` route for 'admin' only
+app.use('/api/v1.0/users', authenticate, authorizeRoles('admin', 'user'), userRoutes);
 
-// Example: Protect the `/api/reportes` route for both 'admin' and 'manager' roles
-app.use('/api/reportes', authenticate, authorizeRoles('admin', 'user'), reportRoutes);
+// Example: Protect the `/api/v1.0/reportes` route for both 'admin' and 'manager' roles
+app.use('/api/v1.0/reportes', authenticate, authorizeRoles('admin', 'user'), reportRoutes);
 
-// Example: Protect the `/api/users` route for 'admin' only
-app.use('/api/auth', authRoutes);
+// Example: Protect the `/api/v1.0/metrics` route for 'admin' only
+app.use('/api/v1.0/metrics', authenticate, authorizeRoles('admin'), metricRoutes);
+
+// Example: Protect the `/api/v1.0/users` route for 'admin' only
+app.use('/api/v1.0/auth', authRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

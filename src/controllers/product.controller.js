@@ -148,17 +148,17 @@ export const mockedProducts = async () => {
           cliente,
           drive,
           status: [
-            { code: "tds_out", value: randomValue(5, 20) },
+            { code: "tds_out", value: randomValue(50, 200) },
             { code: "water_overflow", value: Math.random() < 0.5 },
             { code: "water_wash", value: Math.random() < 0.5 },
             { code: "filter_element_1", value: randomValue(0, 180) },
             { code: "filter_element_2", value: randomValue(0, 270) },
             { code: "filter_element_3", value: randomValue(0, 270) },
             { code: "filter_element_4", value: randomValue(0, 270) },
-            { code: "flowrate_total_1", value: randomValue(10, 500) },
-            { code: "flowrate_total_2", value: randomValue(10, 30) },
-            { code: "flowrate_speed_1", value: randomValue(0, 200) },
-            { code: "flowrate_speed_2", value: randomValue(0, 20) },
+            { code: "flowrate_total_1", value: randomValue(100, 900) },
+            { code: "flowrate_total_2", value: randomValue(50, 1200) },
+            { code: "flowrate_speed_1", value: randomValue(100, 1200) },
+            { code: "flowrate_speed_2", value: randomValue(50, 800) },
             { code: "temperature", value: randomValue(20, 40) }
         ],
       });
