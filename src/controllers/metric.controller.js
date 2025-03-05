@@ -43,3 +43,36 @@ export const addMetric = async (req, res) => {
     res.status(500).json({ message: 'Error adding metric' });
   }
 };
+
+// Controller to update a metric by its ID
+export const updateMetric = async (req, res) => {
+  try {
+    const { metricId } = req.params;
+    const updatedMetric = await Metric
+    .findOneAndUpdate({ _id: metricId }, req.body, { new: true });
+    if (!updatedMetric) {
+      return res.status(404).json({ message: 'Metric not found' });
+    }
+    res.status(200).json(updatedMetric);
+  }
+  catch (error) {
+    console.error('Error updating metric:', error);
+    res.status(500).json({ message: 'Error updating metric' });
+  }
+}
+
+// Controller to remove a metric by its ID
+export const removeMetric = async (req, res) => {
+  try {
+    const { metricId } = req.params;
+    const deletedMetric = await Metric.findOneAndDelete({ _id: metricId });
+    if (!deletedMetric) {
+      return res.status(404).json({ message: 'Metric not found' });
+    }
+    res.status(200).json(deletedMetric);
+  }
+  catch (error) {
+    console.error('Error deleting metric:', error);
+    res.status(500).json({ message: 'Error deleting metric' });
+  }
+}
