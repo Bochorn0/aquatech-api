@@ -7,7 +7,7 @@ const UserSchema = new mongoose.Schema({
   role: { type: String, enum: ['admin', 'user'], default: 'user' },
   active_time: { type: Number, default: 0 },
   status: { type: String, enum: ['active', 'pending', 'inactive'], default: 'pending' },
-  cliente: { type: String, default: 'Aquatech' },
+  cliente: { type: String, default: 'All' },
   verified: { type: Boolean, default: false },
   avatar: { type: String, default: '/assets/icons/navbar/ic-user.svg' },
   nombre: { type: String, default: '' },

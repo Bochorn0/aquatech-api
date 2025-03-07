@@ -71,14 +71,19 @@ export const updateUser = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Ensure avatar is a valid base64 string or URL
-    // if (updatedUser.avatar && !updatedUser.avatar.startsWith('data:image/')) {
-    //   return res.status(400).json({ message: 'Invalid image format' });
-    // }
+    // Validate avatar size if it's a base64 string
+    if (updatedUser.avatar && updatedUser.avatar.startsWith('data:image/')) {
+      const base64Data = updatedUser.avatar.split(',')[1]; // Remove the data type prefix
+      const bufferLength = Buffer.byteLength(base64Data, 'base64'); // Get size in bytes
+      
+      const maxSize = 2048 * 1024; // 2 MB
+      if (bufferLength > maxSize) {
+        return res.status(400).json({ message: 'Avatar image size exceeds 100 KB' });
+      }
+    }
 
     // Update user fields
     user.set(updatedUser);
-    // Save the updated user
     await user.save();
 
     res.json(user);
@@ -87,4 +92,5 @@ export const updateUser = async (req, res) => {
     console.error('Error updating user:', error);
     res.status(500).json({ message: 'Error updating user' });
   }
-}
+};
+

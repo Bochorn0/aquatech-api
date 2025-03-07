@@ -8,17 +8,22 @@ import cors from 'cors';  // Import cors
 import helmet from 'helmet';  // Import helmet
 import morgan from 'morgan';  // Import morgan
 import mongoose from 'mongoose';  // Import mongoose
+import bodyParser from 'body-parser';  // Import body-parser
 
 import notificationRoutes from './routes/notification.routes.js';  // Use `import` for notificationRoutes
 import metricRoutes from './routes/metric.routes.js';  // Use `import` for metricRoutes
+import cityRoutes from './routes/city.routes.js';  // Use `import` for metricRoutes
 import dashboardRoutes from './routes/dashboard.routes.js';  // Use `import` for dashboardRoutes
 import productRoutes from './routes/product.routes.js';  // Use `import` for productRoutes
 import userRoutes from './routes/user.routes.js';  // Use `import` for userRoutes
+import clientRoutes from './routes/client.routes.js';  // Use `import` for clientRoutes
 import reportRoutes from './routes/report.routes.js';  // Use `import` for reportRoutes
 import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoutes
 import { authenticate, authorizeRoles } from './middlewares/auth.middleware.js';  // Import the authentication and authorization middleware
 
 const app = express();
+app.use(bodyParser.json({ limit: '5mb' }));
+app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }));
 
 // Middleware
 app.use(cors());
@@ -45,11 +50,17 @@ app.use('/api/v1.0/products', authenticate, authorizeRoles('admin', 'user'), pro
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/users', authenticate, authorizeRoles('admin', 'user'), userRoutes);
 
+// Example: Protect the `/api/v1.0/users` route for 'admin' only
+app.use('/api/v1.0/clients', authenticate, authorizeRoles('admin', 'user'), clientRoutes);
+
 // Example: Protect the `/api/v1.0/reportes` route for both 'admin' and 'manager' roles
 app.use('/api/v1.0/reportes', authenticate, authorizeRoles('admin', 'user'), reportRoutes);
 
 // Example: Protect the `/api/v1.0/metrics` route for 'admin' only
 app.use('/api/v1.0/metrics', authenticate, authorizeRoles('admin'), metricRoutes);
+
+// Example: Protect the `/api/v1.0/cities` route for 'admin' only
+app.use('/api/v1.0/cities', authenticate, authorizeRoles('admin'), cityRoutes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/auth', authRoutes);

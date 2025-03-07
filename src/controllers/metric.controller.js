@@ -1,9 +1,15 @@
 import Metric from "../models/metric.model.js";
+import City from "../models/city.model.js";
 
 // Controller to get all metrics
 export const getMetrics = async (req, res) => {
   try {
-    const metrics = await Metric.find();
+    const f = req.query;
+    const filters = {};
+    if (f.cliente && f.cliente !== 'All') {
+      filters.cliente = f.cliente;
+    }
+    const metrics = await Metric.find(filters);
     res.status(200).json(metrics);
   } catch (error) {
     console.error('Error fetching metrics:', error);

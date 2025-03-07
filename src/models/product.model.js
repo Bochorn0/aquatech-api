@@ -7,12 +7,17 @@ const StatusSchema = new mongoose.Schema({
 
 const ProductSchema = new mongoose.Schema({
   active_time: Number,
+  product_type: { type: String, default: 'Osmosis' },
   biz_type: Number,
   category: String,
   create_time: Number,
   icon: String,
   id: { type: String, unique: true }, // Ensuring unique device ID
   ip: String,
+  city: String,
+  state: String,
+  cliente: String,
+  drive: String,
   lat: String,
   local_key: String,
   lon: String,

@@ -1,67 +1,83 @@
-// src/controllers/product.controller.js
- import Product from '../models/product.model.js';
-import * as tuyaService from '../services/tuya.service.js';  
+import Product from '../models/product.model.js';
+import City from '../models/city.model.js';
+import User from '../models/user.model.js';
+import Client from '../models/client.model.js';
+import * as tuyaService from '../services/tuya.service.js';
+import moment from 'moment';
 
-const mexicoCities = [
-  { state: "Aguascalientes", city: "Aguascalientes", lat: 21.8853, lon: -102.2916 },
-  { state: "Baja California", city: "Tijuana", lat: 32.5149, lon: -117.0382 },
-  { state: "Baja California Sur", city: "La Paz", lat: 24.1426, lon: -110.3009 },
-  { state: "Campeche", city: "Campeche", lat: 19.8301, lon: -90.5349 },
-  { state: "Chiapas", city: "Tuxtla Gutierrez", lat: 16.7531, lon: -93.1167 },
-  { state: "Chihuahua", city: "Chihuahua", lat: 28.6329, lon: -106.0691 },
-  { state: "Coahuila", city: "Saltillo", lat: 25.4381, lon: -100.9762 },
-  { state: "Colima", city: "Colima", lat: 19.2433, lon: -103.725 },
-  { state: "Durango", city: "Durango", lat: 24.0277, lon: -104.6532 },
-  { state: "Guanajuato", city: "Leon", lat: 21.1221, lon: -101.68 },
-  { state: "Guerrero", city: "Acapulco", lat: 16.8531, lon: -99.8237 },
-  { state: "Hidalgo", city: "Pachuca", lat: 20.125, lon: -98.7333 },
-  { state: "Jalisco", city: "Guadalajara", lat: 20.6597, lon: -103.3496 },
-  { state: "Mexico", city: "Toluca", lat: 19.2826, lon: -99.6557 },
-  { state: "Ciudad de Mexico", city: "CDMX", lat: 19.4326, lon: -99.1332 },
-  { state: "Michoacan", city: "Morelia", lat: 19.705, lon: -101.1944 },
-  { state: "Morelos", city: "Cuernavaca", lat: 18.9186, lon: -99.2343 },
-  { state: "Nayarit", city: "Tepic", lat: 21.5061, lon: -104.8937 },
-  { state: "Nuevo Leon", city: "Monterrey", lat: 25.6866, lon: -100.3161 },
-  { state: "Oaxaca", city: "Oaxaca de Juarez", lat: 17.0654, lon: -96.7237 },
-  { state: "Puebla", city: "Puebla", lat: 19.0414, lon: -98.2063 },
-  { state: "Queretaro", city: "Queretaro", lat: 20.5881, lon: -100.3881 },
-  { state: "Quintana Roo", city: "Cancun", lat: 21.1619, lon: -86.8515 },
-  { state: "San Luis Potosi", city: "San Luis Potosi", lat: 22.1498, lon: -100.9792 },
-  { state: "Sinaloa", city: "Culiacan", lat: 24.8071, lon: -107.394 },
-  { state: "Sonora", city: "Hermosillo", lat: 29.0729, lon: -110.9559 },
-  { state: "Tabasco", city: "Villahermosa", lat: 17.9869, lon: -92.9303 },
-  { state: "Tamaulipas", city: "Ciudad Victoria", lat: 23.7369, lon: -99.1411 },
-  { state: "Tlaxcala", city: "Tlaxcala", lat: 19.3139, lon: -98.2403 },
-  { state: "Veracruz", city: "Xalapa", lat: 19.5438, lon: -96.9103 },
-  { state: "Yucatan", city: "Merida", lat: 20.967, lon: -89.623 },
-  { state: "Zacatecas", city: "Zacatecas", lat: 22.7709, lon: -102.5832 }
-];
-const clientes = ["Caffenio", "Bachoco", "Norson", "Otro"]
+
 const drives = ["Humalla", "Piaxtla", "Tierra Blanca", "Estadio", "Sarzana", "Buena vista", "Valle marquez", "Aeropuerto", "Navarrete", "Planta2", "Pinos", "Perisur"];
 
 export const getAllProducts = async (req, res) => {
   try {
-    console.log('Fetching products from MongoDB...');
-    
-    // Check if products exist in MongoDB
-    let products = await Product.find({});
+    const user = req.user;
+    const query = req.query;
+    // mocked products 
+    if (query.mocked) {
+      const mockProducts = await mockedProducts();
+      return res.status(200).json(mockProducts);
+    }
+    const filtros = {};
+    // Set cliente filter
+    if (query.cliente) {
+      filtros.cliente = query.cliente;
+    } else {
+      const id = user.id;
+      const userData = await User.findById(id, { cliente: 1 });
+      if (userData && userData.cliente) {
+        filtros.cliente = userData.cliente;
+      } else {
+        return res.status(400).json({ message: 'Cliente not found for user' });
+      }
+    }
+    if (filtros.cliente === 'All') {
+      delete filtros.cliente;
+    }
 
+    // Set city and state filters
+    if (query.city && query.city !== 'All') {
+      filtros.city = query.city;
+    }
+    if (query.state && query.state !== 'All') {
+      filtros.state = query.state;
+    }
+    // Set drive filter
+    if (query.drive && query.drive !== 'All') {
+      filtros.drive = query.drive;
+    }
+    // Set status filter
+    if (query.status && query.status !== 'All') {
+      const online = query.status === 'Online' ? true : false;
+      filtros.online = online;
+    }
+    // Convert and filter by `create_time` (Unix timestamp)
+    if (query.startDate && query.endDate && query.startDate !== 'null' && query.endDate !== 'null') {
+      const startTimestamp = Math.floor(new Date(query.startDate).getTime() / 1000);
+      const endTimestamp = Math.floor(new Date(query.endDate).getTime() / 1000);
+
+      if (!isNaN(startTimestamp) && !isNaN(endTimestamp)) {
+        filtros.create_time = { $gte: startTimestamp, $lte: endTimestamp };
+      } else {
+        return res.status(400).json({ message: 'Invalid date format' });
+      }
+    }
+
+    console.log('Fetching products from MongoDB with filters:', filtros);
+
+    // Check if products exist in MongoDB
+    
+    let products = await Product.find(filtros);
     if (products.length === 0) {
       console.log('No products found in database. Fetching from Tuya API...');
       
-      // Fetch products from Tuya API
-      const tuyaResponse = await tuyaService.getAllDevices();
-
-      if (!tuyaResponse || !tuyaResponse.result) {
-        return res.status(404).json({ message: 'No products found in Tuya API' });
-      }
-
-      // Store products in MongoDB
-      const storedProducts = await Product.insertMany(tuyaResponse.result);
-      console.log(`${storedProducts.length} products saved to database.`);
-
-      // Return stored products
-      products = storedProducts;
+      // Fetch from Tuya API (commented out but should be handled properly)
+      // const tuyaResponse = await tuyaService.getAllDevices();
+      // if (!tuyaResponse || !tuyaResponse.result) {
+      //   return res.status(404).json({ message: 'No products found in Tuya API' });
+      // }
+      // const storedProducts = await Product.insertMany(tuyaResponse.result);
+      // console.log(`${storedProducts.length} products saved to database.`);
+      // products = storedProducts;
     }
 
     res.json(products);
@@ -70,6 +86,8 @@ export const getAllProducts = async (req, res) => {
     res.status(500).json({ message: 'Error fetching products' });
   }
 };
+
+
 
 
 export const generateAllProducts = async (req, res) => {
@@ -82,6 +100,17 @@ export const generateAllProducts = async (req, res) => {
   }
 };
 
+export const saveAllProducts = async (req, res) => {
+  try {
+    const mapedResults = await mockedProducts();
+    const storedProducts = await Product.insertMany(mapedResults);
+    console.log(`${storedProducts.length} products saved to database.`);
+    res.status(200).json(storedProducts);
+  } catch (error) {
+      console.error("Error generating product data:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+  }
+};
 
 export const mockedProducts = async () => {
   try {
@@ -89,12 +118,9 @@ export const mockedProducts = async () => {
   realProducts.result.map((product) => {
       product.city = "Hermosillo";
       product.state = "Sonora";
-      product.drive = "BochoApp";
+      product.drive = "TEST-APP";
   });
   const randomValue = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-
-
-
   const baseData = {
       id: 'eb5741b947793cb5d0ozyb',
       active_time: Date.now(),
@@ -120,21 +146,25 @@ export const mockedProducts = async () => {
     
   });
   const mockedData = { result: realProducts.result };
+  const startDate = moment('2024-01-01').unix();
+  const endDate = moment('2025-01-01').unix();
+  const clientes = await getClients();
+  const mexicoCities = await getCities();
   for (let i = 0; i < 1000; i++) {
     const cliente = clientes[randomValue(0, clientes.length - 1)];
-    let drive = cliente
-    if(cliente === 'Caffenio') {
+    let drive = cliente.name
+    if(cliente.name === 'Caffenio') {
       drive =  drives[randomValue(0, drives.length - 1)];
     } 
-    const { lat, lon } = getRandomCoordinateInMexico();
-    const cityData = getClosestCity(lat, lon);
+    const { lat, lon } =  getRandomCoordinateInMexico(mexicoCities);
+    const cityData = getClosestCity(lat, lon, mexicoCities);
     const city = cityData.city;
     const state = cityData.state;
       mockedData.result.push({
           ...baseData,
           id: `device_${i}`,
           name: `Device CB-5 - #${i}`,
-          create_time: new Date(Date.now() - randomValue(0, 365) * 1000 * 60 * 60 * 24),
+          create_time: startDate + Math.random() * (endDate - startDate),
           model: `model_${randomValue(100, 999)}`,
           online: Math.random() < 0.5,
           ip: `${randomValue(10, 255)}.${randomValue(10, 255)}.${randomValue(10, 255)}.${randomValue(10, 255)}`,
@@ -145,7 +175,7 @@ export const mockedProducts = async () => {
           // city: cities[randomValue(0, cities.length - 1)],  // Random city
           city,  // Random client,
           state,  // Random
-          cliente,
+          cliente: cliente.name,  // Random client,
           drive,
           status: [
             { code: "tds_out", value: randomValue(50, 200) },
@@ -182,38 +212,60 @@ export const mockedProducts = async () => {
   }
 }
 
-// Fetch a single product by ID from MongoDB
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
     console.log('Fetching product details for:', id);
-    
-    
-    // const product = await Product.findOne({ id });
-    // if (!product) {
-    //   console.log('Fetching product from Tuya API...');
-    //   const { id } = req.params;
-      const response = await tuyaService.getDeviceDetail(id);
-    //   if (!response || !response.result) {
-    //     return res.status(404).json({ message: 'Device not found in Tuya API' });
-    //   }
-  
-    //   // Create new product object
-    //   const newProduct = new Product(response.result[0]);
-  
-    //   // Save to MongoDB
-    //   await newProduct.save();
-    //   console.log(`Product ${id} saved to MongoDB.`);
-    //   console.log('newProduct', newProduct);
-      res.json(response.result);
-    // }
 
-    // res.json(product);
+    // Check if the product exists in MongoDB
+    let product = await Product.findOne({ id });
+
+    if (product) {
+      console.log('Product found in MongoDB. Fetching latest details from Tuya API...');
+      
+      // Fetch the latest details from Tuya API
+      const response = await tuyaService.getDeviceDetail(id);
+      
+      if (response && response.result) {
+        const updatedData = response.result[0]; // Assuming this is the correct structure
+
+        // Update MongoDB with the latest data from Tuya
+        product = await Product.findOneAndUpdate(
+          { id },
+          updatedData,
+          { new: true, runValidators: true }
+        );
+
+        console.log(`Product ${id} updated in MongoDB.`);
+        return res.json(product);
+      }
+
+      // If Tuya API doesn't return data, return the existing MongoDB product
+      console.log('Tuya API did not return data. Returning existing MongoDB product.');
+      return res.json(product);
+    } 
+
+    // If product does not exist in MongoDB, fetch from Tuya API
+    console.log('Product not found in MongoDB. Fetching from Tuya API...');
+    const response = await tuyaService.getDeviceDetail(id);
+
+    if (!response || !response.result) {
+      return res.status(404).json({ message: 'Device not found in Tuya API' });
+    }
+
+    // Save the new product to MongoDB
+    const newProduct = new Product(response.result[0]);
+    await newProduct.save();
+
+    console.log(`Product ${id} saved to MongoDB.`);
+    res.json(newProduct);
+    
   } catch (error) {
     console.error('Error fetching product details:', error);
     res.status(500).json({ message: 'Error fetching product details' });
   }
 };
+
 
 // Fetch a single product by ID from MongoDB
 export const getProductLogsById = async (req, res) => {
@@ -336,10 +388,7 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-function getClosestCity(lat, lon) {
-
-// console.log(mexicoCities);
-
+function getClosestCity(lat, lon, mexicoCities) {
   let closestCity = mexicoCities[0];
   let minDistance = haversine(lat, lon, closestCity.lat, closestCity.lon);
 
@@ -354,7 +403,27 @@ function getClosestCity(lat, lon) {
   return closestCity;
 };
 
-function getRandomCoordinateInMexico() {
+async function getCities() {
+  try {
+    const mexicoCities = await City.find();
+    return mexicoCities;
+  } catch (error) {
+    console.error('Error fetching active users:', error);
+    res.status(500).json({ message: 'Error fetching active users' });
+  }
+}
+
+async function getClients() {
+  try {
+    const clients = await Client.find();
+    return clients;
+  } catch (error) {
+    console.error('Error fetching clients:', error);
+    res.status(500).json({ message: 'Error fetching clients' });
+  }
+}
+
+function getRandomCoordinateInMexico(mexicoCities) {
   // // Select two random cities
   // const city1 = mexicoCities[Math.floor(Math.random() * mexicoCities.length)];
   // const city2 = mexicoCities[Math.floor(Math.random() * mexicoCities.length)];
@@ -370,7 +439,6 @@ function getRandomCoordinateInMexico() {
   // const lon = (Math.random() * (lonMax - lonMin) + lonMin).toFixed(4);
     // Select a random city from the list
     const city = mexicoCities[Math.floor(Math.random() * mexicoCities.length)];
-  
     // Return the coordinates of the randomly selected city
     const lat = city.lat.toFixed(4);
     const lon = city.lon.toFixed(4);

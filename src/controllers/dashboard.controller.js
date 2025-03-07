@@ -2,6 +2,7 @@
 import { mockedProducts } from './product.controller.js';
 import User from '../models/user.model.js';
 import Metric from '../models/metric.model.js';
+import moment from 'moment';
 
 const categories = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const clientCategories = ['En Rango (> 25 L)', 'Rango Medio (10 - 25 L)', 'Rango Bajo (5 -10 L)', 'Fuera Rango (< 5 L)'];
@@ -114,8 +115,14 @@ export const getDashboardMetrics = async (req, res) => {
     productosByCliente = mockProducts.filter((product) => product.cliente === cliente);
   }
   //const productosByCliente = mockProducts;
+  const ciudades = [...new Set(productosByCliente.map((product) => product.city))];
+  const estados = [...new Set(productosByCliente.map((product) => product.state))];
+  const dates = productosByCliente.map((product) =>  moment.unix(product.create_time));
+  console.log(dates);
+  const startDate = moment.min(dates);
+  const endDate =moment.max(dates);
   const metrics = await getMetricsByProds(productosByCliente, cliente);
-  res.json({ productMetrics: metrics });
+  res.json({ productMetrics: metrics , ciudades, estados, startDate, endDate });
 };
 
 const getMetricsByProds = async (productosByCliente, cliente) => {
@@ -147,12 +154,14 @@ const getMetricsByProds = async (productosByCliente, cliente) => {
       title: 'Equipos Conectados', 
       series: [
         {
-          label: 'Online',
+          label: 'Equipos online',
+          color: '#1877F2',
           value: productosByCliente.filter((product) => product.online).length,
           products: productosByCliente.filter((product) => product.online)
         },
         {
-          label: 'Offline',
+          label: 'Equipos offline',
+          color: '#FF5630',
           value: productosByCliente.filter((product) => !product.online).length,
           products: productosByCliente.filter((product) => !product.online)
         }
@@ -163,11 +172,13 @@ const getMetricsByProds = async (productosByCliente, cliente) => {
       series: [
         {
           label: `Rango < ${metricsData.tds_range} ppm`,
+          color: '#C00',
           value: tdsOffRangeProds.length,
           products: tdsOffRangeProds
         },
         {
           label: `Rango >= ${metricsData.tds_range} ppm`,
+          color: '#22C55E',
           value: tdsOnRangeProds.length,
           products: tdsOnRangeProds
         }
@@ -178,11 +189,13 @@ const getMetricsByProds = async (productosByCliente, cliente) => {
       series: [
         {
           label: `Rango < ${metricsData.production_volume_range} ml/min`,
+          color: '#FFAB00',
           value: proOnRangeProds.length,
           products: proOnRangeProds
         },
         {
           label: `Rango >= ${metricsData.production_volume_range} ml/min`,
+          color: '#00B8D9',
           value: proOffRangeProds.length,
           products: proOffRangeProds
         }
@@ -193,11 +206,13 @@ const getMetricsByProds = async (productosByCliente, cliente) => {
       series: [
         {
           label: `Rango < ${metricsData.rejected_volume_range} ml/min`,
+          color: '#8E33FF',
           value: rejectedOnRangeProds.length,
           products: rejectedOnRangeProds
         },
         {
           label: `Rango >= ${metricsData.rejected_volume_range} ml/min`,
+          color: '#E00',
           value: rejectedOffRangeProds.length,
           products: rejectedOffRangeProds
         }
