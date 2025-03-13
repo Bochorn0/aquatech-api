@@ -9,7 +9,7 @@ router.get('/', authenticate, getActiveUsers);
 
 
 // Protected Route: Update User (only user can access)
-router.patch('/:id', authenticate, authorizeRoles('admin'), updateUser);
+router.patch('/:id', authenticate, authorizeRoles('admin', 'cliente'), updateUser);
 
 router.post('/', authenticate, authorizeRoles('admin'), addUser);
 
