@@ -5,7 +5,7 @@ import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js'
 const router = Router();
 
 // Get notifications
-router.get('/', authenticate, authorizeRoles('admin', 'user'), getNotifications);
+router.get('/', authenticate, authorizeRoles('admin', 'user', 'cliente'), getNotifications);
 
 // Get specific notification by ID
 router.get('/getNotification/:id', authenticate, getNotificationById);

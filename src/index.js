@@ -61,7 +61,7 @@ app.use('/api/v1.0/clients', authenticate, authorizeRoles('admin', 'cliente'), c
 app.use('/api/v1.0/reportes', authenticate, authorizeRoles('admin', 'cliente'), reportRoutes);
 
 // Example: Protect the `/api/v1.0/metrics` route for 'admin' only
-app.use('/api/v1.0/metrics', authenticate, authorizeRoles('admin'), metricRoutes);
+app.use('/api/v1.0/metrics', authenticate, authorizeRoles('admin', 'cliente'), metricRoutes);
 
 // Example: Protect the `/api/v1.0/cities` route for 'admin' only
 app.use('/api/v1.0/cities', authenticate, authorizeRoles('admin', 'cliente'), cityRoutes);
