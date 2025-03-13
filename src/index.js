@@ -40,31 +40,31 @@ app.get('/health', (req, res) => {
 
 // Apply authentication middleware to any route that needs protection
 // Example: Protect the `/api/v1.0/dashboard` route
-app.use('/api/v1.0/dashboard', authenticate, authorizeRoles('admin', 'user'), dashboardRoutes);
+app.use('/api/v1.0/dashboard', authenticate, authorizeRoles('admin', 'cliente'), dashboardRoutes);
 
 // Example: Protect the `/api/v1.0/dashboard` route
-app.use('/api/v1.0/notifications', authenticate, authorizeRoles('admin', 'user'), notificationRoutes);
+app.use('/api/v1.0/notifications', authenticate, authorizeRoles('admin', 'cliente'), notificationRoutes);
 
 // Example: Protect the `/api/v1.0/products` route for both 'admin' and 'manager' roles
-app.use('/api/v1.0/products', authenticate, authorizeRoles('admin', 'user'), productRoutes);
+app.use('/api/v1.0/products', authenticate, authorizeRoles('admin', 'cliente'), productRoutes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
-app.use('/api/v1.0/users', authenticate, authorizeRoles('admin', 'user'), userRoutes);
+app.use('/api/v1.0/users', authenticate, authorizeRoles('admin', 'cliente'), userRoutes);
 
 // Example: Protect the `/api/v1.0/roles` route for 'admin' only
-app.use('/api/v1.0/roles', authenticate, authorizeRoles('admin'), roleRoutes);
+app.use('/api/v1.0/roles', authenticate, authorizeRoles('admin', 'cliente'), roleRoutes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
-app.use('/api/v1.0/clients', authenticate, authorizeRoles('admin', 'user'), clientRoutes);
+app.use('/api/v1.0/clients', authenticate, authorizeRoles('admin', 'cliente'), clientRoutes);
 
 // Example: Protect the `/api/v1.0/reportes` route for both 'admin' and 'manager' roles
-app.use('/api/v1.0/reportes', authenticate, authorizeRoles('admin', 'user'), reportRoutes);
+app.use('/api/v1.0/reportes', authenticate, authorizeRoles('admin', 'cliente'), reportRoutes);
 
 // Example: Protect the `/api/v1.0/metrics` route for 'admin' only
 app.use('/api/v1.0/metrics', authenticate, authorizeRoles('admin'), metricRoutes);
 
 // Example: Protect the `/api/v1.0/cities` route for 'admin' only
-app.use('/api/v1.0/cities', authenticate, authorizeRoles('admin'), cityRoutes);
+app.use('/api/v1.0/cities', authenticate, authorizeRoles('admin', 'cliente'), cityRoutes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/auth', authRoutes);
