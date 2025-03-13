@@ -13,7 +13,6 @@ export const registerUser = [
   body('password')
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters long'),
-  body('role').optional().isMongoId().withMessage('Role must be a valid MongoDB ObjectId'),
   body('nombre').optional().isString().withMessage('Name must be a string'),
   body('empresa').optional().isString().withMessage('Company must be a string'),
   body('puesto').optional().isString().withMessage('Position must be a string'),
@@ -25,7 +24,7 @@ export const registerUser = [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, password, role, nombre, empresa, puesto } = req.body;
+    const { email, password, role, nombre, cliente, puesto } = req.body;
 
     try {
       const existingUser = await User.findOne({ email });
@@ -34,9 +33,9 @@ export const registerUser = [
       const newUser = new User({
         email,
         password,  // Don't hash here; the schema will handle it
-        role: role || 'user',
+        role: role || '67d273b4219909a5e9b8b1d6',
         nombre: nombre || '',
-        empresa: empresa || 'Aquatech',
+        cliente: cliente || 'Caffenio',
         puesto: puesto || 'Consultor',
       });
 
