@@ -2,7 +2,6 @@
  import User from '../models/user.model.js';
  import Client from '../models/client.model.js';
  import Role from '../models/role.model.js';
-import { add } from 'winston';
 
 export const getUsers = async (req, res) => {
   try {
