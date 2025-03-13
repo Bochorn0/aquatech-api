@@ -24,7 +24,7 @@ export const registerUser = [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, password, role, nombre, cliente, puesto } = req.body;
+    const { email, password, nombre, puesto } = req.body;
 
     try {
       const existingUser = await User.findOne({ email });
@@ -33,9 +33,9 @@ export const registerUser = [
       const newUser = new User({
         email,
         password,  // Don't hash here; the schema will handle it
-        role: role || '67d273b4219909a5e9b8b1d6',
+        role: '67d273b4219909a5e9b8b1d6',
         nombre: nombre || '',
-        cliente: cliente || '67d26119cf18fdaf14ec2dc1',
+        cliente: '67d26119cf18fdaf14ec2dc1',
         puesto: puesto || 'Consultor',
       });
 
