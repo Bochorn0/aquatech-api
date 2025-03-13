@@ -8,7 +8,7 @@ export const saveAllCities = async (req, res) => {
     res.status(201).json(cities);
   } catch (error) {
     console.error('Error saving cities:', error);
-    res.status(500).json({ message: 'Error saving cities' });
+    res.status(500).json({ message: 'Error al guardar ciudades' });
   }
 };
 
@@ -19,7 +19,7 @@ export const getCities = async (req, res) => {
     res.status(200).json(cities);
   } catch (error) {
     console.error('Error fetching cities:', error);
-    res.status(500).json({ message: 'Error fetching cities' });
+    res.status(500).json({ message: 'Error al obtener ciudades', error });
   }
 };
 
@@ -31,13 +31,13 @@ export const getCityById = async (req, res) => {
     City
     .findOne({ _id: cityId });
     if (!city) {
-      return res.status(404).json({ message: 'City not found' });
+      return res.status(404).json({ message: 'Ciudad no encontrada' });
     }
     res.status(200).json(city);
   }
   catch (error) {
     console.error('Error fetching city:', error);
-    res.status(500).json({ message: 'Error fetching city' });
+    res.status(500).json({ message: 'Error al obtener ciudad', error });
   }
 }
 
@@ -45,6 +45,7 @@ export const getCityById = async (req, res) => {
 export const updateCity = async (req, res) => {
   try {
     const { cityId } = req.params;
+    delete req.body._id;
     const updatedCity = await City
     .findOneAndUpdate({
       _id: cityId
@@ -53,7 +54,7 @@ export const updateCity = async (req, res) => {
     });
     if (!updatedCity) {
       return res.status(404).json({
-        message: 'City not found'
+        message: 'Ciudad no encontrada'
       });
     }
     res.status(200).json(updatedCity);
@@ -61,7 +62,8 @@ export const updateCity = async (req, res) => {
   catch (error) {
     console.error('Error updating city:', error);
     res.status(500).json({
-      message: 'Error updating city'
+      message: 'Error al actualizar ciudad',
+      error
     });
   }
 }
@@ -70,13 +72,14 @@ export const updateCity = async (req, res) => {
 export const addCity = async (req, res) => {
   try {
     const cityData = req.body;
+    delete cityData._id;
     const currentCity = await City.findOne
     ({
       name: cityData.name
     });
     if (currentCity) {
       return res.status(409).json({
-        message: 'City already exists'
+        message: 'Esta ciudad ya existe'
       });
     }
     const newCity = new City(cityData);
@@ -86,7 +89,8 @@ export const addCity = async (req, res) => {
   catch (error) {
     console.error('Error adding city:', error);
     res.status(500).json({
-      message: 'Error adding city'
+      message: 'Error al agregar ciudad',
+      error
     });
   }
 }
@@ -103,14 +107,15 @@ export const removeCity = async (req, res) => {
     }); 
     if (!city) {
       return res.status(404).json({
-        message: 'City not found'
+        message: 'Ciudad no encontrada'
       });
     }
     res.status(200).json(city);
   } catch (error) {
     console.error('Error removing city:', error);
     res.status(500).json({
-      message: 'Error removing city'
+      message: 'Error al eliminar ciudad',
+      error
     });
   }
 }

@@ -46,7 +46,6 @@ export async function getAllDevices() {
 
 // Fetch device details by device_id
 export async function getDeviceLogs(query) {
-  console.log('query:', query);
   try {
     const { id, start_date, end_date, fields } = query;
     console.log('Fetching device details for:', id);

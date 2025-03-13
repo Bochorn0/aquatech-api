@@ -16,7 +16,8 @@ import cityRoutes from './routes/city.routes.js';  // Use `import` for metricRou
 import dashboardRoutes from './routes/dashboard.routes.js';  // Use `import` for dashboardRoutes
 import productRoutes from './routes/product.routes.js';  // Use `import` for productRoutes
 import userRoutes from './routes/user.routes.js';  // Use `import` for userRoutes
-import clientRoutes from './routes/client.routes.js';  // Use `import` for clientRoutes
+import roleRoutes from './routes/role.routes.js';  // Use `import` for roleRoutes
+import clientRoutes from './routes/client.routes.js';  // Use `import` for clientRoutes'
 import reportRoutes from './routes/report.routes.js';  // Use `import` for reportRoutes
 import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoutes
 import { authenticate, authorizeRoles } from './middlewares/auth.middleware.js';  // Import the authentication and authorization middleware
@@ -49,6 +50,9 @@ app.use('/api/v1.0/products', authenticate, authorizeRoles('admin', 'user'), pro
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/users', authenticate, authorizeRoles('admin', 'user'), userRoutes);
+
+// Example: Protect the `/api/v1.0/roles` route for 'admin' only
+app.use('/api/v1.0/roles', authenticate, authorizeRoles('admin'), roleRoutes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/clients', authenticate, authorizeRoles('admin', 'user'), clientRoutes);

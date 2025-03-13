@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getActiveUsers, updateUser } from '../controllers/user.controller.js';
+import { getActiveUsers, updateUser, deleteUser } from '../controllers/user.controller.js';
 import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';  // Corrected import
 
 
@@ -10,10 +10,8 @@ router.get('/', authenticate, getActiveUsers);
 // Protected Route: Update User (only user can access)
 router.patch('/:id', authenticate, authorizeRoles('admin'), updateUser);
 
-// Example protected route
-// router.get('/admin-dashboard', authenticate, authorizeRoles('admin'), (req, res) => {
-// res.json({ message: 'Welcome to the admin dashboard!' });
-// });
 
+// Protected Route: delete User (only user can access)
+router.delete('/:id', authenticate, authorizeRoles('admin', 'user'), deleteUser);
 
 export default router;

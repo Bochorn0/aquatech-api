@@ -12,6 +12,8 @@ export const getAllProducts = async (req, res) => {
   try {
     const user = req.user;
     const query = req.query;
+    // Client List
+    const clientes = await Client.find();
     // mocked products 
     if (query.mocked) {
       const mockProducts = await mockedProducts();
@@ -30,7 +32,8 @@ export const getAllProducts = async (req, res) => {
         return res.status(400).json({ message: 'Cliente not found for user' });
       }
     }
-    if (filtros.cliente === 'All') {
+    const currentclient = clientes.find(cliente => cliente._id.toString() === filtros.cliente.toString());
+    if (filtros.cliente && currentclient.name === 'All') {
       delete filtros.cliente;
     }
 
@@ -64,8 +67,7 @@ export const getAllProducts = async (req, res) => {
 
     console.log('Fetching products from MongoDB with filters:', filtros);
 
-    // Check if products exist in MongoDB
-    
+
     let products = await Product.find(filtros);
     if (products.length === 0) {
       console.log('No products found in database. Fetching from Tuya API...');
@@ -79,6 +81,10 @@ export const getAllProducts = async (req, res) => {
       // console.log(`${storedProducts.length} products saved to database.`);
       // products = storedProducts;
     }
+    products.map((product) => {
+      const cliente = clientes.find(cliente => cliente._id.toString() === product.cliente.toString());
+      product.cliente = cliente;
+    });
 
     res.json(products);
   } catch (error) {
@@ -137,8 +143,12 @@ export const mockedProducts = async () => {
   };
 
   // Generate 1000 random records
+  const startDate = moment('2024-01-01').unix();
+  const endDate = moment('2025-01-01').unix();
+  const clientes = await getClients();
+  const mexicoCities = await getCities();  
   realProducts.result.map((product) => {
-    product.cliente = 'Otro'
+    product.cliente = clientes.find(cliente => cliente.name === 'Aquatech')._id;
     if(!product.lat || !product.lon) {
       product.lat = '29.0729';
       product.lon = '-110.9559';
@@ -146,14 +156,10 @@ export const mockedProducts = async () => {
     
   });
   const mockedData = { result: realProducts.result };
-  const startDate = moment('2024-01-01').unix();
-  const endDate = moment('2025-01-01').unix();
-  const clientes = await getClients();
-  const mexicoCities = await getCities();
   for (let i = 0; i < 1000; i++) {
     const cliente = clientes[randomValue(0, clientes.length - 1)];
     let drive = cliente.name
-    if(cliente.name === 'Caffenio') {
+    if(['Caffenio', 'All'].includes(cliente.name)) {
       drive =  drives[randomValue(0, drives.length - 1)];
     } 
     const { lat, lon } =  getRandomCoordinateInMexico(mexicoCities);
@@ -175,7 +181,7 @@ export const mockedProducts = async () => {
           // city: cities[randomValue(0, cities.length - 1)],  // Random city
           city,  // Random client,
           state,  // Random
-          cliente: cliente.name,  // Random client,
+          cliente: cliente._id,  // Random client,
           drive,
           status: [
             { code: "tds_out", value: randomValue(50, 200) },

@@ -16,7 +16,7 @@ const ProductSchema = new mongoose.Schema({
   ip: String,
   city: String,
   state: String,
-  cliente: String,
+  cliente: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true }, // Reference Client model
   drive: String,
   lat: String,
   local_key: String,

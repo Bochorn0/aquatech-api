@@ -4,10 +4,11 @@ import bcrypt from 'bcrypt';
 const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  role: { type: String, enum: ['admin', 'user'], default: 'user' },
+  role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role', required: true }, // Reference Role model
   active_time: { type: Number, default: 0 },
+  protected: { type: Boolean, default: false },
   status: { type: String, enum: ['active', 'pending', 'inactive'], default: 'pending' },
-  cliente: { type: String, default: 'All' },
+  cliente: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true }, // Reference Client model
   verified: { type: Boolean, default: false },
   avatar: { type: String, default: '/assets/icons/navbar/ic-user.svg' },
   nombre: { type: String, default: '' },
