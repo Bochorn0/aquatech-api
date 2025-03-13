@@ -89,6 +89,9 @@ export const getAllProducts = async (req, res) => {
         product.name = realProduct.name;
         product.ip = realProduct.ip;
         product.status = realProduct.status;
+        if (product.id === 'ebe24cce942e6266b1wixy') {
+          product.product_type = 'Nivel'
+        }
       }
       const cliente = clientes.find(cliente => cliente._id.toString() === product.cliente.toString());
       product.cliente = cliente;
