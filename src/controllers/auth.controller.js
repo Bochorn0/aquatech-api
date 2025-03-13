@@ -35,7 +35,7 @@ export const registerUser = [
         password,  // Don't hash here; the schema will handle it
         role: role || '67d273b4219909a5e9b8b1d6',
         nombre: nombre || '',
-        cliente: cliente || 'Caffenio',
+        cliente: cliente || '67d26119cf18fdaf14ec2dc1',
         puesto: puesto || 'Consultor',
       });
 
