@@ -92,7 +92,14 @@ export const getAllProducts = async (req, res) => {
       }
       const cliente = clientes.find(cliente => cliente._id.toString() === product.cliente.toString());
       product.cliente = cliente;
-
+      product.status.map((stat) => {
+        // "flowrate_total_1", "flowrate_total_2",
+          const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
+          if (arrayCodes.includes(stat.code) && stat.value > 0) {
+              stat.value = stat.value / 10;
+          }
+          return stat;
+      });
     });
 
     res.json(products);
@@ -209,7 +216,8 @@ export const mockedProducts = async () => {
     // Process the product status to adjust certain flowrate values
     const mapedResults = mockedData.result.map((product) => {
         product.status.map((stat) => {
-            const arrayCodes = ["flowrate_total_1", "flowrate_total_2", "flowrate_speed_1", "flowrate_speed_2"];
+          // "flowrate_total_1", "flowrate_total_2",
+            const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
             if (arrayCodes.includes(stat.code) && stat.value > 0) {
                 stat.value = stat.value / 10;
             }
