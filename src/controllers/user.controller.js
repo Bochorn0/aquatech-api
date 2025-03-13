@@ -2,6 +2,7 @@
  import User from '../models/user.model.js';
  import Client from '../models/client.model.js';
  import Role from '../models/role.model.js';
+import { add } from 'winston';
 
 export const getUsers = async (req, res) => {
   try {
@@ -136,3 +137,20 @@ export const deleteUser = async (req, res) => {
   }
 }
 
+export const addUser = async (req, res) => {
+  try {
+    const userData = req.body;
+    delete userData._id;
+    const currentUser = await User.findOne({ email: userData.email });
+    if (currentUser) {
+      return res.status(409).json({ message: 'User already exists' });
+    }
+    const newUser = new User(userData);
+    await newUser.save();
+    res.status(201).json(newUser);
+  }
+  catch (error) {
+    console.error('Error adding user:', error);
+    res.status(500).json({ message: 'Error adding user' });
+  }
+}
