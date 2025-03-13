@@ -12,6 +12,7 @@ export const getAllProducts = async (req, res) => {
   try {
     const user = req.user;
     const query = req.query;
+    const realProducts = await tuyaService.getAllDevices();
     // Client List
     const clientes = await Client.find();
     // mocked products 
@@ -82,8 +83,16 @@ export const getAllProducts = async (req, res) => {
       // products = storedProducts;
     }
     products.map((product) => {
+      const realProduct = realProducts.result.find(realProduct => realProduct.id === product.id);
+      if (realProduct) {
+        product.online = realProduct.online;
+        product.name = realProduct.name;
+        product.ip = realProduct.ip;
+        product.status = realProduct.status;
+      }
       const cliente = clientes.find(cliente => cliente._id.toString() === product.cliente.toString());
       product.cliente = cliente;
+
     });
 
     res.json(products);
@@ -92,9 +101,6 @@ export const getAllProducts = async (req, res) => {
     res.status(500).json({ message: 'Error fetching products' });
   }
 };
-
-
-
 
 export const generateAllProducts = async (req, res) => {
   try {
@@ -233,7 +239,7 @@ export const getProductById = async (req, res) => {
       const response = await tuyaService.getDeviceDetail(id);
       
       if (response && response.result) {
-        const updatedData = response.result[0]; // Assuming this is the correct structure
+        const updatedData = response.result; // Assuming this is the correct structure
 
         // Update MongoDB with the latest data from Tuya
         product = await Product.findOneAndUpdate(

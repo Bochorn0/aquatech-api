@@ -21,7 +21,7 @@ router.get('/:id/logs', authenticate, getProductLogsById);
 router.get('/:id/metrics', authenticate, getProductMetrics);
 
 // Get product metrics
-router.get('/sendCommand', authenticate, authorizeRoles('admin'), sendDeviceCommands);
+router.post('/sendCommand', authenticate, authorizeRoles('admin'), sendDeviceCommands);
 
 // storage All products
  router.post('/saveAllProducts', authenticate, authorizeRoles('admin'), saveAllProducts);
