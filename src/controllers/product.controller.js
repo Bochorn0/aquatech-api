@@ -13,6 +13,9 @@ export const getAllProducts = async (req, res) => {
     const user = req.user;
     const query = req.query;
     const realProducts = await tuyaService.getAllDevices();
+    if (!realProducts.success) {
+      return res.status(400).json({ message: realProducts.error, code: realProducts.code });
+    }
     // Client List
     const clientes = await Client.find();
     // mocked products 
@@ -137,6 +140,9 @@ export const saveAllProducts = async (req, res) => {
 export const mockedProducts = async () => {
   try {
   const realProducts = await tuyaService.getAllDevices();
+  if (!realProducts.success) {
+    return res.status(400).json({ message: realProducts.error, code: realProducts.code });
+  }
   realProducts.result.map((product) => {
       product.city = "Hermosillo";
       product.state = "Sonora";
@@ -248,6 +254,9 @@ export const getProductById = async (req, res) => {
       
       // Fetch the latest details from Tuya API
       const response = await tuyaService.getDeviceDetail(id);
+      if (!response.success) {
+        return res.status(400).json({ message: response.error, code: response.code });
+      }
       
       if (response && response.result) {
         const updatedData = response.result; // Assuming this is the correct structure
@@ -271,6 +280,9 @@ export const getProductById = async (req, res) => {
     // If product does not exist in MongoDB, fetch from Tuya API
     console.log('Product not found in MongoDB. Fetching from Tuya API...');
     const response = await tuyaService.getDeviceDetail(id);
+    if (!response.success) {
+      return res.status(400).json({ message: response.error, code: response.code });
+    }
 
     if (!response || !response.result) {
       return res.status(404).json({ message: 'Device not found in Tuya API' });
@@ -298,6 +310,9 @@ export const getProductLogsById = async (req, res) => {
     //   console.log('Fetching product from Tuya API...');
     // const { id } = req.params;
     const response = await tuyaService.getDeviceLogs(req.query);
+    // if (!response.success) {
+    //   return res.status(400).json({ message: response.error, code: response.code });
+    // }
     //   if (!response || !response.result) {
     //     return res.status(404).json({ message: 'Device not found in Tuya API' });
     //   }
@@ -325,10 +340,10 @@ export const saveProduct = async (req, res) => {
     console.log('Fetching product from Tuya API...');
     const { id } = req.params;
     const response = await tuyaService.getDeviceDetail(id);
-
-    if (!response || !response.result) {
-      return res.status(404).json({ message: 'Device not found in Tuya API' });
+    if (!response.success) {
+      return res.status(400).json({ message: response.error, code: response.code });
     }
+
 
     // Create new product object
     const newProduct = new Product(response.result);
@@ -355,7 +370,10 @@ export const getProductMetrics = async (req, res) => {
     }
 
     console.log('Fetching status from Tuya API...');
-    const status = await tuyaService.getDeviceStatus(id);
+    const response = await tuyaService.getDeviceStatus(id);
+    if (!response.success) {
+      return res.status(400).json({ message: response.error, code: response.code });
+    }
 
     // Update product metrics
     product.status = status;
@@ -383,10 +401,16 @@ export const sendDeviceCommands = async (req, res) => {
     console.log(`Sending commands to device ${id}:`, commands);
 
     const response = await tuyaService.executeCommands({id, commands});
+    if (!response.success) {
+      return res.status(400).json({ message: response.error, code: response.code });
+    }
     console.log('response commands:', response);
     // await new Promise(resolve => setTimeout(resolve, 2000)); // Simulating delay
     // const response = { executed: true };
     const deviceData = await tuyaService.getDeviceDetail(id);
+    if (!deviceData.success) {
+      return res.status(400).json({ message: deviceData.error, code: deviceData.code });
+    }
 
     res.json({executed: true, deviceData: deviceData.result});
   } catch (error) {
