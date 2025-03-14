@@ -17,6 +17,7 @@ const handleResponse = (response) => {
   if (response.success) {
     return { success: true, data: response.result };
   } else {
+    console.error(`response`, response);
     console.error(`Tuya API Error: ${response.msg} (Code: ${response.code})`);
     return { success: false, error: response.msg, code: response.code };
   }
@@ -60,14 +61,22 @@ export async function getAllDevices(userId) {
 // Fetch device logs (report logs) with query params
 // ---------------------------------------------
 export async function getDeviceLogs(query) {
-  const { id, start_date, end_date, fields } = query;
-  console.log('Fetching device logs for:', id);
+  const { id, start_date, end_date, fields, size, last_row_key } = query;
+  console.log('Fetching device logs for:', query);
+
   try {
+    // Ensure last_row_key is passed if it exists, otherwise fetch the first page
     const response = await context.request({
       method: 'GET',
-      path: `/v1.0/iot-03/devices/${id}/report-logs?start_time=${start_date}&end_time=${end_date}&codes=${fields}`
+      path: `/v1.0/iot-03/devices/${id}/report-logs?start_time=${start_date}&end_time=${end_date}&codes=${fields}&size=${size}${last_row_key ? `&last_row_key=${last_row_key}` : ''}`
     });
-    return handleResponse(response);
+
+    const responseData = handleResponse(response);  // Standardized error handling
+
+    if (responseData.success && responseData.data) {
+      return responseData;
+    }
+    return { success: false, error: 'No logs found' };
   } catch (error) {
     console.error('Error fetching device logs:', error.message);
     return { success: false, error: error.message };

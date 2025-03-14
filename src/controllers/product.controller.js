@@ -12,7 +12,9 @@ export const getAllProducts = async (req, res) => {
   try {
     const user = req.user;
     const query = req.query;
-    const realProducts = await tuyaService.getAllDevices();
+    const uid = 'az1739408936787MhA1Y';  // Example user ID
+    const realProducts = await tuyaService.getAllDevices(uid);
+    console.log('realProducts', realProducts);
     if (!realProducts.success) {
       return res.status(400).json({ message: realProducts.error, code: realProducts.code });
     }
@@ -86,7 +88,7 @@ export const getAllProducts = async (req, res) => {
       // products = storedProducts;
     }
     products.map((product) => {
-      const realProduct = realProducts.result.find(realProduct => realProduct.id === product.id);
+      const realProduct = realProducts.data.find(realProduct => realProduct.id === product.id);
       if (realProduct) {
         product.online = realProduct.online;
         product.name = realProduct.name;
@@ -139,11 +141,12 @@ export const saveAllProducts = async (req, res) => {
 
 export const mockedProducts = async () => {
   try {
-  const realProducts = await tuyaService.getAllDevices();
+  const uid = 'az1739408936787MhA1Y';  // Example user ID
+  const realProducts = await tuyaService.getAllDevices(iud);
   if (!realProducts.success) {
     return res.status(400).json({ message: realProducts.error, code: realProducts.code });
   }
-  realProducts.result.map((product) => {
+  realProducts.data.map((product) => {
       product.city = "Hermosillo";
       product.state = "Sonora";
       product.drive = "TEST-APP";
@@ -169,7 +172,7 @@ export const mockedProducts = async () => {
   const endDate = moment('2025-01-01').unix();
   const clientes = await getClients();
   const mexicoCities = await getCities();  
-  realProducts.result.map((product) => {
+  realProducts.data.map((product) => {
     product.cliente = clientes.find(cliente => cliente.name === 'Aquatech')._id;
     if(!product.lat || !product.lon) {
       product.lat = '29.0729';
@@ -177,7 +180,7 @@ export const mockedProducts = async () => {
     }
     
   });
-  const mockedData = { result: realProducts.result };
+  const mockedData = { result: realProducts.data };
   for (let i = 0; i < 1000; i++) {
     const cliente = clientes[randomValue(0, clientes.length - 1)];
     let drive = cliente.name
@@ -302,37 +305,30 @@ export const getProductById = async (req, res) => {
 };
 
 
-// Fetch a single product by ID from MongoDB
+// Fetch a single product by ID from MongoD
 export const getProductLogsById = async (req, res) => {
   try {
-    // const product = await Product.findOne({ id });
-    // if (!product) {
-    //   console.log('Fetching product from Tuya API...');
-    // const { id } = req.params;
-    const response = await tuyaService.getDeviceLogs(req.query);
-    // if (!response.success) {
-    //   return res.status(400).json({ message: response.error, code: response.code });
-    // }
-    //   if (!response || !response.result) {
-    //     return res.status(404).json({ message: 'Device not found in Tuya API' });
-    //   }
-  
-    //   // Create new product object
-    //   const newProduct = new Product(response.result[0]);
-  
-    //   // Save to MongoDB
-    //   await newProduct.save();
-    //   console.log(`Product ${id} saved to MongoDB.`);
-    //   console.log('newProduct', newProduct);
-      res.json(response.result);
-    // }
+    console.log('Fetching product logs for:', req.query);
+    const filters = req.query?.params;
 
-    // res.json(product);
+    // Set a default size and handle pagination
+    filters.size = filters.limit || 20;
+    filters.last_row_key = filters.last_row_key || null;
+
+    const response = await tuyaService.getDeviceLogs(filters);
+
+    if (!response.success) {
+      return res.status(400).json({ message: response.error });
+    }
+    console.log('response', response);
+    // Send data along with the pagination key (next_last_row_key)
+    return res.json(response.data);
   } catch (error) {
-    console.error('Error fetching product details:', error);
-    res.status(500).json({ message: 'Error fetching product details' });
+    console.error('Error fetching product logs:', error);
+    return res.status(500).json({ message: 'Error fetching product details' });
   }
 };
+
 
 // Save a product from Tuya API to MongoDB
 export const saveProduct = async (req, res) => {
