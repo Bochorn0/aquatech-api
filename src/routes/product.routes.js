@@ -1,6 +1,6 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts } from '../controllers/product.controller.js'; // Named imports
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput } from '../controllers/product.controller.js'; // Named imports
 import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -24,5 +24,10 @@ router.get('/:id/metrics', authenticate, getProductMetrics);
 router.post('/sendCommand', authenticate, authorizeRoles('admin'), sendDeviceCommands);
 
 // storage All products
- router.post('/saveAllProducts', authenticate, authorizeRoles('admin'), saveAllProducts);
+router.post('/saveAllProducts', authenticate, authorizeRoles('admin'), saveAllProducts);
+
+// Test ESP32 DAta
+router.post('/componentInput', authenticate, authorizeRoles('admin'), componentInput);
+
+
 export default router;

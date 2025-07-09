@@ -2,6 +2,7 @@ import Product from '../models/product.model.js';
 import City from '../models/city.model.js';
 import User from '../models/user.model.js';
 import Client from '../models/client.model.js';
+import ProductLog from '../models/product_logs.model.js';
 import * as tuyaService from '../services/tuya.service.js';
 import moment from 'moment';
 
@@ -413,6 +414,53 @@ export const sendDeviceCommands = async (req, res) => {
   } catch (error) {
     console.error("Error executing device command:", error);
     res.status(500).json({ message: "Error executing device command" });
+  }
+};
+// esp comunication
+export const componentInput = async (req, res) => {
+  try {
+    const { producto, real_data } = req.body;
+
+    if (!producto || !real_data) {
+      return res.status(400).json({ message: 'Faltan datos requeridos' });
+    }
+
+    const product = await Product.findById(producto);
+    if (!product) {
+      return res.status(404).json({ message: 'Producto no encontrado' });
+    }
+
+    const {
+      tds = 0,
+      temperature = 0,
+      flujo_bomba = 0,
+      flujo_rechazo = 0
+    } = real_data;
+
+    // Validar que haya algo de flujo real
+    if (flujo_bomba === 0 && flujo_rechazo === 0) {
+      return res.status(204).send();  // No guardamos log vacío
+    }
+
+    const log = new ProductLog({
+      producto,
+      tds,
+      temperature,
+      flujo_bomba,
+      flujo_rechazo,
+      production_volume: flujo_bomba,
+      rejected_volume: flujo_rechazo,
+    });
+    console.log('log data', log);
+    await log.save();
+
+    res.status(201).json({
+      message: 'Log creado',
+      log
+    });
+  } catch (error) {
+    console.error('Error creando log:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
