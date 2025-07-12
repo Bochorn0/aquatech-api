@@ -416,12 +416,11 @@ export const sendDeviceCommands = async (req, res) => {
     res.status(500).json({ message: "Error executing device command" });
   }
 };
-// esp comunication
-// esp comunication
+
 export const componentInput = async (req, res) => {
   try {
     const { producto, real_data, tiempo_inicio, tiempo_fin } = req.body;
-
+    console.log('body', req.body)
     if (!producto || !real_data || !tiempo_inicio || !tiempo_fin) {
       return res.status(400).json({ message: 'Faltan datos requeridos' });
     }
@@ -438,19 +437,19 @@ export const componentInput = async (req, res) => {
       flujo_rechazo = 0
     } = real_data;
 
-    // Validar flujo
     if (flujo_bomba === 0 && flujo_rechazo === 0) {
       return res.status(204).send();  // No guardamos log vacío
     }
 
     // Calcular duración en minutos
-    const duracionSegundos = Math.max(1, tiempo_fin - tiempo_inicio); // evitar división por 0
-    const duracionMinutos = duracionSegundos / 60;
+    const inicio = new Date(tiempo_inicio);
+    const fin = new Date(tiempo_fin);
+    const duracionMin = (fin - inicio) / (1000 * 60); // en minutos
 
-    // Calcular volúmenes basados en flujo promedio (L/min)
-    const production_volume = flujo_bomba * duracionMinutos;
-    const rejected_volume = flujo_rechazo * duracionMinutos;
+    const production_volume = flujo_bomba * duracionMin;
+    const rejected_volume = flujo_rechazo * duracionMin;
 
+    // Crear log
     const log = new ProductLog({
       producto,
       tds,
@@ -459,22 +458,14 @@ export const componentInput = async (req, res) => {
       flujo_rechazo,
       production_volume,
       rejected_volume,
-      tiempo_inicio,
-      tiempo_fin
     });
-
     await log.save();
 
-    // Actualizar estado del producto
-    product.status = {
-      ...product.status,
-      flowrate_speed_1: flujo_bomba,
-      flowrate_speed_2: flujo_rechazo
-    };
+    updateStatusValue('flowrate_speed_1', flujo_bomba);
+    updateStatusValue('flowrate_speed_2', flujo_rechazo);
+
     await product.save();
-
     console.log('log data', log);
-
     res.status(201).json({
       message: 'Log creado',
       log
@@ -486,7 +477,17 @@ export const componentInput = async (req, res) => {
   }
 };
 
-
+// 🔁 Función para actualizar valores en product.status
+const updateStatusValue = (code, newValue) => {
+  console.log('code', newValue);
+  const index = product.status.findIndex(s => s.code === code);
+  if (index !== -1) {
+    product.status[index].value = newValue;
+  } else {
+    product.status.push({ code, value: newValue });
+  }
+};
+  
 function haversine(lat1, lon1, lat2, lon2) {
   const toRad = (angle) => (Math.PI * angle) / 180;
   const R = 6371; // Earth's radius in km
