@@ -458,6 +458,8 @@ export const componentInput = async (req, res) => {
       flujo_rechazo,
       production_volume,
       rejected_volume,
+      tiempo_inicio: inicio,
+      tiempo_fin: fin
     });
     await log.save();
 
