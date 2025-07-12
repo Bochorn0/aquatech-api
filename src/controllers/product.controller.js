@@ -463,8 +463,8 @@ export const componentInput = async (req, res) => {
     });
     await log.save();
 
-    updateStatusValue('flowrate_speed_1', flujo_bomba);
-    updateStatusValue('flowrate_speed_2', flujo_rechazo);
+    updateStatusValue(product, 'flowrate_speed_1', flujo_bomba);
+    updateStatusValue(product, 'flowrate_speed_2', flujo_rechazo);
 
     await product.save();
     console.log('log data', log);
@@ -480,7 +480,7 @@ export const componentInput = async (req, res) => {
 };
 
 // 🔁 Función para actualizar valores en product.status
-const updateStatusValue = (code, newValue) => {
+const updateStatusValue = (product, code, newValue) => {
   console.log('code', newValue);
   const index = product.status.findIndex(s => s.code === code);
   if (index !== -1) {
