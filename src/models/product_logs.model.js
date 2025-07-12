@@ -11,6 +11,9 @@ const ProductLogSchema = new mongoose.Schema({
   flujo_bomba: { type: Number, required: true },       // L/min actuales
   flujo_rechazo: { type: Number, required: true },     // L/min actuales
 
+  tiempo_inicio: { type: Number, required: true },     // timestamp en segundos
+  tiempo_fin: { type: Number, required: true },        // timestamp en segundos
+
   source: { type: String, default: 'esp32' },          // opcional: fuente del log
   date: { type: Date, default: Date.now }              // fecha del evento
 }, {
