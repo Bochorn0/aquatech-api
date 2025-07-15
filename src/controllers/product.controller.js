@@ -307,30 +307,91 @@ export const getProductById = async (req, res) => {
 };
 
 
-// Fetch a single product by ID from MongoD
+// Fetch a single product by ID from MongoD /TUYA LOGS)
+// export const getProductLogsById = async (req, res) => {
+//   try {
+//     console.log('Fetching product logs for:', req.query);
+//     const filters = req.query?.params;
+
+//     // Set a default size and handle pagination
+//     filters.size = filters.limit || 20;
+//     filters.last_row_key = filters.last_row_key || null;
+
+//     const response = await tuyaService.getDeviceLogs(filters);
+
+//     if (!response.success) {
+//       return res.status(400).json({ message: response.error });
+//     }
+//     console.log('response', response);
+//     // Send data along with the pagination key (next_last_row_key)
+//     return res.json(response.data);
+//   } catch (error) {
+//     console.error('Error fetching product logs:', error);
+//     return res.status(500).json({ message: 'Error fetching product details' });
+//   }
+// };
+
+// logs for products from logs table
 export const getProductLogsById = async (req, res) => {
   try {
     console.log('Fetching product logs for:', req.query);
-    const filters = req.query?.params;
 
-    // Set a default size and handle pagination
-    filters.size = filters.limit || 20;
-    filters.last_row_key = filters.last_row_key || null;
+    const {
+      id,
+      start_date,
+      end_date,
+      fields,
+      limit = 20,
+      last_row_key = null,
+    } = req.query.params || {};
 
-    const response = await tuyaService.getDeviceLogs(filters);
-
-    if (!response.success) {
-      return res.status(400).json({ message: response.error });
+    if (!id) {
+      return res.status(400).json({ message: 'Missing required parameter: id' });
     }
-    console.log('response', response);
-    // Send data along with the pagination key (next_last_row_key)
-    return res.json(response.data);
+
+    const query = {
+      product_id: id,
+    };
+
+    if (start_date && end_date) {
+      query.createdAt = {
+        $gte: new Date(Number(start_date)),
+        $lte: new Date(Number(end_date)),
+      };
+    }
+
+    // if (last_row_key) {
+    //   query._id = { $gt: new mongoose.Types.ObjectId(last_row_key) };
+    // }
+
+    // Mapeo de los campos solicitados
+
+    // const projection = { createdAt: 1 }; // Siempre incluimos createdAt
+    // if (fields) {
+    //   fields.split(',').forEach((field) => {
+    //     if (field) {
+    //       projection[field] = 1;
+    //     }
+    //   });
+    // }
+
+    const logs = await ProductLog.find(query)
+      .sort({ _id: 1 }) // orden ascendente para paginar
+      .limit(parseInt(limit));
+
+    const nextLastRowKey = logs.length > 0 ? logs[logs.length - 1]._id : null;
+
+    return res.json({
+      success: true,
+      data: logs,
+      next_last_row_key: nextLastRowKey,
+    });
+
   } catch (error) {
     console.error('Error fetching product logs:', error);
-    return res.status(500).json({ message: 'Error fetching product details' });
+    return res.status(500).json({ message: 'Error fetching product logs' });
   }
 };
-
 
 // Save a product from Tuya API to MongoDB
 export const saveProduct = async (req, res) => {
@@ -433,11 +494,11 @@ export const componentInput = async (req, res) => {
     const {
       tds = 0,
       temperature = 0,
-      flujo_bomba = 0,
+      flujo_produccion = 0,
       flujo_rechazo = 0
     } = real_data;
 
-    if (flujo_bomba === 0 && flujo_rechazo === 0) {
+    if (flujo_produccion === 0 && flujo_rechazo === 0) {
       return res.status(204).send();  // No guardamos log vacío
     }
 
@@ -446,15 +507,16 @@ export const componentInput = async (req, res) => {
     const fin = new Date(tiempo_fin);
     const duracionMin = (fin - inicio) / (1000 * 60); // en minutos
 
-    const production_volume = flujo_bomba * duracionMin;
+    const production_volume = flujo_produccion * duracionMin;
     const rejected_volume = flujo_rechazo * duracionMin;
 
     // Crear log
     const log = new ProductLog({
       producto,
+      product_id: product.id,
       tds,
       temperature,
-      flujo_bomba,
+      flujo_produccion,
       flujo_rechazo,
       production_volume,
       rejected_volume,
@@ -463,7 +525,7 @@ export const componentInput = async (req, res) => {
     });
     await log.save();
 
-    updateStatusValue(product, 'flowrate_speed_1', flujo_bomba);
+    updateStatusValue(product, 'flowrate_speed_1', flujo_produccion);
     updateStatusValue(product, 'flowrate_speed_2', flujo_rechazo);
 
     await product.save();
