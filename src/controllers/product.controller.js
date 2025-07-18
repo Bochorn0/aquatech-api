@@ -376,7 +376,7 @@ export const getProductLogsById = async (req, res) => {
     // }
 
     const logs = await ProductLog.find(query)
-      .sort({ _id: 1 }) // orden ascendente para paginar
+      .sort({ createdAt: -1 }) // orden descendente por fecha
       .limit(parseInt(limit));
 
     const nextLastRowKey = logs.length > 0 ? logs[logs.length - 1]._id : null;
