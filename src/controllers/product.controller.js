@@ -504,7 +504,7 @@ export const componentInput = async (req, res) => {
 
     const inicio = new Date(tiempo_inicio);
     const fin = new Date(tiempo_fin);
-    const duracionMin = (fin - inicio) / (1000 * 60); // en minutos
+    const duracionMin = (fin - inicio) / 60; // ✅ esto es para segundos
 
     const production_volume = flujo_produccion * duracionMin;
     const rejected_volume = flujo_rechazo * duracionMin;
