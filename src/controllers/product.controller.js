@@ -502,7 +502,6 @@ export const componentInput = async (req, res) => {
       return res.status(204).send();  // No guardamos log vacío
     }
 
-    // Calcular duración en minutos
     const inicio = new Date(tiempo_inicio);
     const fin = new Date(tiempo_fin);
     const duracionMin = (fin - inicio) / (1000 * 60); // en minutos
@@ -510,7 +509,6 @@ export const componentInput = async (req, res) => {
     const production_volume = flujo_produccion * duracionMin;
     const rejected_volume = flujo_rechazo * duracionMin;
 
-    // Crear log
     const log = new ProductLog({
       producto,
       product_id: product.id,
@@ -525,10 +523,16 @@ export const componentInput = async (req, res) => {
     });
     await log.save();
 
+    // Guardar velocidades de flujo (últimos valores)
     updateStatusValue(product, 'flowrate_speed_1', flujo_produccion);
     updateStatusValue(product, 'flowrate_speed_2', flujo_rechazo);
 
+    // Sumar volúmenes acumulados
+    sumStatusValue(product, 'flowrate_total_1', production_volume);
+    sumStatusValue(product, 'flowrate_total_2', rejected_volume);
+
     await product.save();
+
     console.log('log data', log);
     res.status(201).json({
       message: 'Log creado',
@@ -541,9 +545,8 @@ export const componentInput = async (req, res) => {
   }
 };
 
-// 🔁 Función para actualizar valores en product.status
+// 🔁 Actualiza o reemplaza valores
 const updateStatusValue = (product, code, newValue) => {
-  console.log('code', newValue);
   const index = product.status.findIndex(s => s.code === code);
   if (index !== -1) {
     product.status[index].value = newValue;
@@ -551,6 +554,17 @@ const updateStatusValue = (product, code, newValue) => {
     product.status.push({ code, value: newValue });
   }
 };
+
+// 🔼 Suma acumulativa a valores existentes
+const sumStatusValue = (product, code, increment) => {
+  const index = product.status.findIndex(s => s.code === code);
+  if (index !== -1) {
+    product.status[index].value += increment;
+  } else {
+    product.status.push({ code, value: increment });
+  }
+};
+
   
 function haversine(lat1, lon1, lat2, lon2) {
   const toRad = (angle) => (Math.PI * angle) / 180;
