@@ -531,7 +531,16 @@ export const componentInput = async (req, res) => {
     sumStatusValue(product, 'flowrate_total_1', production_volume);
     sumStatusValue(product, 'flowrate_total_2', rejected_volume);
 
+    // 🛠 Solución al error de ObjectId inválido
+    product.status = product.status.map(s => {
+      if (s._id && typeof s._id === 'object' && '$oid' in s._id) {
+        delete s._id;
+      }
+      return s;
+    });
+
     await product.save();
+
 
     console.log('log data', log);
     res.status(201).json({
