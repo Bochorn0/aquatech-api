@@ -490,7 +490,8 @@ export const sendDeviceCommands = async (req, res) => {
 export const componentInput = async (req, res) => {
   try {
     const { producto, real_data, tiempo_inicio, tiempo_fin } = req.body;
-    console.log('body', req.body)
+    console.log('body', req.body);
+
     if (!producto || !real_data || !tiempo_inicio || !tiempo_fin) {
       return res.status(400).json({ message: 'Faltan datos requeridos' });
     }
@@ -500,15 +501,26 @@ export const componentInput = async (req, res) => {
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
-    // Actualizar last_time_active en el Controller asociado
+    // 🔹 Actualizar last_time_active en el Producto
+    product.last_time_active = Date.now();
+
+    // 🛠 Limpiar _id inválidos de status
+    product.status = product.status.map(s => {
+      if (s._id && typeof s._id === 'object' && '$oid' in s._id) {
+        delete s._id;
+      }
+      return s;
+    });
+
+    await product.save(); // Guardamos cambios en producto
+
+    // 🔹 Actualizar last_time_active en el Controller asociado
     const controller = await Controller.findOne({ product: producto });
     if (controller) {
       controller.last_time_active = Date.now();
       await controller.save();
     }
-    // 🔹 Actualizar last_time_active en el Producto
-    product.last_time_active = Date.now();
-    await product.save(); // 🔹 Guardamos last_time
+
     const {
       tds = 0,
       temperature = 0,
@@ -516,8 +528,9 @@ export const componentInput = async (req, res) => {
       flujo_rechazo = 0
     } = real_data;
 
+    // Si no hay flujos, no se crea log
     if (flujo_produccion === 0 && flujo_rechazo === 0) {
-      return res.status(204).send();  // No guardamos log vacío
+      return res.status(204).send();
     }
 
     const inicio = new Date(tiempo_inicio);
@@ -527,6 +540,7 @@ export const componentInput = async (req, res) => {
     const production_volume = flujo_produccion * duracionMin;
     const rejected_volume = flujo_rechazo * duracionMin;
 
+    // Crear log del producto
     const log = new ProductLog({
       producto,
       product_id: product.id,
@@ -541,23 +555,13 @@ export const componentInput = async (req, res) => {
     });
     await log.save();
 
-    // Guardar velocidades de flujo (últimos valores)
+    // Actualizar últimos valores de flujo y volúmenes acumulados
     updateStatusValue(product, 'flowrate_speed_1', flujo_produccion);
     updateStatusValue(product, 'flowrate_speed_2', flujo_rechazo);
-
-    // Sumar volúmenes acumulados
     sumStatusValue(product, 'flowrate_total_1', production_volume);
     sumStatusValue(product, 'flowrate_total_2', rejected_volume);
 
-    // 🛠 Solución al error de ObjectId inválido
-    product.status = product.status.map(s => {
-      if (s._id && typeof s._id === 'object' && '$oid' in s._id) {
-        delete s._id;
-      }
-      return s;
-    });
-    await product.save();
-
+    await product.save(); // Guardar cambios finales en status
 
     console.log('log data', log);
     res.status(201).json({
@@ -570,6 +574,7 @@ export const componentInput = async (req, res) => {
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
+
 
 // 🔁 Actualiza o reemplaza valores
 const updateStatusValue = (product, code, newValue) => {
