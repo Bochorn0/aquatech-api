@@ -508,8 +508,7 @@ export const componentInput = async (req, res) => {
     }
     // 🔹 Actualizar last_time_active en el Producto
     product.last_time_active = Date.now();
-    console.log('product', product);
-
+    await product.save(); // 🔹 Guardamos last_time
     const {
       tds = 0,
       temperature = 0,
@@ -557,7 +556,6 @@ export const componentInput = async (req, res) => {
       }
       return s;
     });
-    console.log('producto', product)
     await product.save();
 
 
