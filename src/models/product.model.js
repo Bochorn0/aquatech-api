@@ -7,6 +7,7 @@ const StatusSchema = new mongoose.Schema({
 
 const ProductSchema = new mongoose.Schema({
   active_time: Number,
+  last_time_active: {type: Number},
   product_type: { type: String, default: 'Osmosis' },
   biz_type: Number,
   category: String,

@@ -16,6 +16,8 @@ export const getAllProducts = async (req, res) => {
     const query = req.query;
     const uid = 'az1739408936787MhA1Y';  // Example user ID
     const realProducts = {data: [{}]}
+    const ONLINE_THRESHOLD_MS = 5000; // 5 segundos
+    const now = Date.now();
     // const realProducts = await tuyaService.getAllDevices(uid);
     // console.log('realProducts', realProducts);
     // if (!realProducts.success) {
@@ -91,6 +93,9 @@ export const getAllProducts = async (req, res) => {
       // products = storedProducts;
     }
     products.map((product) => {
+      // Determinar si está online según last_time_active
+      const isOnline = product.last_time_active && (now - product.last_time_active <= ONLINE_THRESHOLD_MS);
+      product.online = isOnline;
       const realProduct = realProducts.data.find(realProduct => realProduct.id === product.id);
       if (realProduct) {
         product.online = realProduct.online;
@@ -250,6 +255,8 @@ export const mockedProducts = async () => {
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
+    const ONLINE_THRESHOLD_MS = 5000; // 5 segundos
+    const now = Date.now();
     console.log('Fetching product details for:', id);
 
     // Check if the product exists in MongoDB
@@ -257,6 +264,7 @@ export const getProductById = async (req, res) => {
 
     if (product) {
       console.log('Product found in MongoDB. Fetching latest details from Tuya API...');
+      product.online = product.last_time_active && (now - product.last_time_active <= ONLINE_THRESHOLD_MS);
       
       // Fetch the latest details from Tuya API
       // const response = await tuyaService.getDeviceDetail(id);
@@ -498,7 +506,9 @@ export const componentInput = async (req, res) => {
       controller.last_time_active = Date.now();
       await controller.save();
     }
-
+    // 🔹 Actualizar last_time_active en el Producto
+    product.last_time_active = Date.now();
+    
     const {
       tds = 0,
       temperature = 0,
@@ -546,7 +556,7 @@ export const componentInput = async (req, res) => {
       }
       return s;
     });
-
+    
     await product.save();
 
 
