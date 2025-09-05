@@ -10,32 +10,41 @@ export const getControllers = async (req, res) => {
     
     let controllers = await Controller.find({});
 
-    if (controllers.length === 0) {
+    const ONLINE_THRESHOLD_MS = 5000;
+    const now = Date.now();
+
+    const controllersWithOnline = controllers.map(ctrl => ({
+      ...ctrl.toObject(),
+      online: ctrl.last_time_active && (now - ctrl.last_time_active <= ONLINE_THRESHOLD_MS)
+    }));
+
+    if (controllersWithOnline.length === 0) {
       // Si no hay registros, devuelve un dummy
-      controllers = [
-        {
-          id: 'ESP32-001',
-          name: 'Controlador Demo',
-          ip: '192.168.1.100',
-          city: 'Hermosillo',
-          state: 'Sonora',
-          online: true,
-        }
-      ];
+      controllersWithOnline.push({
+        id: 'ESP32-001',
+        name: 'Controlador Demo',
+        ip: '192.168.1.100',
+        city: 'Hermosillo',
+        state: 'Sonora',
+        online: true,
+      });
     }
 
-    res.json(controllers);
+    res.json(controllersWithOnline);
   } catch (error) {
     console.error('Error fetching controllers:', error);
     res.status(500).json({ message: 'Error fetching controllers' });
   }
 };
 
+
 // Obtener controladores activos con filtros
 export const getActiveControllers = async (req, res) => {
   try {
     const clientes = await Client.find();
     const productos = await Product.find();
+    const ONLINE_THRESHOLD_MS = 5000;
+    const now = Date.now();
     console.log('Fetching Active Controllers from MongoDB...');
 
     const { online, cliente, product } = req.query;
@@ -65,6 +74,7 @@ export const getActiveControllers = async (req, res) => {
         ...ctrl.toObject(),
         client_name: clientName,
         product_name: productName,
+        online: ctrl.last_time_active && (now - ctrl.last_time_active <= ONLINE_THRESHOLD_MS)
       };
     });
 

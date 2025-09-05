@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 const ControllerSchema = new mongoose.Schema(
   {
     active_time: { type: Number },
+    last_time_active: {type: Number},
     product_type: { type: String },
     create_time: { type: Number },
     icon: { type: String },

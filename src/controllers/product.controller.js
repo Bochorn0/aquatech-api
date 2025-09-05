@@ -491,6 +491,13 @@ export const componentInput = async (req, res) => {
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
+    // Actualizar last_time_active en el Controller asociado
+    const controller = await Controller.findOne({ product: producto });
+    if (controller) {
+      controller.last_time_active = Date.now();
+      await controller.save();
+    }
+
     const {
       tds = 0,
       temperature = 0,
