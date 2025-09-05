@@ -95,13 +95,16 @@ export const addController = async (req, res) => {
     const controllerData = req.body;
     delete controllerData._id;
 
-    const currentController = await Controller.findOne({ id: controllerData.id });
-    if (currentController) {
-      return res.status(409).json({ message: 'Controller already exists' });
-    }
-
+    // Crear el documento sin id primero
     const newController = new Controller(controllerData);
     await newController.save();
+
+    // Si no se envió 'id', asignamos el '_id' generado
+    if (!controllerData.id || controllerData.id.trim() === "") {
+      newController.id = newController._id.toString();
+      await newController.save();
+    }
+
     res.status(201).json(newController);
   } catch (error) {
     console.error('Error adding controller:', error);
