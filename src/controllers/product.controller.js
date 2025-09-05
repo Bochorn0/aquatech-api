@@ -2,6 +2,7 @@ import Product from '../models/product.model.js';
 import City from '../models/city.model.js';
 import User from '../models/user.model.js';
 import Client from '../models/client.model.js';
+import Controller from '../models/controller.model.js';
 import ProductLog from '../models/product_logs.model.js';
 import * as tuyaService from '../services/tuya.service.js';
 import moment from 'moment';
