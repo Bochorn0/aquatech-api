@@ -7,6 +7,8 @@ const ControllerSchema = new mongoose.Schema(
     last_time_active: {type: Number},
     product_type: { type: String },
     create_time: { type: Number },
+    kfactor_tds: { type: Number },
+    kfactor_flujo: { type: Number },
     icon: { type: String },
     id: { type: String, unique: true, index: true }, // id del ESP32
     ip: { type: String, required: true },
