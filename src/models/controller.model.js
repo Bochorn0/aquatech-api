@@ -1,10 +1,9 @@
-// models/Controller.js
 import mongoose from "mongoose";
 
 const ControllerSchema = new mongoose.Schema(
   {
     active_time: { type: Number },
-    last_time_active: {type: Number},
+    last_time_active: { type: Number },
     product_type: { type: String },
     create_time: { type: Number },
     kfactor_tds: { type: Number },
@@ -27,6 +26,13 @@ const ControllerSchema = new mongoose.Schema(
     product_name: { type: String },
     sub: { type: Boolean, default: false },
     time_zone: { type: String, default: "-07:00" },
+
+    // 🔥 Nuevos campos
+    reset_pending: { type: Boolean, default: false },   // Botón remoto
+    lapso_actualizacion: { type: Number, default: 60000 }, // default 1 min
+    lapso_loop: { type: Number, default: 5000 },           // default 5 seg
+    wifi_id: { type: String, default: "" },        // ⬅️ identificador WiFi
+    wifi_password: { type: String, default: "" },  // ⬅️ contraseña WiFi
   },
   { timestamps: true }
 );

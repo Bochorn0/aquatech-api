@@ -89,15 +89,25 @@ export const getActiveControllers = async (req, res) => {
 export const getControllerById = async (req, res) => {
   try {
     const { id } = req.params;
-    const controller = await Controller.findById(id); // asumiendo que usas Mongoose
+    const controller = await Controller.findById(id);
     if (!controller) {
       return res.status(404).json({ message: 'Controlador no encontrado' });
     }
-    res.json(controller);
+
+    // ✅ Nos aseguramos de que siempre tenga valores
+    const safeController = {
+      ...controller.toObject(),
+      reset_pending: controller.reset_pending ?? false,
+      lapso_actualizacion: controller.lapso_actualizacion ?? 60000,
+      lapso_loop: controller.lapso_loop ?? 5000,
+    };
+
+    res.json(safeController);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // Crear nuevo controlador
 export const addController = async (req, res) => {
@@ -130,7 +140,10 @@ export const updateController = async (req, res) => {
     if (!controller) {
       return res.status(404).json({ message: 'Controller not found' });
     }
-    console.log('update controller', updatedController)
+
+    console.log('Updating controller:', updatedController);
+
+    // ✅ Esto permite actualizar reset_pending y lapsos
     controller.set(updatedController);
     await controller.save();
 
