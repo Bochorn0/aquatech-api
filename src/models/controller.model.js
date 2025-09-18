@@ -31,8 +31,6 @@ const ControllerSchema = new mongoose.Schema(
     reset_pending: { type: Boolean, default: false },   // Botón remoto
     lapso_actualizacion: { type: Number, default: 60000 }, // default 1 min
     lapso_loop: { type: Number, default: 5000 },           // default 5 seg
-    wifi_id: { type: String, default: "" },        // ⬅️ identificador WiFi
-    wifi_password: { type: String, default: "" },  // ⬅️ contraseña WiFi
   },
   { timestamps: true }
 );
