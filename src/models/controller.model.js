@@ -29,8 +29,9 @@ const ControllerSchema = new mongoose.Schema(
 
     // 🔥 Nuevos campos
     reset_pending: { type: Boolean, default: false },   // Botón remoto
-    lapso_actualizacion: { type: Number, default: 60000 }, // default 1 min
-    lapso_loop: { type: Number, default: 5000 },           // default 5 seg
+    update_controller_time: { type: Number, default: 10000 }, // default 10 seg
+    loop_time: { type: Number, default: 1000 },           // default 1 seg
+    flush_time: { type: Number, default: 20000 }, // default 20 seg
   },
   { timestamps: true }
 );
