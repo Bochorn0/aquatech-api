@@ -15,14 +15,14 @@ export const getAllProducts = async (req, res) => {
     const user = req.user;
     const query = req.query;
     const uid = 'az1739408936787MhA1Y';  // Example user ID
-    const realProducts = {data: [{}]}
+    // const realProducts = {data: [{}]}
     const ONLINE_THRESHOLD_MS = 5000; // 5 segundos
     const now = Date.now();
-    // const realProducts = await tuyaService.getAllDevices(uid);
-    // console.log('realProducts', realProducts);
-    // if (!realProducts.success) {
-    //   return res.status(400).json({ message: realProducts.error, code: realProducts.code });
-    // }
+    const realProducts = await tuyaService.getAllDevices(uid);
+    console.log('realProducts', realProducts);
+    if (!realProducts.success) {
+      return res.status(400).json({ message: realProducts.error, code: realProducts.code });
+    }
     // Client List
     const clientes = await Client.find();
     // mocked products 
