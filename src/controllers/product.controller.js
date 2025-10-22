@@ -268,6 +268,7 @@ export const getProductById = async (req, res) => {
       
       // Fetch the latest details from Tuya API
       const response = await tuyaService.getDeviceDetail(id);
+      console.log('response product detail', response)
       if (!response.success) {
         return res.status(400).json({ message: response.error, code: response.code });
       }
