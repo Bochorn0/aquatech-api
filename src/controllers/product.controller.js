@@ -267,11 +267,10 @@ export const getProductById = async (req, res) => {
       product.online = product.last_time_active && (now - product.last_time_active <= ONLINE_THRESHOLD_MS);
       
       // Fetch the latest details from Tuya API
-      // const response = await tuyaService.getDeviceDetail(id);
-      // if (!response.success) {
-      //   return res.status(400).json({ message: response.error, code: response.code });
-      // }
-      const response = false
+      const response = await tuyaService.getDeviceDetail(id);
+      if (!response.success) {
+        return res.status(400).json({ message: response.error, code: response.code });
+      }
       if (response && response.result) {
         const updatedData = response.result; // Assuming this is the correct structure
 
