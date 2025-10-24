@@ -84,39 +84,27 @@ export async function getAllDevices(userId) {
 // }
 export async function getDeviceLogs(query) {
   const { id, start_date, end_date, fields, size = 100, last_row_key } = query;
-  console.log('Fetching device logs for:', query);
+  const safeStart = Number(start_date);
+  const safeEnd = Number(end_date);
+  const encodedFields = encodeURIComponent(fields);
+
+  const path = `/v2.0/cloud/thing/${id}/report-logs?codes=${encodedFields}&start_time=${safeStart}&end_time=${safeEnd}&size=${size}` +
+                (last_row_key ? `&last_row_key=${last_row_key}` : '');
+
+  console.log('path', path);
 
   try {
-    // Sanitizar y asegurar valores válidos
-    const now = Date.now();
-    const safeStart = Math.min(Number(start_date) || now - 24 * 60 * 60 * 1000, now);
-    const safeEnd = Math.min(Number(end_date) || now, now);
+    const response = await context.request({ method: 'GET', path });
+    const responseData = handleResponse(response);
 
-    const encodedFields = encodeURIComponent(fields || '');
-
-    // ✅ Endpoint correcto (v2.0)
-    let path = `/v2.0/cloud/thing/${id}/report-logs?codes=${encodedFields}&start_time=${safeStart}&end_time=${safeEnd}&size=${size}`;
-    if (last_row_key) path += `&last_row_key=${last_row_key}`;
-
-    console.log('path', path)
-    // Llamada al contexto de Tuya SDK
-    const response = await context.request({
-      method: 'GET',
-      path,
-    });
-  
-    const responseData = handleResponse(response); // tu función interna para parsear
-    console.log('Tuya API raw response:', responseData);
-
-    if (responseData.success && responseData.data) {
-      return responseData;
-    }
-    return { success: false, error: 'No logs found or invalid response from Tuya' };
+    if (responseData.success && responseData.data) return responseData;
+    return { success: false, error: 'No logs found' };
   } catch (error) {
-    console.error('Tuya API Error:', error.message);
+    console.error('Error fetching device logs:', error.message);
     return { success: false, error: error.message };
   }
 }
+
 
 
 // ---------------------------------------------
