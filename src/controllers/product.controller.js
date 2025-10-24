@@ -317,75 +317,75 @@ export const getProductById = async (req, res) => {
 
 
 // Fetch a single product by ID from MongoD /TUYA LOGS)
-export const getProductLogsById = async (req, res) => {
-  try {
-    console.log('Fetching product logs for:', req.query);
-    const filters = req.query?.params;
-
-    // Set a default size and handle pagination
-    filters.size = filters.limit || 20;
-    filters.last_row_key = filters.last_row_key || null;
-
-    const response = await tuyaService.getDeviceLogs(filters);
-
-    if (!response.success) {
-      return res.status(400).json({ message: response.error });
-    }
-    console.log('response', response);
-    // Send data along with the pagination key (next_last_row_key)
-    return res.json(response.data);
-  } catch (error) {
-    console.error('Error fetching product logs:', error);
-    return res.status(500).json({ message: 'Error fetching product details' });
-  }
-};
-
-// logs for products from logs table local logs
 // export const getProductLogsById = async (req, res) => {
 //   try {
 //     console.log('Fetching product logs for:', req.query);
+//     const filters = req.query?.params;
 
-//     const {
-//       id,
-//       start_date,
-//       end_date,
-//       fields,
-//       limit = 20,
-//       last_row_key = null,
-//     } = req.query.params || {};
+//     // Set a default size and handle pagination
+//     filters.size = filters.limit || 20;
+//     filters.last_row_key = filters.last_row_key || null;
 
-//     if (!id) {
-//       return res.status(400).json({ message: 'Missing required parameter: id' });
+//     const response = await tuyaService.getDeviceLogs(filters);
+
+//     if (!response.success) {
+//       return res.status(400).json({ message: response.error });
 //     }
-
-//     const query = {
-//       product_id: id,
-//     };
-
-//     if (start_date && end_date) {
-//       query.createdAt = {
-//         $gte: new Date(Number(start_date)),
-//         $lte: new Date(Number(end_date)),
-//       };
-//     }
-
-//     const logs = await ProductLog.find(query)
-//       .sort({ createdAt: -1 }) // orden descendente por fecha
-//       .limit(parseInt(limit));
-
-//     const nextLastRowKey = logs.length > 0 ? logs[logs.length - 1]._id : null;
-
-//     return res.json({
-//       success: true,
-//       data: logs,
-//       next_last_row_key: nextLastRowKey,
-//     });
-
+//     console.log('response', response);
+//     // Send data along with the pagination key (next_last_row_key)
+//     return res.json(response.data);
 //   } catch (error) {
 //     console.error('Error fetching product logs:', error);
-//     return res.status(500).json({ message: 'Error fetching product logs' });
+//     return res.status(500).json({ message: 'Error fetching product details' });
 //   }
 // };
+
+// logs for products from logs table local logs
+export const getProductLogsById = async (req, res) => {
+  try {
+    console.log('Fetching product logs for:', req.query);
+
+    const {
+      id,
+      start_date,
+      end_date,
+      fields,
+      limit = 20,
+      last_row_key = null,
+    } = req.query.params || {};
+
+    if (!id) {
+      return res.status(400).json({ message: 'Missing required parameter: id' });
+    }
+
+    const query = {
+      product_id: id,
+    };
+
+    if (start_date && end_date) {
+      query.createdAt = {
+        $gte: new Date(Number(start_date)),
+        $lte: new Date(Number(end_date)),
+      };
+    }
+
+    const logs = await ProductLog.find(query)
+      .sort({ createdAt: -1 }) // orden descendente por fecha
+      .limit(parseInt(limit));
+
+    const nextLastRowKey = logs.length > 0 ? logs[logs.length - 1]._id : null;
+
+    return res.json({
+      success: true,
+      data: logs,
+      next_last_row_key: nextLastRowKey,
+    });
+
+  } catch (error) {
+    console.error('Error fetching product logs:', error);
+    return res.status(500).json({ message: 'Error fetching product logs' });
+  }
+};
 
 // Save a product from Tuya API to MongoDB
 export const saveProduct = async (req, res) => {
