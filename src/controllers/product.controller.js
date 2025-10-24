@@ -272,8 +272,8 @@ export const getProductById = async (req, res) => {
       if (!response.success) {
         return res.status(400).json({ message: response.error, code: response.code });
       }
-      if (response && response.result) {
-        const updatedData = response.result; // Assuming this is the correct structure
+      if (response && response.data) {
+        const updatedData = response.data; // Assuming this is the correct structure
 
         // Update MongoDB with the latest data from Tuya
         product = await Product.findOneAndUpdate(
