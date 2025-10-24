@@ -348,8 +348,8 @@ export const getProductLogsById = async (req, res) => {
     try {
       const response = await tuyaService.getDeviceLogs(filters);
 
-      if (response.success && response.data && response.data.logs?.length > 0) {
-        logs = response.data.logs;
+      if (response.success && response.data && response.data.length > 0) {
+        logs = mapTuyaLogs(response.data); // <-- mapeo aquí
         source = 'tuya';
         console.log(`✅ Logs obtenidos desde Tuya (${logs.length})`);
       } else {
@@ -392,6 +392,34 @@ export const getProductLogsById = async (req, res) => {
     return res.status(500).json({ message: 'Error fetching product logs' });
   }
 };
+
+function mapTuyaLogs(tuyaData) {
+  const grouped = {};
+
+  tuyaData.forEach(item => {
+    const ts = item.event_time;
+    if (!grouped[ts]) grouped[ts] = { date: ts };
+
+    switch (item.code) {
+      case 'flowrate_speed_1':
+        grouped[ts].flujo_produccion = Number(item.value);
+        break;
+      case 'flowrate_speed_2':
+        grouped[ts].flujo_rechazo = Number(item.value);
+        break;
+      case 'flowrate_total_1':
+        grouped[ts].production_volume = Number(item.value);
+        break;
+      case 'flowrate_total_2':
+        grouped[ts].rejected_volume = Number(item.value);
+        break;
+      // Agrega más códigos si necesitas
+    }
+  });
+
+  return Object.values(grouped).sort((a, b) => (b.date || 0) - (a.date || 0));
+}
+
 
 
 // logs for products from logs table local logs
