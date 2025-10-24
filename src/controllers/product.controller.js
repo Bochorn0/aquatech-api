@@ -349,6 +349,7 @@ export const getProductLogsById = async (req, res) => {
       const response = await tuyaService.getDeviceLogs(filters);
 
       if (response.success && response.data && response.data.length > 0) {
+        console.log('logs', response)
         logs = mapTuyaLogs(response.data); // <-- mapeo aquí
         source = 'tuya';
         console.log(`✅ Logs obtenidos desde Tuya (${logs.length})`);
