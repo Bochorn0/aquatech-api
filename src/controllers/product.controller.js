@@ -336,7 +336,7 @@ export const getProductLogsById = async (req, res) => {
       id,
       start_date: start_date || Date.now() - 24 * 60 * 60 * 1000, // por defecto: últimas 24h
       end_date: end_date || Date.now(),
-      fields: 'flowrate_speed_1,flowrate_speed_2,flowrate_total_1,flowrate_total_2, tds_out', // hardcodeados
+      fields: 'flowrate_speed_1,flowrate_speed_2,flowrate_total_1,flowrate_total_2,tds_out', // hardcodeados
       size: limit,
       last_row_key,
     };
