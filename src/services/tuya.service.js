@@ -98,12 +98,13 @@ export async function getDeviceLogs(query) {
     let path = `/v2.0/cloud/thing/${id}/report-logs?codes=${encodedFields}&start_time=${safeStart}&end_time=${safeEnd}&size=${size}`;
     if (last_row_key) path += `&last_row_key=${last_row_key}`;
 
+    console.log('path', path)
     // Llamada al contexto de Tuya SDK
     const response = await context.request({
       method: 'GET',
       path,
     });
-
+  
     const responseData = handleResponse(response); // tu función interna para parsear
     console.log('Tuya API raw response:', responseData);
 
