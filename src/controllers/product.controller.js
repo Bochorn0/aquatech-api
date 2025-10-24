@@ -315,11 +315,6 @@ export const getProductById = async (req, res) => {
   }
 };
 
-
-// Fetch a single product by ID from MongoD /TUYA LOGS)
-import ProductLog from '../models/ProductLog.js';
-import tuyaService from '../services/tuyaService.js';
-
 export const getProductLogsById = async (req, res) => {
   try {
     console.log('Fetching product logs for:', req.query);
