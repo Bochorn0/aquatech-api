@@ -347,10 +347,8 @@ export const getProductLogsById = async (req, res) => {
     // ====== Intentar obtener desde Tuya ======
     try {
       const response = await tuyaService.getDeviceLogs(filters);
-      console.log('logs', response);
-      if (response.success && response.data && response.data.length > 0) {
-
-        logs = mapTuyaLogs(response.data); // <-- mapeo aquí
+      if (response.success && response.data && response.data.logs?.length > 0) {
+        logs = mapTuyaLogs(response.data.logs); // <--- aquí mapeamos
         source = 'tuya';
         console.log(`✅ Logs obtenidos desde Tuya (${logs.length})`);
       } else {
@@ -414,12 +412,12 @@ function mapTuyaLogs(tuyaData) {
       case 'flowrate_total_2':
         grouped[ts].rejected_volume = Number(item.value);
         break;
-      // Agrega más códigos si necesitas
     }
   });
 
-  return Object.values(grouped).sort((a, b) => (b.date || 0) - (a.date || 0));
+  return Object.values(grouped).sort((a, b) => b.date - a.date);
 }
+
 
 
 
