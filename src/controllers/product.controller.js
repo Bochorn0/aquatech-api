@@ -397,7 +397,7 @@ function mapTuyaLogs(tuyaData) {
 
   tuyaData.forEach(item => {
     const ts = item.event_time;
-    if (!grouped[ts]) grouped[ts] = { date: ts };
+    if (!grouped[ts]) grouped[ts] = { date: ts, source: 'tuya' };
 
     switch (item.code) {
       case 'flowrate_speed_1':
