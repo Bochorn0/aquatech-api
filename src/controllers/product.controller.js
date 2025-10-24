@@ -317,30 +317,9 @@ export const getProductById = async (req, res) => {
 
 
 // Fetch a single product by ID from MongoD /TUYA LOGS)
-// export const getProductLogsById = async (req, res) => {
-//   try {
-//     console.log('Fetching product logs for:', req.query);
-//     const filters = req.query?.params;
+import ProductLog from '../models/ProductLog.js';
+import tuyaService from '../services/tuyaService.js';
 
-//     // Set a default size and handle pagination
-//     filters.size = filters.limit || 20;
-//     filters.last_row_key = filters.last_row_key || null;
-
-//     const response = await tuyaService.getDeviceLogs(filters);
-
-//     if (!response.success) {
-//       return res.status(400).json({ message: response.error });
-//     }
-//     console.log('response', response);
-//     // Send data along with the pagination key (next_last_row_key)
-//     return res.json(response.data);
-//   } catch (error) {
-//     console.error('Error fetching product logs:', error);
-//     return res.status(500).json({ message: 'Error fetching product details' });
-//   }
-// };
-
-// logs for products from logs table local logs
 export const getProductLogsById = async (req, res) => {
   try {
     console.log('Fetching product logs for:', req.query);
@@ -349,7 +328,6 @@ export const getProductLogsById = async (req, res) => {
       id,
       start_date,
       end_date,
-      fields,
       limit = 20,
       last_row_key = null,
     } = req.query.params || {};
@@ -358,20 +336,52 @@ export const getProductLogsById = async (req, res) => {
       return res.status(400).json({ message: 'Missing required parameter: id' });
     }
 
-    const query = {
-      product_id: id,
+    // ====== Preparar filtros para Tuya ======
+    const filters = {
+      id,
+      start_date: start_date || Date.now() - 24 * 60 * 60 * 1000, // por defecto: últimas 24h
+      end_date: end_date || Date.now(),
+      fields: 'flowrate_speed_1,flowrate_speed_2,flowrate_total_1,flowrate_total_2', // hardcodeados
+      size: limit,
+      last_row_key,
     };
 
-    if (start_date && end_date) {
-      query.createdAt = {
-        $gte: new Date(Number(start_date)),
-        $lte: new Date(Number(end_date)),
-      };
+    let logs = [];
+    let source = 'database';
+
+    // ====== Intentar obtener desde Tuya ======
+    try {
+      const response = await tuyaService.getDeviceLogs(filters);
+
+      if (response.success && response.data && response.data.logs?.length > 0) {
+        logs = response.data.logs;
+        source = 'tuya';
+        console.log(`✅ Logs obtenidos desde Tuya (${logs.length})`);
+      } else {
+        console.warn('⚠️ No se encontraron logs en Tuya');
+      }
+    } catch (err) {
+      console.warn('⚠️ Error al obtener logs de Tuya:', err.message);
     }
 
-    const logs = await ProductLog.find(query)
-      .sort({ createdAt: -1 }) // orden descendente por fecha
-      .limit(parseInt(limit));
+    // ====== Si Tuya no devolvió datos, usar base de datos local ======
+    if (!logs.length) {
+      console.log('🔁 Consultando logs desde base de datos local...');
+      const query = { product_id: id };
+
+      if (start_date && end_date) {
+        query.createdAt = {
+          $gte: new Date(Number(start_date)),
+          $lte: new Date(Number(end_date)),
+        };
+      }
+
+      logs = await ProductLog.find(query)
+        .sort({ createdAt: -1 })
+        .limit(parseInt(limit));
+
+      console.log(`✅ Logs obtenidos desde DB (${logs.length})`);
+    }
 
     const nextLastRowKey = logs.length > 0 ? logs[logs.length - 1]._id : null;
 
@@ -379,13 +389,62 @@ export const getProductLogsById = async (req, res) => {
       success: true,
       data: logs,
       next_last_row_key: nextLastRowKey,
+      source,
     });
 
   } catch (error) {
-    console.error('Error fetching product logs:', error);
+    console.error('❌ Error fetching product logs:', error);
     return res.status(500).json({ message: 'Error fetching product logs' });
   }
 };
+
+
+// logs for products from logs table local logs
+// export const getProductLogsById = async (req, res) => {
+//   try {
+//     console.log('Fetching product logs for:', req.query);
+
+//     const {
+//       id,
+//       start_date,
+//       end_date,
+//       fields,
+//       limit = 20,
+//       last_row_key = null,
+//     } = req.query.params || {};
+
+//     if (!id) {
+//       return res.status(400).json({ message: 'Missing required parameter: id' });
+//     }
+
+//     const query = {
+//       product_id: id,
+//     };
+
+//     if (start_date && end_date) {
+//       query.createdAt = {
+//         $gte: new Date(Number(start_date)),
+//         $lte: new Date(Number(end_date)),
+//       };
+//     }
+
+//     const logs = await ProductLog.find(query)
+//       .sort({ createdAt: -1 }) // orden descendente por fecha
+//       .limit(parseInt(limit));
+
+//     const nextLastRowKey = logs.length > 0 ? logs[logs.length - 1]._id : null;
+
+//     return res.json({
+//       success: true,
+//       data: logs,
+//       next_last_row_key: nextLastRowKey,
+//     });
+
+//   } catch (error) {
+//     console.error('Error fetching product logs:', error);
+//     return res.status(500).json({ message: 'Error fetching product logs' });
+//   }
+// };
 
 // Save a product from Tuya API to MongoDB
 export const saveProduct = async (req, res) => {
