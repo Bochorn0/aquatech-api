@@ -314,8 +314,9 @@ export const getProductById = async (req, res) => {
     await newProduct.save();
 
     console.log(`Product ${id} saved to MongoDB.`);
-    if (id === 'ebf9738480d78e0132gnru') {
+    if (id == 'ebf9738480d78e0132gnru') {
       const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
+      console.log('newProduct.status', newProduct.status);
       newProduct.status.map((stat) => {
         console.log('stat*', stat);
         if (flujos_codes.includes(stat.code)) {
