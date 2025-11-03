@@ -110,6 +110,10 @@ export const getAllProducts = async (req, res) => {
       product.cliente = cliente;
       product.status.map((stat) => {
         // "flowrate_total_1", "flowrate_total_2",
+          const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
+          if (product.id === 'ebf9738480d78e0132gnru' && flujos_codes.includes(stat.code)) {
+            stat.value = stat.value * 1.6;
+          }
           const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
           if (arrayCodes.includes(stat.code) && stat.value > 0) {
               stat.value = stat.value / 10;
