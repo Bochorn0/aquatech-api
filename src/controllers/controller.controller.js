@@ -115,9 +115,24 @@ export const addController = async (req, res) => {
     const controllerData = req.body;
     delete controllerData._id;
 
-    const currentController = await Controller.findOne({ id: controllerData.id });
-    if (currentController) {
-      return res.status(409).json({ message: 'Controller already exists' });
+    // Si el id está vacío, generar uno único o validar por IP
+    if (!controllerData.id || controllerData.id.trim() === '') {
+      // Validar por IP ya que es requerido y debe ser único por controlador
+      const existingByIp = await Controller.findOne({ ip: controllerData.ip });
+      if (existingByIp) {
+        return res.status(409).json({ 
+          message: 'Ya existe un controlador con esta IP', 
+          existingController: existingByIp 
+        });
+      }
+      // Generar un ID único basado en timestamp o usar IP como base
+      controllerData.id = `CTRL-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    } else {
+      // Si tiene id, validar que no exista
+      const currentController = await Controller.findOne({ id: controllerData.id });
+      if (currentController) {
+        return res.status(409).json({ message: 'Controller already exists' });
+      }
     }
 
     const newController = new Controller(controllerData);
@@ -125,7 +140,15 @@ export const addController = async (req, res) => {
     res.status(201).json(newController);
   } catch (error) {
     console.error('Error adding controller:', error);
-    res.status(500).json({ message: 'Error adding controller' });
+    // Si es error de duplicado por índice único de MongoDB
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(409).json({ 
+        message: `Ya existe un controlador con este ${field}`,
+        field: field 
+      });
+    }
+    res.status(500).json({ message: 'Error adding controller', error: error.message });
   }
 };
 
