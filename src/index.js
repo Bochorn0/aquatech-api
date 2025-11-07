@@ -72,7 +72,7 @@ app.use('/api/v1.0/cities', authenticate, authorizeRoles('admin', 'cliente'), ci
 app.use('/api/v1.0/controllers', authenticate, authorizeRoles('admin', 'cliente'), controllerRoutes);
 
 // Example: Protect the `/api/v1.0/puntoVenta` route for 'admin' only
-app.use('/api/v1.0/puntoVentas', authenticate, authorizeRoles('admin', 'cliente'), puntoVenta);
+app.use('/api/v1.0/puntoVentas', authenticate, authorizeRoles('admin', 'cliente'), puntoVentaRoutes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/auth', authRoutes);
