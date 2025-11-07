@@ -20,6 +20,7 @@ import roleRoutes from './routes/role.routes.js';  // Use `import` for roleRoute
 import clientRoutes from './routes/client.routes.js';  // Use `import` for clientRoutes'
 import reportRoutes from './routes/report.routes.js';  // Use `import` for reportRoutes
 import controllerRoutes from './routes/controller.routes.js' // Use `import` for controllerRouters
+import puntoVentaRoutes from './routes/puntoVenta.routes.js' // Use `import` for PuntoVenta
 import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoutes
 import { authenticate, authorizeRoles } from './middlewares/auth.middleware.js';  // Import the authentication and authorization middleware
 
@@ -69,6 +70,9 @@ app.use('/api/v1.0/cities', authenticate, authorizeRoles('admin', 'cliente'), ci
 
 // Example: Protect the `/api/v1.0/controller` route for 'admin' only
 app.use('/api/v1.0/controllers', authenticate, authorizeRoles('admin', 'cliente'), controllerRoutes);
+
+// Example: Protect the `/api/v1.0/puntoVenta` route for 'admin' only
+app.use('/api/v1.0/puntoVentas', authenticate, authorizeRoles('admin', 'cliente'), puntoVenta);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/auth', authRoutes);
