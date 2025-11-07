@@ -112,20 +112,21 @@ export const getPuntoVentaById = async (req, res) => {
 };
 
 // Crear nuevo punto de venta
+// Crear nuevo punto de venta
 export const addPuntoVenta = async (req, res) => {
   try {
     const puntoData = req.body;
     delete puntoData._id;
 
-    // Validar cliente
+    // ✅ Validar cliente
     const cliente = await Client.findById(puntoData.cliente);
     if (!cliente) return res.status(400).json({ message: 'Cliente no válido' });
 
-    // Validar ciudad
+    // ✅ Validar ciudad
     const ciudad = await City.findById(puntoData.city);
     if (!ciudad) return res.status(400).json({ message: 'Ciudad no válida' });
 
-    // Validar productos y controladores (opcional)
+    // ✅ Validar productos y controladores (opcionales)
     if (puntoData.productos?.length) {
       const productos = await Product.find({ _id: { $in: puntoData.productos } });
       if (productos.length !== puntoData.productos.length) {
@@ -140,21 +141,25 @@ export const addPuntoVenta = async (req, res) => {
       }
     }
 
+    // ✅ Crear nuevo registro
     const nuevoPunto = new PuntoVenta(puntoData);
     await nuevoPunto.save();
 
-    const populated = await nuevoPunto
-      .populate('cliente')
-      .populate('city')
-      .populate('productos')
-      .populate('controladores');
+    // ✅ Popular relaciones correctamente (en una sola llamada)
+    await nuevoPunto.populate([
+      { path: 'cliente', select: 'name email phone' },
+      { path: 'city', select: 'city state' },
+      { path: 'productos', select: 'name product_type' },
+      { path: 'controladores', select: 'name ip online' },
+    ]);
 
-    res.status(201).json(populated);
+    res.status(201).json(nuevoPunto);
   } catch (error) {
     console.error('Error adding punto de venta:', error);
     res.status(500).json({ message: 'Error adding punto de venta', error: error.message });
   }
 };
+
 
 // Actualizar punto de venta
 export const updatePuntoVenta = async (req, res) => {
