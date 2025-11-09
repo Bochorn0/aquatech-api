@@ -173,7 +173,7 @@ export const updatePuntoVenta = async (req, res) => {
     punto.set(data);
     await punto.save();
 
-    const updated = await punto
+    const updated = await PuntoVenta.findById(id)
       .populate('cliente')
       .populate('city')
       .populate('productos')
@@ -185,6 +185,7 @@ export const updatePuntoVenta = async (req, res) => {
     res.status(500).json({ message: 'Error updating punto de venta' });
   }
 };
+
 
 // Eliminar punto de venta
 export const deletePuntoVenta = async (req, res) => {
