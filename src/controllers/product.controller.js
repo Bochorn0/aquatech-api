@@ -595,152 +595,187 @@ export const sendDeviceCommands = async (req, res) => {
 
 export const componentInput = async (req, res) => {
   try {
-    console.log('body', req.body);
+    console.log('📥 [componentInput] Body recibido:', req.body);
 
-    // Permitir productId o producto
-    const producto = req.body.producto || req.body.productId;
-    const real_data = req.body.real_data || req.body;
+    const { producto, productId, real_data, tiempo_inicio, tiempo_fin } = req.body;
+    const idProducto = producto || productId;
 
-    if (!producto) {
+    if (!idProducto) {
+      console.warn('⚠️ [componentInput] Falta el campo "producto" o "productId" en el body');
       return res.status(400).json({ message: 'Falta el ID del producto' });
     }
 
     // 🔹 Buscar producto
-    const product = await Product.findById(producto);
+    const product = await Product.findById(idProducto);
     if (!product) {
+      console.warn(`⚠️ [componentInput] Producto no encontrado con ID: ${idProducto}`);
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
+    console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.product_type})`);
+
+    // 🔹 Actualizar actividad
     product.last_time_active = Date.now();
 
-    // Limpiar _id de status
-    product.status = product.status.map(s => {
-      if (s._id && typeof s._id === 'object' && '$oid' in s._id) delete s._id;
+    // 🧹 Limpieza de _id inválidos en status
+    product.status = (product.status || []).map(s => {
+      if (s._id && typeof s._id === 'object' && '$oid' in s._id) {
+        delete s._id;
+      }
       return s;
     });
-    await product.save();
 
-    // Buscar controlador asociado
-    const controller = await Controller.findOne({ product: producto });
-    if (controller) {
-      controller.last_time_active = Date.now();
-      await controller.save();
+    await product.save().catch(err => {
+      console.error('❌ [componentInput] Error al guardar producto después de limpieza de status:', err);
+    });
+
+    // 🔹 Actualizar controller (si existe)
+    try {
+      const controller = await Controller.findOne({ product: idProducto });
+      if (controller) {
+        controller.last_time_active = Date.now();
+        await controller.save();
+      }
+    } catch (ctrlErr) {
+      console.error('⚠️ [componentInput] Error actualizando controller:', ctrlErr);
     }
 
+    // ====================================================
+    // 🧠 Determinar tipo de producto
+    // ====================================================
     const tipo = product.product_type?.toLowerCase();
+    console.log(`🧩 [componentInput] Tipo de producto detectado: ${tipo}`);
 
     // ====================================================
-    // 🔹 Lógica Pressure
-    // ====================================================
-if (tipo === 'pressure') {
-  const {
-    pressure_valve1_psi = 0,
-    pressure_valve2_psi = 0,
-    pressure_difference_psi = 0,
-    relay_state = false,
-    temperature = 0,
-    timestamp
-  } = real_data;
-
-  // Crear log
-  const log = new ProductLog({
-    producto,
-    product_id: product.id,
-    presion_in: pressure_valve1_psi,
-    presion_out: pressure_valve2_psi,
-    diferencia: pressure_difference_psi,
-    relay_state,
-    temperature,
-    tiempo_inicio: new Date(),
-    tiempo_fin: new Date(),
-    timestamp
-  });
-  await log.save();
-
-  // Función auxiliar para actualizar o crear status
-  const upsertStatus = (product, code, value) => {
-    let s = product.status.find(st => st.code === code);
-    if (!s) {
-      s = { code, value };
-      product.status.push(s);
-    } else {
-      s.value = value;
-    }
-  };
-
-  // Actualizar o crear todos los status relevantes
-  upsertStatus(product, 'presion_in', pressure_valve1_psi);
-  upsertStatus(product, 'presion_out', pressure_valve2_psi);
-  upsertStatus(product, 'pressure_difference', pressure_difference_psi);
-  upsertStatus(product, 'relay_state', relay_state);
-  upsertStatus(product, 'temperature', temperature);
-
-  await product.save();
-
-  console.log('log Pressure', log);
-  return res.status(201).json({ message: 'Log Pressure creado', log });
-}
-
-
-    // ====================================================
-    // 🔹 Lógica Osmosis (igual que antes)
+    // 🔹 Lógica para productos tipo "Osmosis"
     // ====================================================
     if (tipo === 'osmosis') {
-      const {
-        tds = 0,
-        temperature = 0,
-        flujo_produccion = 0,
-        flujo_rechazo = 0
-      } = real_data;
+      try {
+        const {
+          tds = 0,
+          temperature = 0,
+          flujo_produccion = 0,
+          flujo_rechazo = 0
+        } = real_data || {};
 
-      if (!req.body.tiempo_inicio || !req.body.tiempo_fin) {
-        return res.status(400).json({ message: 'Faltan tiempos de inicio/fin' });
+        if (!tiempo_inicio || !tiempo_fin) {
+          console.warn('⚠️ [Osmosis] Faltan tiempos de inicio/fin');
+          return res.status(400).json({ message: 'Faltan tiempos de inicio/fin' });
+        }
+
+        if (flujo_produccion === 0 && flujo_rechazo === 0) {
+          console.log('ℹ️ [Osmosis] Sin flujo detectado, no se crea log.');
+          return res.status(204).send();
+        }
+
+        const inicio = new Date(tiempo_inicio);
+        const fin = new Date(tiempo_fin);
+        const duracionMin = (fin - inicio) / (1000 * 60);
+        const production_volume = flujo_produccion * duracionMin;
+        const rejected_volume = flujo_rechazo * duracionMin;
+
+        const log = new ProductLog({
+          producto: idProducto,
+          product_id: product.id,
+          tds,
+          temperature,
+          flujo_produccion,
+          flujo_rechazo,
+          production_volume,
+          rejected_volume,
+          tiempo_inicio: inicio,
+          tiempo_fin: fin
+        });
+
+        await log.save();
+        console.log(`✅ [Osmosis] Log creado: ${log._id}`);
+
+        const updateOrCreate = (code, value) => {
+          const existing = product.status.find(s => s.code === code);
+          if (existing) existing.value = value;
+          else product.status.push({ code, value });
+        };
+
+        updateOrCreate('flowrate_speed_1', flujo_produccion);
+        updateOrCreate('flowrate_speed_2', flujo_rechazo);
+        updateOrCreate('flowrate_total_1', (product.status.find(s => s.code === 'flowrate_total_1')?.value || 0) + production_volume);
+        updateOrCreate('flowrate_total_2', (product.status.find(s => s.code === 'flowrate_total_2')?.value || 0) + rejected_volume);
+        updateOrCreate('temperature', temperature);
+        updateOrCreate('tds_out', tds);
+
+        await product.save();
+        console.log('✅ [Osmosis] Producto actualizado correctamente');
+        return res.status(201).json({ message: 'Log Osmosis creado', log });
+      } catch (osmosisErr) {
+        console.error('❌ [Osmosis] Error procesando datos:', osmosisErr);
+        return res.status(500).json({ message: 'Error al procesar producto Osmosis' });
       }
-
-      const inicio = new Date(req.body.tiempo_inicio);
-      const fin = new Date(req.body.tiempo_fin);
-      const duracionMin = (fin - inicio) / (1000 * 60);
-      const production_volume = flujo_produccion * duracionMin;
-      const rejected_volume = flujo_rechazo * duracionMin;
-
-      const log = new ProductLog({
-        producto,
-        product_id: product.id,
-        tds,
-        temperature,
-        flujo_produccion,
-        flujo_rechazo,
-        production_volume,
-        rejected_volume,
-        tiempo_inicio: inicio,
-        tiempo_fin: fin
-      });
-      await log.save();
-
-      updateStatusValue(product, 'flowrate_speed_1', flujo_produccion);
-      updateStatusValue(product, 'flowrate_speed_2', flujo_rechazo);
-      sumStatusValue(product, 'flowrate_total_1', production_volume);
-      sumStatusValue(product, 'flowrate_total_2', rejected_volume);
-      updateStatusValue(product, 'temperature', temperature);
-      updateStatusValue(product, 'tds_out', tds);
-
-      await product.save();
-
-      console.log('log Osmosis', log);
-      return res.status(201).json({ message: 'Log Osmosis creado', log });
     }
 
+    // ====================================================
+    // 🔹 Lógica para productos tipo "Pressure"
+    // ====================================================
+    if (tipo === 'pressure') {
+      try {
+        const {
+          pressure_valve1_psi = 0,
+          pressure_valve2_psi = 0,
+          pressure_difference_psi = 0,
+          relay_state = false,
+          temperature = 0,
+          timestamp
+        } = real_data || req.body;
+
+        const log = new ProductLog({
+          producto: idProducto,
+          product_id: product.id,
+          presion_in: pressure_valve1_psi,
+          presion_out: pressure_valve2_psi,
+          diferencia: pressure_difference_psi,
+          relay_state,
+          temperature,
+          tiempo_inicio: new Date(),
+          tiempo_fin: new Date(),
+          timestamp
+        });
+
+        await log.save();
+        console.log(`✅ [Pressure] Log creado: ${log._id}`);
+
+        const updateOrCreate = (code, value) => {
+          const existing = product.status.find(s => s.code === code);
+          if (existing) existing.value = value;
+          else product.status.push({ code, value });
+        };
+
+        updateOrCreate('presion_in', pressure_valve1_psi);
+        updateOrCreate('presion_out', pressure_valve2_psi);
+        updateOrCreate('relay_state', relay_state);
+        updateOrCreate('temperature', temperature);
+        updateOrCreate('pressure_difference', pressure_difference_psi);
+
+        await product.save();
+        console.log('✅ [Pressure] Producto actualizado correctamente');
+        return res.status(201).json({ message: 'Log Pressure creado', log });
+      } catch (pressureErr) {
+        console.error('❌ [Pressure] Error procesando datos:', pressureErr);
+        return res.status(500).json({ message: 'Error al procesar producto Pressure' });
+      }
+    }
+
+    // ====================================================
+    // 🔹 Tipo no reconocido
+    // ====================================================
+    console.warn(`⚠️ [componentInput] Tipo de producto no soportado: ${product.product_type}`);
     return res.status(400).json({
       message: `Tipo de producto no soportado: ${product.product_type}`
     });
 
   } catch (error) {
-    console.error('Error creando log:', error);
-    res.status(500).json({ message: 'Error interno del servidor' });
+    console.error('💥 [componentInput] Error general en ejecución:', error);
+    res.status(500).json({ message: 'Error interno del servidor', error: error.message });
   }
 };
-
-
 
 // 🔁 Actualiza o reemplaza valores
 const updateStatusValue = (product, code, newValue) => {
