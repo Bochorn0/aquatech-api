@@ -662,51 +662,72 @@ async function handleOsmosisProduct(product, data) {
 
 // ⚙️ — PRESIÓN
 // 🔧 Lógica específica para productos de tipo "pressure"
-async function handlePressureProduct(product, body) {
-  try {
-    console.log('🟦 [handlePressure] Iniciando lógica para producto tipo presión');
-    console.log('📄 [handlePressure] Datos recibidos:', JSON.stringify(body, null, 2));
-    console.log('📄 [handlePressure] Status actual antes de cambios:', JSON.stringify(product.status, null, 2));
+async function handlePressureProduct(product, data) {
+  console.log('🔧 [handlePressure] Iniciando procesamiento del producto de tipo Pressure...');
+  
+  const { pressure_valve1_psi, pressure_valve2_psi, pressure_difference_psi, relay_state, temperature } = data;
+  
+  console.log('📦 [handlePressure] Datos recibidos:', {
+    pressure_valve1_psi,
+    pressure_valve2_psi,
+    pressure_difference_psi,
+    relay_state,
+    temperature
+  });
 
-    // Clonamos el array para no mutar accidentalmente el documento Mongoose
-    const status = Array.isArray(product.status) ? [...product.status] : [];
-
-    // Helper para actualizar o crear el campo en status
-    const updateStatus = (code, value) => {
-      const idx = status.findIndex((s) => s.code === code);
-      if (idx >= 0) {
-        console.log(`🔁 [handlePressure] Actualizando campo existente "${code}" → ${value}`);
-        status[idx].value = value;
-      } else {
-        console.log(`🆕 [handlePressure] Creando nuevo campo "${code}" → ${value}`);
-        status.push({ code, value });
-      }
-    };
-
-    // Asignamos los campos de presión y temperatura desde el body
-    if (body.pressure_valve1_psi !== undefined) updateStatus('pressure_valve1_psi', body.pressure_valve1_psi);
-    if (body.pressure_valve2_psi !== undefined) updateStatus('pressure_valve2_psi', body.pressure_valve2_psi);
-    if (body.pressure_difference_psi !== undefined) updateStatus('pressure_difference_psi', body.pressure_difference_psi);
-    if (body.relay_state !== undefined) updateStatus('relay_state', body.relay_state);
-    if (body.temperature !== undefined) updateStatus('temperature', body.temperature);
-
-    console.log('📊 [handlePressure] Status después de aplicar cambios:', JSON.stringify(status, null, 2));
-
-    // Asignamos el nuevo array a product.status
-    product.status = status;
-
-    // Guardamos en Mongo
-    const updatedProduct = await product.save();
-
-    console.log('✅ [handlePressure] Producto actualizado correctamente en MongoDB');
-    console.log('🧩 [handlePressure] Status final guardado:', JSON.stringify(updatedProduct.status, null, 2));
-
-    return updatedProduct;
-  } catch (error) {
-    console.error('❌ [handlePressure] Error durante actualización de producto de presión:', error);
-    throw error;
+  // Inicializa array si no existe
+  if (!Array.isArray(product.status)) {
+    console.log('🧩 [handlePressure] No existe array de status, creando uno nuevo.');
+    product.status = [];
   }
+
+  console.log('📋 [handlePressure] Status actual antes de actualizar:', JSON.stringify(product.status, null, 2));
+
+  // Define los valores esperados
+  const updates = [
+    { code: 'pressure_valve1_psi', value: pressure_valve1_psi },
+    { code: 'pressure_valve2_psi', value: pressure_valve2_psi },
+    { code: 'pressure_difference_psi', value: pressure_difference_psi },
+    { code: 'relay_state', value: relay_state },
+    { code: 'temperature', value: temperature },
+  ];
+
+  for (const { code, value } of updates) {
+    if (value === undefined || value === null) {
+      console.log(`⚠️ [handlePressure] Valor omitido para '${code}' (undefined o null)`);
+      continue;
+    }
+
+    const existing = product.status.find((s) => s.code === code);
+    if (existing) {
+      console.log(`🔁 [handlePressure] Actualizando '${code}' de ${existing.value} → ${value}`);
+      existing.value = value;
+    } else {
+      console.log(`➕ [handlePressure] Agregando nuevo status '${code}' = ${value}`);
+      product.status.push({ code, value });
+    }
+  }
+
+  // Marca el campo como modificado
+  product.markModified('status');
+
+  console.log('🧩 [handlePressure] Status final antes de guardar:', JSON.stringify(product.status, null, 2));
+
+  try {
+    await product.save();
+    console.log('✅ [handlePressure] Producto actualizado correctamente en MongoDB');
+  } catch (err) {
+    console.error('❌ [handlePressure] Error al guardar producto:', err);
+    throw err;
+  }
+
+  // Verificación post-save
+  const refreshed = await product.constructor.findById(product._id).lean();
+  console.log('🧩 [handlePressure] Status final guardado en DB:', JSON.stringify(refreshed.status, null, 2));
+
+  return { success: true, message: 'Datos de presión actualizados', product: refreshed };
 }
+
 
 // 🌊 — NIVEL
 async function handleLevelProduct(product, data) {
