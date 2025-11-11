@@ -593,178 +593,110 @@ export const sendDeviceCommands = async (req, res) => {
   }
 };
 
+// controllers/productsController.js
+
 export const componentInput = async (req, res) => {
   try {
     console.log('📥 [componentInput] Body recibido:', req.body);
 
-    const { productId, real_data, tiempo_inicio, tiempo_fin } = req.body;
+    const {
+      productId,
+      pressure_valve1_psi,
+      pressure_valve2_psi,
+      pressure_difference_psi,
+      relay_state,
+      temperature,
+      timestamp
+    } = req.body;
 
-    if (!productId || !real_data) {
-      console.warn('⚠️ [componentInput] Faltan datos requeridos');
-      return res.status(400).json({ message: 'Faltan datos requeridos' });
+    // Validación mínima de datos
+    if (!productId || pressure_valve1_psi === undefined || pressure_valve2_psi === undefined) {
+      console.log('⚠️ [componentInput] Faltan datos requeridos');
+      return res.status(400).json({ message: 'Datos incompletos' });
     }
 
-    // Buscar producto
     const product = await Product.findById(productId);
     if (!product) {
-      console.warn(`❌ [componentInput] Producto no encontrado: ${productId}`);
+      console.log('❌ [componentInput] Producto no encontrado');
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
-    console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.product_type})`);
-    const tipo = (product.product_type || '').toLowerCase();
+    console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.type})`);
 
-    // Actualizar actividad
-    product.last_time_active = Date.now();
+    // Solo aplica lógica especial para productos tipo osmosis
+    if (product.type === 'osmosis') {
+      console.log('🧩 [componentInput] Tipo de producto detectado: osmosis');
 
-    // Limpieza de _id en status
-    product.status = product.status.map(s => {
-      if (s._id && typeof s._id === 'object' && '$oid' in s._id) {
-        delete s._id;
-      }
-      return s;
-    });
-
-    await product.save();
-
-    // Actualizar controller si existe
-    const controller = await Controller.findOne({ product: productId });
-    if (controller) {
-      controller.last_time_active = Date.now();
-      await controller.save();
-    }
-
-    // ==========================================================
-    // 🧩 Lógica para productos tipo "Osmosis"
-    // ==========================================================
-    if (tipo.includes('osmosis')) {
-      console.log('💧 [Osmosis] Procesando datos...');
-      const {
-        tds = 0,
-        temperature = 0,
-        flujo_produccion = 0,
-        flujo_rechazo = 0
-      } = real_data;
-
-      if (!tiempo_inicio || !tiempo_fin) {
-        console.warn('⚠️ [Osmosis] Faltan tiempos de inicio/fin');
-        return res.status(400).json({ message: 'Faltan tiempos de inicio/fin' });
-      }
-
-      // Si no hay flujos, no generamos log
-      if (flujo_produccion === 0 && flujo_rechazo === 0) {
-        console.log('⚙️ [Osmosis] Sin flujo detectado, omitiendo log');
-        return res.status(204).send();
-      }
-
-      const inicio = new Date(tiempo_inicio);
-      const fin = new Date(tiempo_fin);
-      const duracionMin = (fin - inicio) / (1000 * 60);
-
-      const production_volume = flujo_produccion * duracionMin;
-      const rejected_volume = flujo_rechazo * duracionMin;
-
-      const log = new ProductLog({
-        producto: productId,
-        product_id: product.id,
-        tds,
-        temperature,
-        flujo_produccion,
-        flujo_rechazo,
-        production_volume,
-        rejected_volume,
-        tiempo_inicio: inicio,
-        tiempo_fin: fin
-      });
-
-      await log.save();
-
-      updateStatusValue(product, 'flowrate_speed_1', flujo_produccion);
-      updateStatusValue(product, 'flowrate_speed_2', flujo_rechazo);
-      sumStatusValue(product, 'flowrate_total_1', production_volume);
-      sumStatusValue(product, 'flowrate_total_2', rejected_volume);
-      updateStatusValue(product, 'temperature', temperature);
-      updateStatusValue(product, 'tds_out', tds);
-
-      await product.save();
-
-      console.log('✅ [Osmosis] Log creado correctamente:', log._id);
-      return res.status(201).json({ message: 'Log Osmosis creado', log });
-    }
-
-    // ==========================================================
-    // ⚙️ Lógica para productos tipo "Pressure"
-    // ==========================================================
-    if (tipo.includes('pressure')) {
-      console.log('🧩 [Pressure] Procesando datos de presión...');
-
-      const {
-        pressure_valve1_psi = 0,
-        pressure_valve2_psi = 0,
-        pressure_difference_psi = 0,
-        relay_state = false,
-        temperature = 0,
-        timestamp = Date.now()
-      } = real_data;
-
-      // Actualizamos o agregamos los status necesarios
-      const statusMap = {
-        presion_in: pressure_valve1_psi,
-        presion_out: pressure_valve2_psi,
-        pressure_difference: pressure_difference_psi,
-        relay_state,
-        temperature
+      // Asegurar existencia de los status necesarios
+      const ensureStatus = (code, defaultValue = 0) => {
+        let s = product.status.find(st => st.code === code);
+        if (!s) {
+          s = { code, value: defaultValue };
+          product.status.push(s);
+          console.log(`➕ [componentInput] Se agregó status faltante: ${code}`);
+        }
+        return s;
       };
 
-      const updates = [];
-      for (const [code, value] of Object.entries(statusMap)) {
-        const index = product.status.findIndex(s => s.code === code);
-        if (index >= 0) {
-          product.status[index].value = value;
+      const flujoProd = ensureStatus('flujo_produccion', 0);
+      const flujoRech = ensureStatus('flujo_rechazo', 0);
+      const presionDif = ensureStatus('pressure_difference', 0);
+      const relayState = ensureStatus('relay_state', false);
+      const tempStatus = ensureStatus('temperature', 0);
+
+      // Actualizar valores de presión, temperatura y relay
+      presionDif.value = pressure_difference_psi ?? 0;
+      relayState.value = relay_state ?? false;
+      tempStatus.value = temperature ?? 0;
+
+      // Detectar cambio de estado del relay (ON → OFF)
+      const lastRelay = relayState.value;
+      const currentRelay = relay_state;
+
+      if (currentRelay === true && !product.status.find(s => s.code === 'start_time')) {
+        // Inicio de ciclo
+        product.status.push({ code: 'start_time', value: timestamp });
+        console.log('▶️ [Osmosis] Ciclo iniciado');
+      } else if (currentRelay === false) {
+        // Buscar si había un tiempo de inicio
+        const start = product.status.find(s => s.code === 'start_time');
+        if (start) {
+          const elapsed = Math.max(0, timestamp - start.value);
+          console.log(`⏱️ [Osmosis] Ciclo completado en ${elapsed} ms`);
+
+          // Calcular litros producidos/rechazados estimados según presión
+          const litrosProd = (pressure_valve1_psi / 100) * (elapsed / 1000);
+          const litrosRech = (pressure_valve2_psi / 100) * (elapsed / 1000);
+
+          flujoProd.value += litrosProd;
+          flujoRech.value += litrosRech;
+
+          console.log(
+            `💧 [Osmosis] Flujo producción +${litrosProd.toFixed(2)} L | Flujo rechazo +${litrosRech.toFixed(2)} L`
+          );
+
+          // Eliminar start_time tras finalizar ciclo
+          product.status = product.status.filter(s => s.code !== 'start_time');
         } else {
-          product.status.push({ code, value });
+          console.log('⚠️ [Osmosis] Faltan tiempos de inicio/fin — relay OFF sin start_time previo');
         }
-        updates.push({ code, value });
       }
 
       await product.save();
-      console.log('✅ [Pressure] Status actualizados:', updates);
+      console.log('💾 [componentInput] Datos de osmosis actualizados correctamente');
 
-      // Crear log seguro sin campos requeridos de ósmosis
-      try {
-        const log = await ProductLog.create({
-          producto: productId,
-          product_id: product.id,
-          presion_in: pressure_valve1_psi,
-          presion_out: pressure_valve2_psi,
-          pressure_difference_psi,
-          relay_state,
-          temperature,
-          tiempo_inicio: new Date(),
-          tiempo_fin: new Date(),
-          timestamp
-        });
-        console.log('✅ [Pressure] Log registrado correctamente:', log._id);
-      } catch (logErr) {
-        console.error('❌ [Pressure] Error al registrar log:', logErr);
-      }
-
-      return res.status(201).json({ message: 'Lectura Pressure procesada correctamente' });
+      return res.json({ message: 'Datos de osmosis actualizados', product });
     }
 
-    // ==========================================================
-    // 🔹 Tipos no reconocidos
-    // ==========================================================
-    console.warn(`⚠️ [componentInput] Tipo de producto no soportado: ${product.product_type}`);
-    return res.status(400).json({
-      message: `Tipo de producto no soportado: ${product.product_type}`
-    });
+    console.log('ℹ️ [componentInput] Producto no es de tipo osmosis, sin lógica especial');
+    return res.json({ message: 'Producto actualizado sin lógica especial' });
 
   } catch (error) {
-    console.error('❌ [componentInput] Error general:', error);
-    return res.status(500).json({ message: 'Error interno del servidor', error: error.message });
+    console.error('🔥 [componentInput] Error inesperado:', error);
+    return res.status(500).json({ message: 'Error en el servidor', error: error.message });
   }
 };
+
 
 
 // 🔁 Actualiza o reemplaza valores
