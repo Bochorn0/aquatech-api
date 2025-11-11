@@ -108,6 +108,32 @@ export async function getDeviceLogs(query) {
 
 
 // ---------------------------------------------
+// Fetch device logs for routine (separate function to avoid breaking existing functionality)
+// ---------------------------------------------
+export async function getDeviceLogsForRoutine(query) {
+  const { id, start_date, end_date, fields, size = 100, last_row_key } = query;
+  const safeStart = Number(start_date);
+  const safeEnd = Number(end_date);
+  const encodedFields = encodeURIComponent(fields);
+
+  const path = `/v2.0/cloud/thing/${id}/report-logs?codes=${encodedFields}&start_time=${safeStart}&end_time=${safeEnd}&size=${size}` +
+                (last_row_key ? `&last_row_key=${last_row_key}` : '');
+
+  console.log('[getDeviceLogsForRoutine] path', path);
+
+  try {
+    const response = await context.request({ method: 'GET', path });
+    const responseData = handleResponse(response);
+
+    if (responseData.success && responseData.data) return responseData;
+    return { success: false, error: 'No logs found' };
+  } catch (error) {
+    console.error('Error fetching device logs for routine:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// ---------------------------------------------
 // Execute commands on device
 // ---------------------------------------------
 export async function executeCommands(data) {

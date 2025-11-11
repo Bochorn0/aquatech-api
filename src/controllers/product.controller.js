@@ -1108,7 +1108,7 @@ export const fetchLogsRoutine = async (req, res) => {
               size: 100, // Últimos 100 logs por código
             };
 
-            const response = await tuyaService.getDeviceLogs(filters);
+            const response = await tuyaService.getDeviceLogsForRoutine(filters);
 
             if (response.success && response.data && response.data.logs && response.data.logs.length > 0) {
               const codeLogs = response.data.logs;
