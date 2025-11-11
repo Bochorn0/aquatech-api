@@ -1,6 +1,6 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput } from '../controllers/product.controller.js'; // Named imports
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine } from '../controllers/product.controller.js'; // Named imports
 import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -28,6 +28,9 @@ router.post('/saveAllProducts', authenticate, authorizeRoles('admin'), saveAllPr
 
 // Test ESP32 DAta
 router.post('/componentInput', authenticate, authorizeRoles('admin'), componentInput);
+
+// Fetch logs routine - Manual trigger endpoint
+router.post('/fetchLogsRoutine', authenticate, fetchLogsRoutine);
 
 
 export default router;

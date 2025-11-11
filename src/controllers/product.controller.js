@@ -1024,3 +1024,236 @@ function getRandomCoordinateInMexico(mexicoCities) {
 //   { state: "Yucatan", city: "Valladolid", lat: 20.6897, lon: -88.2011 },
 //   { state: "Yucatan", city: "Tizimin", lat: 21.1422, lon: -88.1508 }
 // ];
+
+
+/* ======================================================
+   🔄 RUTINA DE LOGS - Fetch logs from Tuya and save to DB
+   ====================================================== */
+
+/**
+ * Routine para obtener logs de productos whitelist y guardarlos en la BD
+ * Se puede ejecutar manualmente via endpoint o con un cron job
+ */
+export const fetchLogsRoutine = async (req, res) => {
+  try {
+    console.log('🔄 [fetchLogsRoutine] Iniciando rutina de obtención de logs...');
+
+    // ====== WHITELIST DE PRODUCTOS ======
+    // TODO: Mover esto a una variable de entorno o configuración
+    const productosWhitelist = [
+      'bf0c814f0e398c87b7jpat', // Ejemplo de product ID
+      // Agrega más IDs aquí según necesites
+    ];
+
+    // Si no hay productos en whitelist, responder con error
+    if (!productosWhitelist || productosWhitelist.length === 0) {
+      console.warn('⚠️ [fetchLogsRoutine] No hay productos en la whitelist');
+      return res.status(400).json({
+        success: false,
+        message: 'No products in whitelist',
+      });
+    }
+
+    console.log(`📋 [fetchLogsRoutine] Procesando ${productosWhitelist.length} productos...`);
+
+    // ====== CONFIGURACIÓN DE TIEMPO ======
+    const now = Date.now();
+    const fiveMinutesAgo = now - (5 * 60 * 1000); // Últimos 5 minutos
+
+    // ====== CÓDIGOS DE LOGS A OBTENER ======
+    const logCodes = [
+      'flowrate_speed_1',
+      'flowrate_speed_2',
+      'flowrate_total_1',
+      'flowrate_total_2',
+      'tds_out'
+    ];
+
+    const results = {
+      success: [],
+      errors: [],
+      totalLogsInserted: 0,
+    };
+
+    // ====== PROCESAR CADA PRODUCTO ======
+    for (const productId of productosWhitelist) {
+      try {
+        console.log(`\n📦 [fetchLogsRoutine] Procesando producto: ${productId}`);
+
+        // Verificar que el producto existe en la BD
+        const product = await Product.findOne({ id: productId });
+        if (!product) {
+          console.warn(`⚠️ [fetchLogsRoutine] Producto ${productId} no encontrado en BD`);
+          results.errors.push({
+            productId,
+            error: 'Product not found in database',
+          });
+          continue;
+        }
+
+        // ====== OBTENER LOGS DE TUYA POR CADA CÓDIGO (SEPARADO) ======
+        // Es importante hacer consultas separadas ya que cada una tiene límite de 100 registros
+        const allTuyaLogs = [];
+        let totalLogsFetched = 0;
+
+        for (const code of logCodes) {
+          try {
+            console.log(`🔍 [fetchLogsRoutine] Obteniendo logs de código '${code}' para ${productId}...`);
+            
+            const filters = {
+              id: productId,
+              start_date: fiveMinutesAgo,
+              end_date: now,
+              fields: code, // ⚠️ IMPORTANTE: Solo un código a la vez
+              size: 100, // Últimos 100 logs por código
+            };
+
+            const response = await tuyaService.getDeviceLogs(filters);
+
+            if (response.success && response.data && response.data.logs && response.data.logs.length > 0) {
+              const codeLogs = response.data.logs;
+              allTuyaLogs.push(...codeLogs);
+              totalLogsFetched += codeLogs.length;
+              console.log(`  ✅ ${codeLogs.length} logs obtenidos para código '${code}'`);
+            } else {
+              console.log(`  ⚠️ No se encontraron logs para código '${code}'`);
+            }
+
+            // Pequeña pausa entre requests para no saturar la API
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+          } catch (codeError) {
+            console.error(`  ❌ Error obteniendo logs para código '${code}':`, codeError.message);
+          }
+        }
+
+        if (allTuyaLogs.length === 0) {
+          console.warn(`⚠️ [fetchLogsRoutine] No se encontraron logs en Tuya para ${productId}`);
+          results.errors.push({
+            productId,
+            error: 'No logs found in Tuya',
+          });
+          continue;
+        }
+
+        console.log(`✅ [fetchLogsRoutine] Total ${totalLogsFetched} logs obtenidos de Tuya para ${productId} (${logCodes.length} códigos)`);
+
+        // ====== AGRUPAR LOGS POR TIMESTAMP ======
+        const groupedLogs = {};
+
+        allTuyaLogs.forEach(log => {
+          const timestamp = log.event_time;
+          
+          if (!groupedLogs[timestamp]) {
+            groupedLogs[timestamp] = {
+              product_id: productId,
+              producto: product._id,
+              date: new Date(timestamp),
+              source: 'tuya',
+              // Valores por defecto
+              tds: 0,
+              production_volume: 0,
+              rejected_volume: 0,
+              temperature: 0,
+              flujo_produccion: 0,
+              flujo_rechazo: 0,
+              tiempo_inicio: Math.floor(timestamp / 1000),
+              tiempo_fin: Math.floor(timestamp / 1000),
+            };
+          }
+
+          // Mapear cada código a su campo correspondiente
+          switch (log.code) {
+            case 'flowrate_speed_1':
+              groupedLogs[timestamp].flujo_produccion = Number(log.value) || 0;
+              break;
+            case 'flowrate_speed_2':
+              groupedLogs[timestamp].flujo_rechazo = Number(log.value) || 0;
+              break;
+            case 'flowrate_total_1':
+              groupedLogs[timestamp].production_volume = Number(log.value) || 0;
+              break;
+            case 'flowrate_total_2':
+              groupedLogs[timestamp].rejected_volume = Number(log.value) || 0;
+              break;
+            case 'tds_out':
+              groupedLogs[timestamp].tds = Number(log.value) || 0;
+              break;
+          }
+        });
+
+        // ====== GUARDAR EN BASE DE DATOS ======
+        const logsToSave = Object.values(groupedLogs);
+        console.log(`💾 [fetchLogsRoutine] Guardando ${logsToSave.length} logs agrupados en BD para ${productId}...`);
+
+        let insertedCount = 0;
+
+        for (const logData of logsToSave) {
+          try {
+            // Verificar si ya existe un log similar (evitar duplicados)
+            const existingLog = await ProductLog.findOne({
+              product_id: productId,
+              date: logData.date,
+            });
+
+            if (!existingLog) {
+              const newLog = new ProductLog(logData);
+              await newLog.save();
+              insertedCount++;
+            } else {
+              console.log(`⏭️ [fetchLogsRoutine] Log duplicado, omitiendo... ${logData.date}`);
+            }
+          } catch (saveError) {
+            console.error(`❌ [fetchLogsRoutine] Error guardando log individual:`, saveError.message);
+          }
+        }
+
+        console.log(`✅ [fetchLogsRoutine] ${insertedCount} logs insertados para ${productId}`);
+        
+        results.success.push({
+          productId,
+          logsInserted: insertedCount,
+          totalLogsFromTuya: totalLogsFetched,
+          codesFetched: logCodes.length,
+        });
+
+        results.totalLogsInserted += insertedCount;
+
+      } catch (productError) {
+        console.error(`❌ [fetchLogsRoutine] Error procesando producto ${productId}:`, productError.message);
+        results.errors.push({
+          productId,
+          error: productError.message,
+        });
+      }
+    }
+
+    // ====== RESPUESTA FINAL ======
+    console.log('✅ [fetchLogsRoutine] Rutina completada');
+    console.log(`📊 [fetchLogsRoutine] Resumen: ${results.success.length} exitosos, ${results.errors.length} errores`);
+    console.log(`📊 [fetchLogsRoutine] Total logs insertados: ${results.totalLogsInserted}`);
+
+    return res.json({
+      success: true,
+      message: 'Logs routine completed',
+      summary: {
+        productsProcessed: productosWhitelist.length,
+        successfulProducts: results.success.length,
+        failedProducts: results.errors.length,
+        totalLogsInserted: results.totalLogsInserted,
+      },
+      details: {
+        success: results.success,
+        errors: results.errors,
+      },
+    });
+
+  } catch (error) {
+    console.error('❌ [fetchLogsRoutine] Error general en rutina:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error executing logs routine',
+      error: error.message,
+    });
+  }
+};
