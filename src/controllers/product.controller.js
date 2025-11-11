@@ -594,9 +594,6 @@ export const sendDeviceCommands = async (req, res) => {
 };
 
 // controllers/productsController.js
-// controllers/productsController.js
-import Product from '../models/Product.js';
-
 export const componentInput = async (req, res) => {
   try {
     console.log('📥 [componentInput] Body recibido:', req.body);
