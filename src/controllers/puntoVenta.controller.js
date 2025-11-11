@@ -92,15 +92,34 @@ export const getPuntoVentaById = async (req, res) => {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }
 
-    // Calcular online según controladores
+    // Calcular estado online según controladores
     const now = Date.now();
     const ONLINE_THRESHOLD_MS = 5000;
     const tieneControladorOnline = punto.controladores?.some(
       ctrl => ctrl.last_time_active && (now - ctrl.last_time_active <= ONLINE_THRESHOLD_MS)
     );
 
+    // Aplicar lógica especial para productos específicos
+    const productosModificados = punto.productos?.map(prod => {
+      if (prod.id === 'ebf9738480d78e0132gnru') {
+        const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
+        const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
+        prod.status = prod.status.map(stat => {
+          if (flujos_codes.includes(stat.code)) {
+            stat.value = (stat.value * 1.6).toFixed(2);
+          }
+          if (flujos_total_codes.includes(stat.code)) {
+            stat.value = (stat.value / 10).toFixed(2);
+          }
+          return stat;
+        });
+      }
+      return prod;
+    });
+
     const safePunto = {
       ...punto.toObject(),
+      productos: productosModificados,
       online: tieneControladorOnline,
     };
 
