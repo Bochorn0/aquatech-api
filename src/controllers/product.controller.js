@@ -662,7 +662,7 @@ async function handleOsmosisProduct(product, data) {
 
 // ⚙️ — PRESIÓN
 // 🔧 Lógica específica para productos de tipo "pressure"
-async function handlePressure(product, body) {
+async function handlePressureProduct(product, body) {
   try {
     console.log('🟦 [handlePressure] Iniciando lógica para producto tipo presión');
     console.log('📄 [handlePressure] Datos recibidos:', JSON.stringify(body, null, 2));
