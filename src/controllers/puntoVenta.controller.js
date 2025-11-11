@@ -92,29 +92,47 @@ export const getPuntoVentaById = async (req, res) => {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }
 
-    // Calcular estado online según controladores
+    // Calcular online según controladores
     const now = Date.now();
     const ONLINE_THRESHOLD_MS = 5000;
     const tieneControladorOnline = punto.controladores?.some(
       ctrl => ctrl.last_time_active && (now - ctrl.last_time_active <= ONLINE_THRESHOLD_MS)
     );
 
-    // Aplicar lógica especial para productos específicos
-    const productosModificados = punto.productos?.map(prod => {
-      if (prod.id === 'ebf9738480d78e0132gnru') {
+    // 🧩 Lista configurable de productos especiales (ósmosis, etc.)
+    const PRODUCTOS_ESPECIALES = [
+      'ebf9738480d78e0132gnru', // ejemplo actual
+      // puedes agregar más IDs aquí
+    ];
+
+    // Aplicar la lógica de conversión para productos especiales
+    const productosModificados = punto.productos?.map(product => {
+      if (!product?.status) return product;
+
+      product.status = product.status.map(stat => {
         const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
         const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
-        prod.status = prod.status.map(stat => {
-          if (flujos_codes.includes(stat.code)) {
-            stat.value = (stat.value * 1.6).toFixed(2);
-          }
+        const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
+
+        const esEspecial = PRODUCTOS_ESPECIALES.includes(product.id);
+
+        // 🔹 Caso especial: productos de ósmosis u otros con calibración diferente
+        if (esEspecial && flujos_codes.includes(stat.code)) {
+          stat.value = (stat.value * 1.6).toFixed(2);
           if (flujos_total_codes.includes(stat.code)) {
             stat.value = (stat.value / 10).toFixed(2);
           }
-          return stat;
-        });
-      }
-      return prod;
+        }
+
+        // 🔹 Conversión general para flujos instantáneos
+        if (arrayCodes.includes(stat.code) && stat.value > 0) {
+          stat.value = (stat.value / 10).toFixed(2);
+        }
+
+        return stat;
+      });
+
+      return product;
     });
 
     const safePunto = {
