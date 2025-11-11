@@ -799,7 +799,7 @@ export const componentInput = async (req, res) => {
         result = await handleOsmosisProduct(product, data);
         break;
 
-      case 'pressure':
+      case 'Pressure':
       case 'Presión':
       case 'Presion':
         result = await handlePressureProduct(product, data);
