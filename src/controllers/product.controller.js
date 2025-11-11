@@ -595,11 +595,14 @@ export const sendDeviceCommands = async (req, res) => {
 
 export const componentInput = async (req, res) => {
   try {
-    const { producto, real_data, tiempo_inicio, tiempo_fin } = req.body;
     console.log('body', req.body);
 
-    if (!producto || !real_data) {
-      return res.status(400).json({ message: 'Faltan datos requeridos' });
+    // Permitir productId o producto
+    const producto = req.body.producto || req.body.productId;
+    const real_data = req.body.real_data || req.body;
+
+    if (!producto) {
+      return res.status(400).json({ message: 'Falta el ID del producto' });
     }
 
     // 🔹 Buscar producto
@@ -608,89 +611,26 @@ export const componentInput = async (req, res) => {
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
-    // 🔹 Actualizar actividad del producto
     product.last_time_active = Date.now();
 
-    // 🧹 Limpieza de _id inválidos en status
+    // Limpiar _id de status
     product.status = product.status.map(s => {
-      if (s._id && typeof s._id === 'object' && '$oid' in s._id) {
-        delete s._id;
-      }
+      if (s._id && typeof s._id === 'object' && '$oid' in s._id) delete s._id;
       return s;
     });
-
     await product.save();
 
-    // 🔹 Actualizar controller (si existe)
+    // Buscar controlador asociado
     const controller = await Controller.findOne({ product: producto });
     if (controller) {
       controller.last_time_active = Date.now();
       await controller.save();
     }
 
-    // ====================================================
-    // 🧠 Determinar tipo de producto
-    // ====================================================
     const tipo = product.product_type?.toLowerCase();
 
     // ====================================================
-    // 🔹 Lógica para productos tipo "Osmosis"
-    // ====================================================
-    if (tipo === 'osmosis') {
-      const {
-        tds = 0,
-        temperature = 0,
-        flujo_produccion = 0,
-        flujo_rechazo = 0
-      } = real_data;
-
-      if (!tiempo_inicio || !tiempo_fin) {
-        return res.status(400).json({ message: 'Faltan tiempos de inicio/fin' });
-      }
-
-      // Si no hay flujos, no creamos log
-      if (flujo_produccion === 0 && flujo_rechazo === 0) {
-        return res.status(204).send();
-      }
-
-      const inicio = new Date(tiempo_inicio);
-      const fin = new Date(tiempo_fin);
-      const duracionMin = (fin - inicio) / (1000 * 60); // minutos
-
-      const production_volume = flujo_produccion * duracionMin;
-      const rejected_volume = flujo_rechazo * duracionMin;
-
-      // Crear log del producto Osmosis
-      const log = new ProductLog({
-        producto,
-        product_id: product.id,
-        tds,
-        temperature,
-        flujo_produccion,
-        flujo_rechazo,
-        production_volume,
-        rejected_volume,
-        tiempo_inicio: inicio,
-        tiempo_fin: fin
-      });
-      await log.save();
-
-      // Actualizar status del producto
-      updateStatusValue(product, 'flowrate_speed_1', flujo_produccion);
-      updateStatusValue(product, 'flowrate_speed_2', flujo_rechazo);
-      sumStatusValue(product, 'flowrate_total_1', production_volume);
-      sumStatusValue(product, 'flowrate_total_2', rejected_volume);
-      updateStatusValue(product, 'temperature', temperature);
-      updateStatusValue(product, 'tds_out', tds);
-
-      await product.save();
-
-      console.log('log Osmosis', log);
-      return res.status(201).json({ message: 'Log Osmosis creado', log });
-    }
-
-    // ====================================================
-    // 🔹 Lógica para productos tipo "Pressure"
+    // 🔹 Lógica Pressure
     // ====================================================
     if (tipo === 'pressure') {
       const {
@@ -702,7 +642,6 @@ export const componentInput = async (req, res) => {
         timestamp
       } = real_data;
 
-      // Crear un log básico (puedes crear otro modelo si lo deseas)
       const log = new ProductLog({
         producto,
         product_id: product.id,
@@ -717,7 +656,6 @@ export const componentInput = async (req, res) => {
       });
       await log.save();
 
-      // Actualizar status de presiones y temperatura
       updateStatusValue(product, 'presion_in', pressure_valve1_psi);
       updateStatusValue(product, 'presion_out', pressure_valve2_psi);
       updateStatusValue(product, 'relay_state', relay_state);
@@ -731,8 +669,53 @@ export const componentInput = async (req, res) => {
     }
 
     // ====================================================
-    // 🔹 Tipo no reconocido
+    // 🔹 Lógica Osmosis (igual que antes)
     // ====================================================
+    if (tipo === 'osmosis') {
+      const {
+        tds = 0,
+        temperature = 0,
+        flujo_produccion = 0,
+        flujo_rechazo = 0
+      } = real_data;
+
+      if (!req.body.tiempo_inicio || !req.body.tiempo_fin) {
+        return res.status(400).json({ message: 'Faltan tiempos de inicio/fin' });
+      }
+
+      const inicio = new Date(req.body.tiempo_inicio);
+      const fin = new Date(req.body.tiempo_fin);
+      const duracionMin = (fin - inicio) / (1000 * 60);
+      const production_volume = flujo_produccion * duracionMin;
+      const rejected_volume = flujo_rechazo * duracionMin;
+
+      const log = new ProductLog({
+        producto,
+        product_id: product.id,
+        tds,
+        temperature,
+        flujo_produccion,
+        flujo_rechazo,
+        production_volume,
+        rejected_volume,
+        tiempo_inicio: inicio,
+        tiempo_fin: fin
+      });
+      await log.save();
+
+      updateStatusValue(product, 'flowrate_speed_1', flujo_produccion);
+      updateStatusValue(product, 'flowrate_speed_2', flujo_rechazo);
+      sumStatusValue(product, 'flowrate_total_1', production_volume);
+      sumStatusValue(product, 'flowrate_total_2', rejected_volume);
+      updateStatusValue(product, 'temperature', temperature);
+      updateStatusValue(product, 'tds_out', tds);
+
+      await product.save();
+
+      console.log('log Osmosis', log);
+      return res.status(201).json({ message: 'Log Osmosis creado', log });
+    }
+
     return res.status(400).json({
       message: `Tipo de producto no soportado: ${product.product_type}`
     });
@@ -742,6 +725,7 @@ export const componentInput = async (req, res) => {
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
+
 
 
 // 🔁 Actualiza o reemplaza valores
