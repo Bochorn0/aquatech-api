@@ -594,6 +594,8 @@ export const sendDeviceCommands = async (req, res) => {
 };
 
 // controllers/productsController.js
+// controllers/productsController.js
+import Product from '../models/Product.js';
 
 export const componentInput = async (req, res) => {
   try {
@@ -609,12 +611,13 @@ export const componentInput = async (req, res) => {
       timestamp
     } = req.body;
 
-    // Validación mínima de datos
+    // ✅ Validación mínima de datos
     if (!productId || pressure_valve1_psi === undefined || pressure_valve2_psi === undefined) {
       console.log('⚠️ [componentInput] Faltan datos requeridos');
       return res.status(400).json({ message: 'Datos incompletos' });
     }
 
+    // ✅ Buscar producto
     const product = await Product.findById(productId);
     if (!product) {
       console.log('❌ [componentInput] Producto no encontrado');
@@ -623,11 +626,11 @@ export const componentInput = async (req, res) => {
 
     console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.type})`);
 
-    // Solo aplica lógica especial para productos tipo osmosis
+    // ✅ Solo aplica lógica especial si es osmosis
     if (product.type === 'osmosis') {
       console.log('🧩 [componentInput] Tipo de producto detectado: osmosis');
 
-      // Asegurar existencia de los status necesarios
+      // Función auxiliar para asegurar que el status exista
       const ensureStatus = (code, defaultValue = 0) => {
         let s = product.status.find(st => st.code === code);
         if (!s) {
@@ -638,27 +641,26 @@ export const componentInput = async (req, res) => {
         return s;
       };
 
+      // ✅ Asegurar que existan los status que se van a actualizar
       const flujoProd = ensureStatus('flujo_produccion', 0);
       const flujoRech = ensureStatus('flujo_rechazo', 0);
       const presionDif = ensureStatus('pressure_difference', 0);
       const relayState = ensureStatus('relay_state', false);
       const tempStatus = ensureStatus('temperature', 0);
 
-      // Actualizar valores de presión, temperatura y relay
-      presionDif.value = pressure_difference_psi ?? 0;
-      relayState.value = relay_state ?? false;
-      tempStatus.value = temperature ?? 0;
+      // Guardar valores previos (para detectar cambios)
+      const lastRelayState = relayState.value;
 
-      // Detectar cambio de estado del relay (ON → OFF)
-      const lastRelay = relayState.value;
-      const currentRelay = relay_state;
+      // ✅ Actualizar valores de presión, temperatura y relay
+      presionDif.value = pressure_difference_psi ?? presionDif.value;
+      relayState.value = relay_state ?? relayState.value;
+      tempStatus.value = temperature ?? tempStatus.value;
 
-      if (currentRelay === true && !product.status.find(s => s.code === 'start_time')) {
-        // Inicio de ciclo
+      // ✅ Detectar inicio/fin de ciclo del relay
+      if (relay_state === true && !product.status.find(s => s.code === 'start_time')) {
         product.status.push({ code: 'start_time', value: timestamp });
         console.log('▶️ [Osmosis] Ciclo iniciado');
-      } else if (currentRelay === false) {
-        // Buscar si había un tiempo de inicio
+      } else if (relay_state === false && lastRelayState === true) {
         const start = product.status.find(s => s.code === 'start_time');
         if (start) {
           const elapsed = Math.max(0, timestamp - start.value);
@@ -675,19 +677,21 @@ export const componentInput = async (req, res) => {
             `💧 [Osmosis] Flujo producción +${litrosProd.toFixed(2)} L | Flujo rechazo +${litrosRech.toFixed(2)} L`
           );
 
-          // Eliminar start_time tras finalizar ciclo
+          // Eliminar start_time después de finalizar ciclo
           product.status = product.status.filter(s => s.code !== 'start_time');
         } else {
-          console.log('⚠️ [Osmosis] Faltan tiempos de inicio/fin — relay OFF sin start_time previo');
+          console.log('⚠️ [Osmosis] Relay OFF sin start_time previo — posible reinicio o pérdida de estado');
         }
       }
 
+      // ✅ Guardar cambios en MongoDB
       await product.save();
       console.log('💾 [componentInput] Datos de osmosis actualizados correctamente');
 
       return res.json({ message: 'Datos de osmosis actualizados', product });
     }
 
+    // ✅ Si no es osmosis, solo registrar y salir
     console.log('ℹ️ [componentInput] Producto no es de tipo osmosis, sin lógica especial');
     return res.json({ message: 'Producto actualizado sin lógica especial' });
 
