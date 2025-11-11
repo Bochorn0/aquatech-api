@@ -1058,7 +1058,14 @@ export const fetchLogsRoutine = async (req, res) => {
 
     // ====== CONFIGURACIÓN DE TIEMPO ======
     const now = Date.now();
-    const fiveMinutesAgo = now - (5 * 60 * 1000); // Últimos 5 minutos
+    // Por defecto últimos 5 minutos, pero puedes cambiar según necesites
+    // Para pruebas: 24 * 60 * 60 * 1000 (24 horas)
+    // Para producción con cron: 5 * 60 * 1000 (5 minutos)
+    const timeRangeMs = 24 * 60 * 60 * 1000; // ⚠️ TEMPORAL: 24 horas para pruebas
+    const startTime = now - timeRangeMs;
+    
+    console.log(`⏰ [fetchLogsRoutine] Rango de tiempo: ${new Date(startTime).toISOString()} a ${new Date(now).toISOString()}`);
+    console.log(`⏰ [fetchLogsRoutine] Rango en ms: ${startTime} a ${now}`);
 
     // ====== CÓDIGOS DE LOGS A OBTENER ======
     const logCodes = [
@@ -1102,7 +1109,7 @@ export const fetchLogsRoutine = async (req, res) => {
             
             const filters = {
               id: productId,
-              start_date: fiveMinutesAgo,
+              start_date: startTime,
               end_date: now,
               fields: code, // ⚠️ IMPORTANTE: Solo un código a la vez
               size: 100, // Últimos 100 logs por código
