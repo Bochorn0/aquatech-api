@@ -632,41 +632,55 @@ export const componentInput = async (req, res) => {
     // ====================================================
     // 🔹 Lógica Pressure
     // ====================================================
-    if (tipo === 'pressure') {
-      const {
-        pressure_valve1_psi = 0,
-        pressure_valve2_psi = 0,
-        pressure_difference_psi = 0,
-        relay_state = false,
-        temperature = 0,
-        timestamp
-      } = real_data;
+if (tipo === 'pressure') {
+  const {
+    pressure_valve1_psi = 0,
+    pressure_valve2_psi = 0,
+    pressure_difference_psi = 0,
+    relay_state = false,
+    temperature = 0,
+    timestamp
+  } = real_data;
 
-      const log = new ProductLog({
-        producto,
-        product_id: product.id,
-        presion_in: pressure_valve1_psi,
-        presion_out: pressure_valve2_psi,
-        diferencia: pressure_difference_psi,
-        relay_state,
-        temperature,
-        tiempo_inicio: new Date(),
-        tiempo_fin: new Date(),
-        timestamp
-      });
-      await log.save();
+  // Crear log
+  const log = new ProductLog({
+    producto,
+    product_id: product.id,
+    presion_in: pressure_valve1_psi,
+    presion_out: pressure_valve2_psi,
+    diferencia: pressure_difference_psi,
+    relay_state,
+    temperature,
+    tiempo_inicio: new Date(),
+    tiempo_fin: new Date(),
+    timestamp
+  });
+  await log.save();
 
-      updateStatusValue(product, 'presion_in', pressure_valve1_psi);
-      updateStatusValue(product, 'presion_out', pressure_valve2_psi);
-      updateStatusValue(product, 'relay_state', relay_state);
-      updateStatusValue(product, 'temperature', temperature);
-      updateStatusValue(product, 'pressure_difference', pressure_difference_psi);
-
-      await product.save();
-
-      console.log('log Pressure', log);
-      return res.status(201).json({ message: 'Log Pressure creado', log });
+  // Función auxiliar para actualizar o crear status
+  const upsertStatus = (product, code, value) => {
+    let s = product.status.find(st => st.code === code);
+    if (!s) {
+      s = { code, value };
+      product.status.push(s);
+    } else {
+      s.value = value;
     }
+  };
+
+  // Actualizar o crear todos los status relevantes
+  upsertStatus(product, 'presion_in', pressure_valve1_psi);
+  upsertStatus(product, 'presion_out', pressure_valve2_psi);
+  upsertStatus(product, 'pressure_difference', pressure_difference_psi);
+  upsertStatus(product, 'relay_state', relay_state);
+  upsertStatus(product, 'temperature', temperature);
+
+  await product.save();
+
+  console.log('log Pressure', log);
+  return res.status(201).json({ message: 'Log Pressure creado', log });
+}
+
 
     // ====================================================
     // 🔹 Lógica Osmosis (igual que antes)
