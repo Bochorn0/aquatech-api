@@ -1041,7 +1041,7 @@ export const fetchLogsRoutine = async (req, res) => {
     // ====== WHITELIST DE PRODUCTOS ======
     // TODO: Mover esto a una variable de entorno o configuración
     const productosWhitelist = [
-      'bf0c814f0e398c87b7jpat', // Ejemplo de product ID
+      'ebf9738480d78e0132gnru', // Ejemplo de product ID
       // Agrega más IDs aquí según necesites
     ];
 
