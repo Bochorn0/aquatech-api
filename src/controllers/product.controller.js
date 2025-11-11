@@ -593,7 +593,143 @@ export const sendDeviceCommands = async (req, res) => {
   }
 };
 
-// controllers/productsController.js
+
+/* ======================================================
+   🔧 Funciones auxiliares para cada tipo de producto
+   ====================================================== */
+
+// 🧩 — OSMOSIS
+async function handleOsmosisProduct(product, data) {
+  console.log('🧩 [Osmosis] Procesando actualización...');
+  const {
+    pressure_valve1_psi,
+    pressure_valve2_psi,
+    pressure_difference_psi,
+    relay_state,
+    temperature,
+    timestamp
+  } = data;
+
+  // Asegurar existencia de status necesarios
+  const ensureStatus = (code, defaultValue = 0) => {
+    let s = product.status.find(st => st.code === code);
+    if (!s) {
+      s = { code, value: defaultValue };
+      product.status.push(s);
+      console.log(`➕ [Osmosis] Se agregó status faltante: ${code}`);
+    }
+    return s;
+  };
+
+  const flujoProd = ensureStatus('flujo_produccion', 0);
+  const flujoRech = ensureStatus('flujo_rechazo', 0);
+  const presionDif = ensureStatus('pressure_difference', 0);
+  const relayState = ensureStatus('relay_state', false);
+  const tempStatus = ensureStatus('temperature', 0);
+
+  presionDif.value = pressure_difference_psi ?? 0;
+  relayState.value = relay_state ?? false;
+  tempStatus.value = temperature ?? 0;
+
+  const currentRelay = relay_state;
+  const startTime = product.status.find(s => s.code === 'start_time');
+
+  if (currentRelay === true && !startTime) {
+    product.status.push({ code: 'start_time', value: timestamp });
+    console.log('▶️ [Osmosis] Ciclo iniciado');
+  } else if (currentRelay === false && startTime) {
+    const elapsed = Math.max(0, timestamp - startTime.value);
+    console.log(`⏱️ [Osmosis] Ciclo completado en ${elapsed} ms`);
+
+    const litrosProd = (pressure_valve1_psi / 100) * (elapsed / 1000);
+    const litrosRech = (pressure_valve2_psi / 100) * (elapsed / 1000);
+
+    flujoProd.value += litrosProd;
+    flujoRech.value += litrosRech;
+
+    console.log(
+      `💧 [Osmosis] Flujo producción +${litrosProd.toFixed(2)} L | Flujo rechazo +${litrosRech.toFixed(2)} L`
+    );
+
+    // Eliminar start_time tras finalizar ciclo
+    product.status = product.status.filter(s => s.code !== 'start_time');
+  }
+
+  await product.save();
+  console.log('💾 [Osmosis] Datos de osmosis actualizados correctamente');
+  return { success: true, message: 'Datos de osmosis actualizados', product };
+}
+
+// ⚙️ — PRESIÓN
+async function handlePressureProduct(product, data) {
+  console.log('⚙️ [Presión] Procesando actualización...');
+  const { pressure_valve1_psi, pressure_valve2_psi, pressure_difference_psi, relay_state, temperature } = data;
+
+  if (!product.status) product.status = [];
+
+  const updates = [
+    { code: 'pressure_valve1_psi', value: pressure_valve1_psi },
+    { code: 'pressure_valve2_psi', value: pressure_valve2_psi },
+    { code: 'pressure_difference_psi', value: pressure_difference_psi },
+    { code: 'relay_state', value: relay_state },
+    { code: 'temperature', value: temperature },
+  ];
+
+  for (const { code, value } of updates) {
+    if (value === undefined || value === null) continue;
+
+    const existing = product.status.find(s => s.code === code);
+    if (existing) {
+      existing.value = value;
+      console.log(`🔁 [Presión] Actualizado '${code}' = ${value}`);
+    } else {
+      product.status.push({ code, value });
+      console.log(`➕ [Presión] Agregado nuevo status '${code}' = ${value}`);
+    }
+  }
+
+  await product.save();
+  console.log('💾 [Presión] Datos de presión actualizados correctamente');
+  return { success: true, message: 'Datos de presión actualizados', product };
+}
+
+// 🌊 — NIVEL
+async function handleLevelProduct(product, data) {
+  console.log('🌊 [Nivel] Procesando actualización...');
+  const { liquid_depth, liquid_state, liquid_level_percent, max_set, mini_set } = data;
+
+  if (!product.status) product.status = [];
+
+  const updates = [
+    { code: 'liquid_state', value: liquid_state },
+    { code: 'liquid_depth', value: liquid_depth },
+    { code: 'liquid_level_percent', value: liquid_level_percent },
+    { code: 'max_set', value: max_set },
+    { code: 'mini_set', value: mini_set },
+  ];
+
+  for (const { code, value } of updates) {
+    if (value === undefined || value === null) continue;
+
+    const existing = product.status.find(s => s.code === code);
+    if (existing) {
+      existing.value = value;
+      console.log(`🔁 [Nivel] Actualizado '${code}' = ${value}`);
+    } else {
+      product.status.push({ code, value });
+      console.log(`➕ [Nivel] Agregado nuevo status '${code}' = ${value}`);
+    }
+  }
+
+  await product.save();
+  console.log('💾 [Nivel] Datos de nivel actualizados correctamente');
+  return { success: true, message: 'Datos de nivel actualizados', product };
+}
+
+/* ======================================================
+   🎯 Función principal
+   ====================================================== */
+
 export const componentInput = async (req, res) => {
   try {
     console.log('📥 [componentInput] Body recibido:', req.body);
@@ -605,12 +741,17 @@ export const componentInput = async (req, res) => {
       pressure_difference_psi,
       relay_state,
       temperature,
+      liquid_depth,
+      liquid_state,
+      liquid_level_percent,
+      max_set,
+      mini_set,
       timestamp
     } = req.body;
 
     if (!productId) {
-      console.log('⚠️ [componentInput] Falta productId');
-      return res.status(400).json({ message: 'Falta productId' });
+      console.log('⚠️ [componentInput] Faltan datos requeridos');
+      return res.status(400).json({ message: 'Datos incompletos' });
     }
 
     const product = await Product.findById(productId);
@@ -619,114 +760,49 @@ export const componentInput = async (req, res) => {
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
-    console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.type})`);
+    console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.product_type || product.type})`);
 
-    // 🔧 Asegurar función auxiliar para crear o encontrar status
-    const ensureStatus = (code, defaultValue = 0) => {
-      let s = product.status.find(st => st.code === code);
-      if (!s) {
-        s = { code, value: defaultValue };
-        product.status.push(s);
-        console.log(`➕ [componentInput] Se agregó status faltante: ${code}`);
-      }
-      return s;
+    const data = {
+      pressure_valve1_psi,
+      pressure_valve2_psi,
+      pressure_difference_psi,
+      relay_state,
+      temperature,
+      liquid_depth,
+      liquid_state,
+      liquid_level_percent,
+      max_set,
+      mini_set,
+      timestamp,
     };
 
-    // ============================================
-    // 🧩 PRODUCTOS DE TIPO OSMOSIS
-    // ============================================
-    if (product.type === 'osmosis') {
-      console.log('🧩 [componentInput] Tipo de producto detectado: osmosis');
+    let result;
 
-      const flujoProd = ensureStatus('flujo_produccion', 0);
-      const flujoRech = ensureStatus('flujo_rechazo', 0);
-      const presionDif = ensureStatus('pressure_difference', 0);
-      const relayState = ensureStatus('relay_state', false);
-      const tempStatus = ensureStatus('temperature', 0);
+    switch (product.product_type || product.type) {
+      case 'osmosis':
+      case 'Osmosis':
+        result = await handleOsmosisProduct(product, data);
+        break;
 
-      const lastRelayState = relayState.value;
+      case 'pressure':
+      case 'Presión':
+      case 'Presion':
+        result = await handlePressureProduct(product, data);
+        break;
 
-      presionDif.value = pressure_difference_psi ?? presionDif.value;
-      relayState.value = relay_state ?? relayState.value;
-      tempStatus.value = temperature ?? tempStatus.value;
+      case 'nivel':
+      case 'Nivel':
+        result = await handleLevelProduct(product, data);
+        break;
 
-      if (relay_state === true && !product.status.find(s => s.code === 'start_time')) {
-        product.status.push({ code: 'start_time', value: timestamp });
-        console.log('▶️ [Osmosis] Ciclo iniciado');
-      } else if (relay_state === false && lastRelayState === true) {
-        const start = product.status.find(s => s.code === 'start_time');
-        if (start) {
-          const elapsed = Math.max(0, timestamp - start.value);
-          console.log(`⏱️ [Osmosis] Ciclo completado en ${elapsed} ms`);
-
-          const litrosProd = (pressure_valve1_psi / 100) * (elapsed / 1000);
-          const litrosRech = (pressure_valve2_psi / 100) * (elapsed / 1000);
-
-          flujoProd.value += litrosProd;
-          flujoRech.value += litrosRech;
-
-          console.log(
-            `💧 [Osmosis] Flujo producción +${litrosProd.toFixed(2)} L | Flujo rechazo +${litrosRech.toFixed(2)} L`
-          );
-
-          product.status = product.status.filter(s => s.code !== 'start_time');
-        }
-      }
-
-      // ⚡ IMPORTANTE: marcar el campo como modificado
-      product.markModified('status');
-
-      await product.save();
-      console.log('💾 [componentInput] Datos de osmosis guardados correctamente');
-
-      return res.json({
-        message: 'Datos de osmosis actualizados',
-        status: product.status.map(s => ({ code: s.code, value: s.value }))
-      });
+      default:
+        console.log('ℹ️ [componentInput] Tipo de producto sin lógica especial, guardando sin cambios');
+        await product.save();
+        result = { success: true, message: 'Producto actualizado sin lógica especial', product };
+        break;
     }
 
-    // ============================================
-    // 💧 PRODUCTOS DE TIPO NIVEL
-    // ============================================
-    if (product.type === 'Nivel' || product.product_type === 'Nivel') {
-      console.log('🧩 [componentInput] Tipo de producto detectado: Nivel');
-
-      const nivel = ensureStatus('liquid_level_percent', 0);
-      const estado = ensureStatus('liquid_state', 'normal');
-      const profundidad = ensureStatus('liquid_depth', 0);
-
-      // Ejemplo de actualización si vienen valores nuevos
-      if (req.body.liquid_level_percent !== undefined)
-        nivel.value = req.body.liquid_level_percent;
-      if (req.body.liquid_state !== undefined)
-        estado.value = req.body.liquid_state;
-      if (req.body.liquid_depth !== undefined)
-        profundidad.value = req.body.liquid_depth;
-
-      // ⚡ marcar como modificado
-      product.markModified('status');
-
-      await product.save();
-      console.log('💾 [componentInput] Datos de nivel actualizados correctamente');
-
-      return res.json({
-        message: 'Datos de nivel actualizados',
-        status: product.status.map(s => ({ code: s.code, value: s.value }))
-      });
-    }
-
-    // ============================================
-    // 🚫 SI NO COINCIDE CON NINGÚN TIPO
-    // ============================================
-    console.log('ℹ️ [componentInput] Producto sin lógica especial, solo se guarda');
-    product.markModified('status');
-    await product.save();
-
-    return res.json({
-      message: 'Producto actualizado sin lógica especial',
-      status: product.status.map(s => ({ code: s.code, value: s.value }))
-    });
-
+    return res.json(result);
   } catch (error) {
     console.error('🔥 [componentInput] Error inesperado:', error);
     return res.status(500).json({ message: 'Error en el servidor', error: error.message });
