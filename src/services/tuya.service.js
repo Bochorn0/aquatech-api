@@ -109,26 +109,24 @@ export async function getDeviceLogs(query) {
 
 // ---------------------------------------------
 // Fetch device logs for routine (separate function to avoid breaking existing functionality)
-// Uses v1.0 API which works with dev permissions (same as commented version above)
+// Uses the EXACT same implementation as getDeviceLogs which already works
 // ---------------------------------------------
 export async function getDeviceLogsForRoutine(query) {
   const { id, start_date, end_date, fields, size = 100, last_row_key } = query;
-  console.log('[getDeviceLogsForRoutine] Fetching device logs for:', query);
+  const safeStart = Number(start_date);
+  const safeEnd = Number(end_date);
+  const encodedFields = encodeURIComponent(fields);
+
+  const path = `/v2.0/cloud/thing/${id}/report-logs?codes=${encodedFields}&start_time=${safeStart}&end_time=${safeEnd}&size=${size}` +
+                (last_row_key ? `&last_row_key=${last_row_key}` : '');
+
+  console.log('[getDeviceLogsForRoutine] path', path);
 
   try {
-    // Use v1.0 API endpoint which works with dev permissions
-    const response = await context.request({
-      method: 'GET',
-      path: `/v1.0/iot-03/devices/${id}/report-logs?start_time=${start_date}&end_time=${end_date}&codes=${fields}&size=${size}${last_row_key ? `&last_row_key=${last_row_key}` : ''}`
-    });
+    const response = await context.request({ method: 'GET', path });
+    const responseData = handleResponse(response);
 
-    console.log('[getDeviceLogsForRoutine] path', `/v1.0/iot-03/devices/${id}/report-logs?start_time=${start_date}&end_time=${end_date}&codes=${fields}&size=${size}${last_row_key ? `&last_row_key=${last_row_key}` : ''}`);
-
-    const responseData = handleResponse(response);  // Standardized error handling
-
-    if (responseData.success && responseData.data) {
-      return responseData;
-    }
+    if (responseData.success && responseData.data) return responseData;
     return { success: false, error: 'No logs found' };
   } catch (error) {
     console.error('[getDeviceLogsForRoutine] Error fetching device logs:', error.message);
