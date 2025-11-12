@@ -128,8 +128,8 @@ export const getProductLogsReport = async (req, res) => {
       const hourMinute = logDate.format('HH:mm'); // Hora:Minuto
 
       if (hoursMap[hour]) {
-        // TDS
-        if (log.tds !== undefined && log.tds !== null) {
+        // TDS (excluir si es 0)
+        if (log.tds !== undefined && log.tds !== null && log.tds !== 0) {
           hoursMap[hour].tds_agrupado.push({
             tds: log.tds,
             hora: hourMinute,
@@ -137,8 +137,8 @@ export const getProductLogsReport = async (req, res) => {
           });
         }
 
-        // Flujo Producción
-        if (log.flujo_produccion !== undefined && log.flujo_produccion !== null) {
+        // Flujo Producción (excluir si es 0)
+        if (log.flujo_produccion !== undefined && log.flujo_produccion !== null && log.flujo_produccion !== 0) {
           hoursMap[hour].flujo_produccion_agrupado.push({
             flujo_produccion: log.flujo_produccion,
             hora: hourMinute,
@@ -146,8 +146,8 @@ export const getProductLogsReport = async (req, res) => {
           });
         }
 
-        // Flujo Rechazo
-        if (log.flujo_rechazo !== undefined && log.flujo_rechazo !== null) {
+        // Flujo Rechazo (excluir si es 0)
+        if (log.flujo_rechazo !== undefined && log.flujo_rechazo !== null && log.flujo_rechazo !== 0) {
           hoursMap[hour].flujo_rechazo_agrupado.push({
             flujo_rechazo: log.flujo_rechazo,
             hora: hourMinute,
@@ -155,8 +155,8 @@ export const getProductLogsReport = async (req, res) => {
           });
         }
 
-        // Production Volume
-        if (log.production_volume !== undefined && log.production_volume !== null) {
+        // Production Volume (excluir si es 0)
+        if (log.production_volume !== undefined && log.production_volume !== null && log.production_volume !== 0) {
           hoursMap[hour].production_volume_agrupado.push({
             production_volume: log.production_volume,
             hora: hourMinute,
@@ -164,8 +164,8 @@ export const getProductLogsReport = async (req, res) => {
           });
         }
 
-        // Rejected Volume
-        if (log.rejected_volume !== undefined && log.rejected_volume !== null) {
+        // Rejected Volume (excluir si es 0)
+        if (log.rejected_volume !== undefined && log.rejected_volume !== null && log.rejected_volume !== 0) {
           hoursMap[hour].rejected_volume_agrupado.push({
             rejected_volume: log.rejected_volume,
             hora: hourMinute,

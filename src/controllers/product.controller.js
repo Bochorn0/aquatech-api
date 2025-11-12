@@ -1189,11 +1189,23 @@ export const fetchLogsRoutine = async (req, res) => {
           }
         });
 
-        // ====== GUARDAR EN BASE DE DATOS ======
-        const logsToSave = Object.values(groupedLogs);
-        console.log(`💾 [fetchLogsRoutine] Guardando ${logsToSave.length} logs agrupados en BD para ${productId}...`);
+        // ====== FILTRAR LOGS CON VALORES EN 0 ======
+        const logsToSave = Object.values(groupedLogs).filter(log => {
+          // Verificar que al menos un valor sea diferente de 0
+          const hasValidData = 
+            (log.tds !== 0) ||
+            (log.production_volume !== 0) ||
+            (log.rejected_volume !== 0) ||
+            (log.flujo_produccion !== 0) ||
+            (log.flujo_rechazo !== 0);
+          
+          return hasValidData;
+        });
+
+        console.log(`💾 [fetchLogsRoutine] ${logsToSave.length} logs con datos válidos para guardar (de ${Object.values(groupedLogs).length} totales)`);
 
         let insertedCount = 0;
+        let skippedZeros = Object.values(groupedLogs).length - logsToSave.length;
 
         for (const logData of logsToSave) {
           try {
@@ -1213,6 +1225,10 @@ export const fetchLogsRoutine = async (req, res) => {
           } catch (saveError) {
             console.error(`❌ [fetchLogsRoutine] Error guardando log individual:`, saveError.message);
           }
+        }
+
+        if (skippedZeros > 0) {
+          console.log(`⏭️ [fetchLogsRoutine] ${skippedZeros} logs omitidos por tener todos los valores en 0`);
         }
 
         console.log(`✅ [fetchLogsRoutine] ${insertedCount} logs insertados para ${productId}`);
