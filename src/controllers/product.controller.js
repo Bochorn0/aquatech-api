@@ -1061,7 +1061,7 @@ export const fetchLogsRoutine = async (req, res) => {
     // Por defecto últimos 5 minutos, pero puedes cambiar según necesites
     // Para pruebas: 24 * 60 * 60 * 1000 (24 horas)
     // Para producción con cron: 5 * 60 * 1000 (5 minutos)
-    const timeRangeMs = 24 * 60 * 60 * 1000; // ⚠️ TEMPORAL: 24 horas para pruebas
+    const timeRangeMs = 5 * 60 * 1000 ; // ⚠️ TEMPORAL: 24 horas para pruebas
     const startTime = now - timeRangeMs;
     
     console.log(`⏰ [fetchLogsRoutine] Rango de tiempo: ${new Date(startTime).toISOString()} a ${new Date(now).toISOString()}`);
