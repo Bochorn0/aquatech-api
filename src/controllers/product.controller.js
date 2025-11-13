@@ -106,12 +106,14 @@ export const getAllProducts = async (req, res) => {
         };
       } else {
         // Si no existe en BD, usar el producto de Tuya directamente
-        // Asignar cliente por defecto (puedes ajustar esta lógica)
-        const defaultCliente = clientes.find(c => c.name === 'All') || clientes[0];
+        // Asignar cliente Caffenio por defecto y ciudad Hermosillo
+        const defaultCliente = clientes.find(c => c.name === 'Caffenio') || clientes.find(c => c.name === 'All') || clientes[0];
         return {
           ...realProduct,
           cliente: defaultCliente?._id,
           product_type: realProduct.id === 'ebe24cce942e6266b1wixy' ? 'Nivel' : 'Osmosis',
+          city: realProduct.city || 'Hermosillo',
+          state: realProduct.state || 'Sonora',
         };
       }
     });
@@ -393,12 +395,24 @@ export const getProductById = async (req, res) => {
       return res.status(400).json({ message: response.error, code: response.code });
     }
 
-    if (!response || !response.result) {
+    if (!response || !response.data) {
       return res.status(404).json({ message: 'Device not found in Tuya API' });
     }
 
+    // Obtener cliente por defecto (Caffenio preferentemente)
+    const clientes = await Client.find();
+    const defaultCliente = clientes.find(c => c.name === 'Caffenio') || clientes.find(c => c.name === 'All') || clientes[0];
+
     // Save the new product to MongoDB
-    const newProduct = new Product(response.result[0]);
+    const productData = {
+      ...response.data,
+      cliente: defaultCliente._id,
+      product_type: response.data.id === 'ebe24cce942e6266b1wixy' ? 'Nivel' : 'Osmosis',
+      city: response.data.city || 'Hermosillo',
+      state: response.data.state || 'Sonora',
+    };
+    
+    const newProduct = new Product(productData);
     await newProduct.save();
 
     console.log(`Product ${id} saved to MongoDB.`);
