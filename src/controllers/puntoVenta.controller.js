@@ -101,7 +101,8 @@ export const getPuntoVentaById = async (req, res) => {
 
     // 🧩 Lista configurable de productos especiales (ósmosis, etc.)
     const PRODUCTOS_ESPECIALES = [
-      'ebf9738480d78e0132gnru', // ejemplo actual
+      'ebf9738480d78e0132gnru',
+      'ebea4ffa2ab1483940nrqn'
       // puedes agregar más IDs aquí
     ];
 
