@@ -78,55 +78,127 @@ export const getAllProducts = async (req, res) => {
 
     console.log('Fetching products from MongoDB with filters:', filtros);
 
+    // Obtener productos de la BD
+    let dbProducts = await Product.find(filtros);
+    console.log(`📦 Found ${dbProducts.length} products in database`);
+    console.log(`🌐 Found ${realProducts.data.length} products from Tuya`);
 
-    let products = await Product.find(filtros);
-    if (products.length === 0) {
-      console.log('No products found in database. Fetching from Tuya API...');
+    // Crear un mapa de productos de la BD para búsqueda rápida
+    const dbProductsMap = new Map();
+    dbProducts.forEach(p => {
+      dbProductsMap.set(p.id, p);
+    });
+
+    // Combinar productos: usar los de Tuya como base y enriquecerlos con info de la BD
+    const products = realProducts.data.map(realProduct => {
+      const dbProduct = dbProductsMap.get(realProduct.id);
       
-      // Fetch from Tuya API (commented out but should be handled properly)
-      // const tuyaResponse = await tuyaService.getAllDevices();
-      // if (!tuyaResponse || !tuyaResponse.result) {
-      //   return res.status(404).json({ message: 'No products found in Tuya API' });
-      // }
-      // const storedProducts = await Product.insertMany(tuyaResponse.result);
-      // console.log(`${storedProducts.length} products saved to database.`);
-      // products = storedProducts;
-    }
-    products.map((product) => {
-      // Determinar si está online según last_time_active
-      const isOnline = product.last_time_active && (now - product.last_time_active <= ONLINE_THRESHOLD_MS);
-      product.online = isOnline;
-      const realProduct = realProducts.data.find(realProduct => realProduct.id === product.id);
-      if (realProduct) {
-        product.online = realProduct.online;
-        product.name = realProduct.name;
-        product.ip = realProduct.ip;
-        product.status = realProduct.status;
-        if (product.id === 'ebe24cce942e6266b1wixy') {
-          product.product_type = 'Nivel'
-        }
+      if (dbProduct) {
+        // Si existe en BD, usar ese como base y actualizarlo con info de Tuya
+        return {
+          ...dbProduct.toObject(),
+          online: realProduct.online,
+          name: realProduct.name,
+          ip: realProduct.ip,
+          status: realProduct.status,
+          update_time: realProduct.update_time,
+          active_time: realProduct.active_time,
+        };
+      } else {
+        // Si no existe en BD, usar el producto de Tuya directamente
+        // Asignar cliente por defecto (puedes ajustar esta lógica)
+        const defaultCliente = clientes.find(c => c.name === 'All') || clientes[0];
+        return {
+          ...realProduct,
+          cliente: defaultCliente?._id,
+          product_type: realProduct.id === 'ebe24cce942e6266b1wixy' ? 'Nivel' : 'Osmosis',
+        };
       }
-      const cliente = clientes.find(cliente => cliente._id.toString() === product.cliente.toString());
-      product.cliente = cliente;
-      product.status.map((stat) => {
-        // "flowrate_total_1", "flowrate_total_2",
+    });
+
+    console.log(`✅ Total products to show: ${products.length}`);
+
+    // Aplicar transformaciones y filtros
+    const filteredProducts = products.map((product) => {
+      // Determinar si está online
+      product.online = product.online || false;
+      
+      // Tipo de producto especial
+      if (product.id === 'ebe24cce942e6266b1wixy') {
+        product.product_type = 'Nivel';
+      }
+
+      // Buscar y asignar cliente
+      const cliente = clientes.find(cliente => 
+        cliente._id.toString() === (product.cliente?._id?.toString() || product.cliente?.toString())
+      );
+      product.cliente = cliente || clientes.find(c => c.name === 'All') || clientes[0];
+      // Aplicar transformaciones a los status
+      if (product.status && Array.isArray(product.status)) {
+        product.status = product.status.map((stat) => {
           const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
-          const flujos_total_codes = [ "flowrate_total_1", "flowrate_total_2"]
+          const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
+          
           if (product.id === 'ebf9738480d78e0132gnru' && flujos_codes.includes(stat.code)) {
             stat.value = (stat.value * 1.6).toFixed(2);
             if (flujos_total_codes.includes(stat.code)) {
               stat.value = (stat.value / 10).toFixed(2);
             }
           }
+          
           const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
           if (arrayCodes.includes(stat.code) && stat.value > 0) {
-              stat.value = (stat.value / 10).toFixed(2);
+            stat.value = (stat.value / 10).toFixed(2);
           }
+          
           return stat;
-      });
+        });
+      }
+
+      return product;
     });
 
-    res.json(products);
+    // Aplicar filtros adicionales después de combinar
+    let finalProducts = filteredProducts;
+
+    // Filtrar por cliente si es necesario
+    if (filtros.cliente) {
+      finalProducts = finalProducts.filter(p => 
+        p.cliente?._id?.toString() === filtros.cliente.toString()
+      );
+    }
+
+    // Filtrar por ciudad
+    if (filtros.city) {
+      finalProducts = finalProducts.filter(p => p.city === filtros.city);
+    }
+
+    // Filtrar por estado
+    if (filtros.state) {
+      finalProducts = finalProducts.filter(p => p.state === filtros.state);
+    }
+
+    // Filtrar por drive
+    if (filtros.drive) {
+      finalProducts = finalProducts.filter(p => p.drive === filtros.drive);
+    }
+
+    // Filtrar por status online/offline
+    if (filtros.online !== undefined) {
+      finalProducts = finalProducts.filter(p => p.online === filtros.online);
+    }
+
+    // Filtrar por rango de fechas
+    if (filtros.create_time) {
+      finalProducts = finalProducts.filter(p => 
+        p.create_time >= filtros.create_time.$gte && 
+        p.create_time <= filtros.create_time.$lte
+      );
+    }
+
+    console.log(`🎯 Final products after filters: ${finalProducts.length}`);
+
+    res.json(finalProducts);
   } catch (error) {
     console.error('Error fetching products:', error);
     res.status(500).json({ message: 'Error fetching products' });
