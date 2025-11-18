@@ -112,13 +112,16 @@ export const getPuntoVentaById = async (req, res) => {
     const productosModificados = await Promise.all(punto.productos?.map(async (product) => {
       if (!product?.status) return product;
 
+      // Convertir a objeto plano para poder agregar propiedades
+      const productObj = product.toObject ? product.toObject() : { ...product };
+
       // Aplicar transformaciones de status
-      product.status = product.status.map(stat => {
+      productObj.status = productObj.status.map(stat => {
         const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
         const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
         const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
 
-        const esEspecial = PRODUCTOS_ESPECIALES.includes(product.id);
+        const esEspecial = PRODUCTOS_ESPECIALES.includes(productObj.id);
 
         // 🔹 Caso especial: productos de ósmosis u otros con calibración diferente
         if (esEspecial && flujos_codes.includes(stat.code)) {
@@ -137,25 +140,25 @@ export const getPuntoVentaById = async (req, res) => {
       });
 
       // 🔹 Si es producto tipo Nivel, agregar histórico del día actual
-      if (product.product_type === 'Nivel') {
+      if (productObj.product_type === 'Nivel') {
         try {
           const today = moment().format('YYYY-MM-DD');
-          const reportResult = await generateProductLogsReport(product.id, today, product);
+          const reportResult = await generateProductLogsReport(productObj.id, today, product);
           
           if (reportResult.success) {
-            product.historico = reportResult.data;
-            console.log(`📊 Histórico agregado para producto Nivel: ${product.id}`);
+            productObj.historico = reportResult.data;
+            console.log(`📊 Histórico agregado para producto Nivel: ${productObj.id}`);
           } else {
-            console.warn(`⚠️ No se pudo generar histórico para ${product.id}:`, reportResult.error);
-            product.historico = null;
+            console.warn(`⚠️ No se pudo generar histórico para ${productObj.id}:`, reportResult.error);
+            productObj.historico = null;
           }
         } catch (error) {
-          console.error(`❌ Error generando histórico para ${product.id}:`, error.message);
-          product.historico = null;
+          console.error(`❌ Error generando histórico para ${productObj.id}:`, error.message);
+          productObj.historico = null;
         }
       }
 
-      return product;
+      return productObj;
     }) || []);
 
     const safePunto = {
