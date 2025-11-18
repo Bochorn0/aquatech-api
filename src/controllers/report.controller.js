@@ -72,22 +72,23 @@ export async function generateProductLogsReport(product_id, date, product = null
       },
     }).sort({ date: 1 }); // Orden ascendente por fecha
 
-    console.log(`📊 [getProductLogsReport] ${logs.length} logs encontrados`);
+    console.log(`📊 [generateProductLogsReport] ${logs.length} logs encontrados`);
 
     if (logs.length === 0) {
-      return res.json({
+      return {
         success: true,
         message: 'No logs found for this date',
         data: {
           product: {
             id: product.id,
             name: product.name,
+            product_type: productType,
           },
           date: date,
           total_logs: 0,
           hours_with_data: [],
         },
-      });
+      };
     }
 
     // ====== AGRUPAR LOGS POR HORA ======
