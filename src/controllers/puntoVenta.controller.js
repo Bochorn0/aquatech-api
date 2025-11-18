@@ -3,6 +3,8 @@ import Client from '../models/client.model.js';
 import Product from '../models/product.model.js';
 import Controller from '../models/controller.model.js';
 import City from '../models/city.model.js';
+import { generateProductLogsReport } from './report.controller.js';
+import moment from 'moment';
 
 // Obtener todos los puntos de venta
 export const getPuntosVenta = async (req, res) => {
@@ -106,10 +108,11 @@ export const getPuntoVentaById = async (req, res) => {
       // puedes agregar más IDs aquí
     ];
 
-    // Aplicar la lógica de conversión para productos especiales
-    const productosModificados = punto.productos?.map(product => {
+    // Aplicar la lógica de conversión para productos especiales y agregar histórico a productos Nivel
+    const productosModificados = await Promise.all(punto.productos?.map(async (product) => {
       if (!product?.status) return product;
 
+      // Aplicar transformaciones de status
       product.status = product.status.map(stat => {
         const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
         const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
@@ -133,8 +136,27 @@ export const getPuntoVentaById = async (req, res) => {
         return stat;
       });
 
+      // 🔹 Si es producto tipo Nivel, agregar histórico del día actual
+      if (product.product_type === 'Nivel') {
+        try {
+          const today = moment().format('YYYY-MM-DD');
+          const reportResult = await generateProductLogsReport(product.id, today, product);
+          
+          if (reportResult.success) {
+            product.historico = reportResult.data;
+            console.log(`📊 Histórico agregado para producto Nivel: ${product.id}`);
+          } else {
+            console.warn(`⚠️ No se pudo generar histórico para ${product.id}:`, reportResult.error);
+            product.historico = null;
+          }
+        } catch (error) {
+          console.error(`❌ Error generando histórico para ${product.id}:`, error.message);
+          product.historico = null;
+        }
+      }
+
       return product;
-    });
+    }) || []);
 
     const safePunto = {
       ...punto.toObject(),
