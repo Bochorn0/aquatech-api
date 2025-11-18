@@ -1160,11 +1160,37 @@ export const fetchLogsRoutine = async (req, res) => {
     // Por defecto últimos 5 minutos, pero puedes cambiar según necesites
     // Para pruebas: 24 * 60 * 60 * 1000 (24 horas)
     // Para producción con cron: 5 * 60 * 1000 (5 minutos)
-    const timeRangeMs = 5 * 60 * 1000 ; // ⚠️ TEMPORAL: 24 horas para pruebas
+    const timeRangeMs = 5 * 60 * 1000 ; // 5 minutos
     const startTime = now - timeRangeMs;
     
-    console.log(`⏰ [fetchLogsRoutine] Rango de tiempo: ${new Date(startTime).toISOString()} a ${new Date(now).toISOString()}`);
-    console.log(`⏰ [fetchLogsRoutine] Rango en ms: ${startTime} a ${now}`);
+    // Crear objetos Date
+    const nowDate = new Date(now);
+    const startDate = new Date(startTime);
+    
+    // Formatear para zona horaria de Hermosillo
+    const formatOptions = {
+      timeZone: 'America/Hermosillo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    };
+    
+    const nowLocal = nowDate.toLocaleString('es-MX', formatOptions);
+    const startLocal = startDate.toLocaleString('es-MX', formatOptions);
+    
+    console.log(`⏰ [fetchLogsRoutine] Hora actual del servidor:`);
+    console.log(`   - Hermosillo: ${nowLocal}`);
+    console.log(`   - UTC: ${nowDate.toISOString()}`);
+    console.log(`   - Timestamp: ${now}`);
+    
+    console.log(`⏰ [fetchLogsRoutine] Rango de búsqueda (últimos 5 minutos):`);
+    console.log(`   - Desde (Hermosillo): ${startLocal}`);
+    console.log(`   - Hasta (Hermosillo): ${nowLocal}`);
+    console.log(`   - Timestamps: ${startTime} a ${now}`);
 
     // ====== CÓDIGOS DE LOGS POR TIPO DE PRODUCTO ======
     const logCodesByType = {
