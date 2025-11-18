@@ -1138,9 +1138,10 @@ export const fetchLogsRoutine = async (req, res) => {
     // ====== WHITELIST DE PRODUCTOS ======
     // TODO: Mover esto a una variable de entorno o configuración
     const productosWhitelist = [
-      'ebf9738480d78e0132gnru', // Ejemplo de product ID
-      'ebea4ffa2ab1483940nrqn'
-      // Agrega más IDs aquí según necesites
+      { id: 'ebf9738480d78e0132gnru', type: 'Osmosis' },
+      { id: 'ebea4ffa2ab1483940nrqn', type: 'Osmosis' },
+      { id: 'ebe24cce942e6266b1wixy', type: 'Nivel' },
+      // Agrega más productos según necesites
     ];
 
     // Si no hay productos en whitelist, responder con error
@@ -1165,14 +1166,20 @@ export const fetchLogsRoutine = async (req, res) => {
     console.log(`⏰ [fetchLogsRoutine] Rango de tiempo: ${new Date(startTime).toISOString()} a ${new Date(now).toISOString()}`);
     console.log(`⏰ [fetchLogsRoutine] Rango en ms: ${startTime} a ${now}`);
 
-    // ====== CÓDIGOS DE LOGS A OBTENER ======
-    const logCodes = [
-      'flowrate_speed_1',
-      'flowrate_speed_2',
-      'flowrate_total_1',
-      'flowrate_total_2',
-      'tds_out'
-    ];
+    // ====== CÓDIGOS DE LOGS POR TIPO DE PRODUCTO ======
+    const logCodesByType = {
+      'Osmosis': [
+        'flowrate_speed_1',
+        'flowrate_speed_2',
+        'flowrate_total_1',
+        'flowrate_total_2',
+        'tds_out'
+      ],
+      'Nivel': [
+        'liquid_depth',
+        'liquid_level_percent'
+      ]
+    };
 
     const results = {
       success: [],
@@ -1181,9 +1188,12 @@ export const fetchLogsRoutine = async (req, res) => {
     };
 
     // ====== PROCESAR CADA PRODUCTO ======
-    for (const productId of productosWhitelist) {
+    for (const productConfig of productosWhitelist) {
+      const productId = productConfig.id;
+      const productType = productConfig.type;
+      const logCodes = logCodesByType[productType] || logCodesByType['Osmosis'];
       try {
-        console.log(`\n📦 [fetchLogsRoutine] Procesando producto: ${productId}`);
+        console.log(`\n📦 [fetchLogsRoutine] Procesando producto: ${productId} (Tipo: ${productType})`);
 
         // Verificar que el producto existe en la BD
         const product = await Product.findOne({ id: productId });
@@ -1267,23 +1277,37 @@ export const fetchLogsRoutine = async (req, res) => {
             };
           }
 
-          // Mapear cada código a su campo correspondiente
-          switch (log.code) {
-            case 'flowrate_speed_1':
-              groupedLogs[timestamp].flujo_produccion = Number(log.value) || 0;
-              break;
-            case 'flowrate_speed_2':
-              groupedLogs[timestamp].flujo_rechazo = Number(log.value) || 0;
-              break;
-            case 'flowrate_total_1':
-              groupedLogs[timestamp].production_volume = Number(log.value) || 0;
-              break;
-            case 'flowrate_total_2':
-              groupedLogs[timestamp].rejected_volume = Number(log.value) || 0;
-              break;
-            case 'tds_out':
-              groupedLogs[timestamp].tds = Number(log.value) || 0;
-              break;
+          // Mapear cada código según el tipo de producto
+          if (productType === 'Osmosis') {
+            switch (log.code) {
+              case 'flowrate_speed_1':
+                groupedLogs[timestamp].flujo_produccion = Number(log.value) || 0;
+                break;
+              case 'flowrate_speed_2':
+                groupedLogs[timestamp].flujo_rechazo = Number(log.value) || 0;
+                break;
+              case 'flowrate_total_1':
+                groupedLogs[timestamp].production_volume = Number(log.value) || 0;
+                break;
+              case 'flowrate_total_2':
+                groupedLogs[timestamp].rejected_volume = Number(log.value) || 0;
+                break;
+              case 'tds_out':
+                groupedLogs[timestamp].tds = Number(log.value) || 0;
+                break;
+            }
+          } else if (productType === 'Nivel') {
+            // Para productos tipo Nivel, mapear a campos disponibles
+            switch (log.code) {
+              case 'liquid_depth':
+                // Mapear liquid_depth a flujo_produccion temporalmente
+                groupedLogs[timestamp].flujo_produccion = Number(log.value) || 0;
+                break;
+              case 'liquid_level_percent':
+                // Mapear liquid_level_percent a flujo_rechazo temporalmente
+                groupedLogs[timestamp].flujo_rechazo = Number(log.value) || 0;
+                break;
+            }
           }
         });
 
