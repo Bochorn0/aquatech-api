@@ -121,7 +121,7 @@ export const getAllProducts = async (req, res) => {
     console.log(`✅ Total products to show: ${products.length}`);
 
     // Aplicar transformaciones y filtros
-    const filteredProducts = products.map((product) => {
+    const filteredProducts = await Promise.all(products.map(async (product) => {
       // Determinar si está online
       product.online = product.online || false;
       
@@ -135,6 +135,55 @@ export const getAllProducts = async (req, res) => {
         cliente._id.toString() === (product.cliente?._id?.toString() || product.cliente?.toString())
       );
       product.cliente = cliente || clientes.find(c => c.name === 'All') || clientes[0];
+      
+      // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
+      const isOsmosis = product.product_type === 'Osmosis' || product.product_type === 'osmosis';
+      
+      if (isOsmosis && product.status && Array.isArray(product.status)) {
+        const flowSpeed1 = product.status.find(s => s.code === 'flowrate_speed_1');
+        const flowSpeed2 = product.status.find(s => s.code === 'flowrate_speed_2');
+        
+        const needsFlowSpeed1 = !flowSpeed1 || flowSpeed1.value === 0;
+        const needsFlowSpeed2 = !flowSpeed2 || flowSpeed2.value === 0;
+        
+        if (needsFlowSpeed1 || needsFlowSpeed2) {
+          console.log(`🔍 [getAllProducts] Producto ${product.id}: flowrate en 0, consultando ProductLog...`);
+          
+          try {
+            // Obtener el registro más reciente de ProductLog
+            const latestLog = await ProductLog.findOne({ product_id: product.id })
+              .sort({ date: -1 })
+              .limit(1);
+            
+            if (latestLog) {
+              console.log(`✅ [getAllProducts] Log encontrado para ${product.id}`);
+              
+              if (needsFlowSpeed1 && latestLog.flujo_produccion) {
+                if (flowSpeed1) {
+                  flowSpeed1.value = latestLog.flujo_produccion;
+                } else {
+                  product.status.push({ code: 'flowrate_speed_1', value: latestLog.flujo_produccion });
+                }
+                console.log(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
+              }
+              
+              if (needsFlowSpeed2 && latestLog.flujo_rechazo) {
+                if (flowSpeed2) {
+                  flowSpeed2.value = latestLog.flujo_rechazo;
+                } else {
+                  product.status.push({ code: 'flowrate_speed_2', value: latestLog.flujo_rechazo });
+                }
+                console.log(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
+              }
+            } else {
+              console.log(`⚠️ [getAllProducts] No se encontraron logs para ${product.id}`);
+            }
+          } catch (logError) {
+            console.error(`❌ [getAllProducts] Error obteniendo logs para ${product.id}:`, logError.message);
+          }
+        }
+      }
+      
       // Aplicar transformaciones a los status
       const PRODUCTOS_ESPECIALES = [
         'ebf9738480d78e0132gnru',
@@ -162,7 +211,7 @@ export const getAllProducts = async (req, res) => {
       }
 
       return product;
-    });
+    }));
 
     // Aplicar filtros adicionales después de combinar
     let finalProducts = filteredProducts;
@@ -374,6 +423,55 @@ export const getProductById = async (req, res) => {
           'ebea4ffa2ab1483940nrqn'
         ];
         console.log(`Product ${id} updated in MongoDB.`);
+        
+        // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
+        const isOsmosis = product.product_type === 'Osmosis' || product.product_type === 'osmosis';
+        
+        if (isOsmosis && product.status && Array.isArray(product.status)) {
+          const flowSpeed1 = product.status.find(s => s.code === 'flowrate_speed_1');
+          const flowSpeed2 = product.status.find(s => s.code === 'flowrate_speed_2');
+          
+          const needsFlowSpeed1 = !flowSpeed1 || flowSpeed1.value === 0;
+          const needsFlowSpeed2 = !flowSpeed2 || flowSpeed2.value === 0;
+          
+          if (needsFlowSpeed1 || needsFlowSpeed2) {
+            console.log(`🔍 [getProductById] Producto ${id}: flowrate en 0, consultando ProductLog...`);
+            
+            try {
+              // Obtener el registro más reciente de ProductLog
+              const latestLog = await ProductLog.findOne({ product_id: id })
+                .sort({ date: -1 })
+                .limit(1);
+              
+              if (latestLog) {
+                console.log(`✅ [getProductById] Log encontrado para ${id}`);
+                
+                if (needsFlowSpeed1 && latestLog.flujo_produccion) {
+                  if (flowSpeed1) {
+                    flowSpeed1.value = latestLog.flujo_produccion;
+                  } else {
+                    product.status.push({ code: 'flowrate_speed_1', value: latestLog.flujo_produccion });
+                  }
+                  console.log(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
+                }
+                
+                if (needsFlowSpeed2 && latestLog.flujo_rechazo) {
+                  if (flowSpeed2) {
+                    flowSpeed2.value = latestLog.flujo_rechazo;
+                  } else {
+                    product.status.push({ code: 'flowrate_speed_2', value: latestLog.flujo_rechazo });
+                  }
+                  console.log(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
+                }
+              } else {
+                console.log(`⚠️ [getProductById] No se encontraron logs para ${id}`);
+              }
+            } catch (logError) {
+              console.error(`❌ [getProductById] Error obteniendo logs para ${id}:`, logError.message);
+            }
+          }
+        }
+        
         if (PRODUCTOS_ESPECIALES.includes(id)) {
           const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
           const flujos_total_codes = [ "flowrate_total_1", "flowrate_total_2"]
@@ -424,6 +522,55 @@ export const getProductById = async (req, res) => {
 
     console.log(`Product ${id} saved to MongoDB.`);
     console.log('newProduct', newProduct);
+    
+    // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
+    const isOsmosis = newProduct.product_type === 'Osmosis' || newProduct.product_type === 'osmosis';
+    
+    if (isOsmosis && newProduct.status && Array.isArray(newProduct.status)) {
+      const flowSpeed1 = newProduct.status.find(s => s.code === 'flowrate_speed_1');
+      const flowSpeed2 = newProduct.status.find(s => s.code === 'flowrate_speed_2');
+      
+      const needsFlowSpeed1 = !flowSpeed1 || flowSpeed1.value === 0;
+      const needsFlowSpeed2 = !flowSpeed2 || flowSpeed2.value === 0;
+      
+      if (needsFlowSpeed1 || needsFlowSpeed2) {
+        console.log(`🔍 [getProductById - new] Producto ${id}: flowrate en 0, consultando ProductLog...`);
+        
+        try {
+          // Obtener el registro más reciente de ProductLog
+          const latestLog = await ProductLog.findOne({ product_id: id })
+            .sort({ date: -1 })
+            .limit(1);
+          
+          if (latestLog) {
+            console.log(`✅ [getProductById - new] Log encontrado para ${id}`);
+            
+            if (needsFlowSpeed1 && latestLog.flujo_produccion) {
+              if (flowSpeed1) {
+                flowSpeed1.value = latestLog.flujo_produccion;
+              } else {
+                newProduct.status.push({ code: 'flowrate_speed_1', value: latestLog.flujo_produccion });
+              }
+              console.log(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
+            }
+            
+            if (needsFlowSpeed2 && latestLog.flujo_rechazo) {
+              if (flowSpeed2) {
+                flowSpeed2.value = latestLog.flujo_rechazo;
+              } else {
+                newProduct.status.push({ code: 'flowrate_speed_2', value: latestLog.flujo_rechazo });
+              }
+              console.log(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
+            }
+          } else {
+            console.log(`⚠️ [getProductById - new] No se encontraron logs para ${id}`);
+          }
+        } catch (logError) {
+          console.error(`❌ [getProductById - new] Error obteniendo logs para ${id}:`, logError.message);
+        }
+      }
+    }
+    
     const PRODUCTOS_ESPECIALES = [
       'ebf9738480d78e0132gnru',
       'ebea4ffa2ab1483940nrqn'
