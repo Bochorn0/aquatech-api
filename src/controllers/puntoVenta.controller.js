@@ -146,8 +146,20 @@ export const getPuntoVentaById = async (req, res) => {
           const reportResult = await generateProductLogsReport(productObj.id, today, product);
           
           if (reportResult.success) {
-            productObj.historico = reportResult.data;
-            console.log(`📊 Histórico agregado para producto Nivel: ${productObj.id}`);
+            // Filtrar solo los datos esenciales: hora, total_logs y estadísticas
+            const historicoSimplificado = {
+              product: reportResult.data.product,
+              date: reportResult.data.date,
+              total_logs: reportResult.data.total_logs,
+              hours_with_data: reportResult.data.hours_with_data.map(hourData => ({
+                hora: hourData.hora,
+                total_logs: hourData.total_logs,
+                estadisticas: hourData.estadisticas
+              }))
+            };
+            
+            productObj.historico = historicoSimplificado;
+            console.log(`📊 Histórico agregado para producto Nivel: ${productObj.id} (${historicoSimplificado.hours_with_data.length} horas)`);
           } else {
             console.warn(`⚠️ No se pudo generar histórico para ${productObj.id}:`, reportResult.error);
             productObj.historico = null;
