@@ -19,7 +19,6 @@ export const getAllProducts = async (req, res) => {
     const ONLINE_THRESHOLD_MS = 5000; // 5 segundos
     const now = Date.now();
     const realProducts = await tuyaService.getAllDevices(uid);
-    console.log('realProducts', realProducts);
     if (!realProducts.success) {
       return res.status(400).json({ message: realProducts.error, code: realProducts.code });
     }
