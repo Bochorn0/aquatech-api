@@ -252,7 +252,45 @@ export const getAllProducts = async (req, res) => {
 
     console.log(`🎯 Final products after filters: ${finalProducts.length}`);
 
-    res.json(finalProducts);
+    // 🔽 EXTRA: incluir productos sólo locales que no están en Tuya
+    const idsTuya = new Set(realProducts.data.map(p => p.id));
+    const productosLocales = dbProducts.filter(p => !idsTuya.has(p.id));
+    const productosLocalesAdaptados = productosLocales.map((dbProduct) => ({
+      ...dbProduct.toObject(),
+      online: false,
+      // Mantén el resto de campos tal como en la BD
+    }));
+
+    // Combina ambos arreglos antes de filtrar de nuevo
+    let todosLosProductos = [...filteredProducts, ...productosLocalesAdaptados];
+
+    // 🔽 Vuelve a aplicar los filtros extra (post-combinados)
+    if (filtros.cliente) {
+      todosLosProductos = todosLosProductos.filter(p => 
+        p.cliente?._id?.toString() === filtros.cliente.toString()
+      );
+    }
+    if (filtros.city) {
+      todosLosProductos = todosLosProductos.filter(p => p.city === filtros.city);
+    }
+    if (filtros.state) {
+      todosLosProductos = todosLosProductos.filter(p => p.state === filtros.state);
+    }
+    if (filtros.drive) {
+      todosLosProductos = todosLosProductos.filter(p => p.drive === filtros.drive);
+    }
+    if (filtros.online !== undefined) {
+      todosLosProductos = todosLosProductos.filter(p => p.online === filtros.online);
+    }
+    if (filtros.create_time) {
+      todosLosProductos = todosLosProductos.filter(p => 
+        p.create_time >= filtros.create_time.$gte && 
+        p.create_time <= filtros.create_time.$lte
+      );
+    }
+
+    console.log(`🎯 Final products after filters (combinados): ${todosLosProductos.length}`);
+    res.json(todosLosProductos);
   } catch (error) {
     console.error('Error fetching products:', error);
     res.status(500).json({ message: 'Error fetching products' });
