@@ -32,6 +32,7 @@ const ControllerSchema = new mongoose.Schema(
     update_controller_time: { type: Number, default: 10000 }, // default 10 seg
     loop_time: { type: Number, default: 1000 },           // default 1 seg
     flush_time: { type: Number, default: 20000 }, // default 20 seg
+    forzar_flush: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

@@ -1043,6 +1043,48 @@ async function handleLevelProduct(product, data) {
   return { success: true, message: 'Datos de nivel actualizados', product };
 }
 
+// 🎮 — CONTROLADOR
+async function handleControllerData(product, controllerData) {
+  console.log('🎮 [Controller] Procesando actualización del controlador...');
+  const { forzar_flush, reset_pending } = controllerData;
+
+  // Si no hay datos del controlador, no hacer nada
+  if (forzar_flush === undefined && reset_pending === undefined) {
+    return { success: true, message: 'No hay datos del controlador para actualizar' };
+  }
+
+  try {
+    const controller = await Controller.findOne({ product: product._id });
+    
+    if (!controller) {
+      console.log(`⚠️ [Controller] No se encontró controlador asociado al producto ${product._id}`);
+      return { success: false, message: 'Controlador no encontrado' };
+    }
+
+    const updates = [];
+    
+    if (forzar_flush !== undefined) {
+      controller.forzar_flush = forzar_flush;
+      updates.push(`forzar_flush=${forzar_flush}`);
+      console.log(`🔄 [Controller] Actualizando forzar_flush a ${forzar_flush} para controlador ${controller._id}`);
+    }
+    
+    if (reset_pending !== undefined) {
+      controller.reset_pending = reset_pending;
+      updates.push(`reset_pending=${reset_pending}`);
+      console.log(`🔄 [Controller] Actualizando reset_pending a ${reset_pending} para controlador ${controller._id}`);
+    }
+
+    await controller.save();
+    console.log(`✅ [Controller] Controlador actualizado exitosamente: ${updates.join(', ')}`);
+    
+    return { success: true, message: 'Controlador actualizado correctamente', controller };
+  } catch (error) {
+    console.error('🔥 [Controller] Error al actualizar controlador:', error);
+    return { success: false, message: 'Error al actualizar controlador', error: error.message };
+  }
+}
+
 /* ======================================================
    🎯 Función principal
    ====================================================== */
@@ -1063,7 +1105,9 @@ export const componentInput = async (req, res) => {
       liquid_level_percent,
       max_set,
       mini_set,
-      timestamp
+      timestamp,
+      forzar_flush,
+      reset_pending
     } = req.body;
 
     if (!productId) {
@@ -1117,6 +1161,12 @@ export const componentInput = async (req, res) => {
         await product.save();
         result = { success: true, message: 'Producto actualizado sin lógica especial', product };
         break;
+    }
+
+    // ✅ Actualizar campos del controlador si vienen en el payload
+    const controllerResult = await handleControllerData(product, { forzar_flush, reset_pending });
+    if (!controllerResult.success) {
+      console.log(`⚠️ [componentInput] ${controllerResult.message}`);
     }
 
     return res.json(result);
