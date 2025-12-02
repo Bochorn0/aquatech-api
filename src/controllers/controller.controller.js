@@ -98,6 +98,7 @@ export const getControllerById = async (req, res) => {
     const safeController = {
       ...controller.toObject(),
       reset_pending: controller.reset_pending ?? false,
+      flush_pending: controller.flush_pending ?? false,
       lapso_actualizacion: controller.lapso_actualizacion ?? 60000,
       lapso_loop: controller.lapso_loop ?? 5000,
     };
