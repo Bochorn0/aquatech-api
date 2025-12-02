@@ -946,31 +946,31 @@ async function handleOsmosisProduct(product, data) {
 async function handlePressureProduct(product, data) {
   console.log('🔧 [handlePressure] Iniciando procesamiento del producto de tipo Pressure...');
   
-  // Permitir ambos nombres de campos para compatibilidad
-  const inPsi = data.pressure_valve1_psi ?? data.presion_in;
+  // Acceso seguro y normalización de nombres
+  const inPsi  = data.pressure_valve1_psi ?? data.presion_in;
   const outPsi = data.pressure_valve2_psi ?? data.presion_out;
-  const { pressure_difference_psi, relay_state, temperature } = data;
-  
+  const pressure_difference_psi = data.pressure_difference_psi;
+  const relay_state             = data.relay_state;
+  const temperature             = data.temperature;
+
   console.log('📦 [handlePressure] Datos recibidos:', {
-    pressure_valve1_psi,
-    pressure_valve2_psi,
-    pressure_difference_psi,
-    relay_state,
-    temperature
+    inPsi, outPsi, pressure_difference_psi, relay_state, temperature
   });
 
-  // Inicializa array si no existe
+  // Solo los códigos estándar para Pressure
+  const allowedCodes = ['presion_in', 'presion_out', 'pressure_difference_psi', 'relay_state', 'temperature'];
   if (!Array.isArray(product.status)) {
     console.log('🧩 [handlePressure] No existe array de status, creando uno nuevo.');
     product.status = [];
   }
+  product.status = product.status.filter(s => allowedCodes.includes(s.code));
 
   console.log('📋 [handlePressure] Status actual antes de actualizar:', JSON.stringify(product.status, null, 2));
 
-  // Define los valores esperados
+  // Sólo almacena los códigos normalizados
   const updates = [
-    { code: 'pressure_valve1_psi', value: inPsi },
-    { code: 'pressure_valve2_psi', value: outPsi },
+    { code: 'presion_in', value: inPsi },
+    { code: 'presion_out', value: outPsi },
     { code: 'pressure_difference_psi', value: pressure_difference_psi },
     { code: 'relay_state', value: relay_state },
     { code: 'temperature', value: temperature },
