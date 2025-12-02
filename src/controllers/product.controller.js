@@ -1055,18 +1055,23 @@ export const componentInput = async (req, res) => {
     console.log('📥 [componentInput] Body recibido:', req.body);
 
     const {
-      productId,
-      pressure_valve1_psi,
-      pressure_valve2_psi,
-      pressure_difference_psi,
-      relay_state,
-      temperature,
-      liquid_depth,
-      liquid_state,
-      liquid_level_percent,
-      max_set,
-      mini_set,
-      timestamp
+      productId = '',
+      pressure_valve1_psi = null,
+      pressure_valve2_psi = null,
+      presion_in = null,
+      presion_out = null,
+      pressure_difference_psi = null,
+      relay_state = null,
+      temperature = null,
+      liquid_depth = null,
+      liquid_state = null,
+      liquid_level_percent = null,
+      max_set = null,
+      mini_set = null,
+      timestamp = null,
+      flujo_prod = null,
+      flujo_rech = null,
+      tds = null
     } = req.body;
 
     if (!productId) {
