@@ -946,7 +946,10 @@ async function handleOsmosisProduct(product, data) {
 async function handlePressureProduct(product, data) {
   console.log('🔧 [handlePressure] Iniciando procesamiento del producto de tipo Pressure...');
   
-  const { pressure_valve1_psi, pressure_valve2_psi, pressure_difference_psi, relay_state, temperature } = data;
+  // Permitir ambos nombres de campos para compatibilidad
+  const inPsi = data.pressure_valve1_psi ?? data.presion_in;
+  const outPsi = data.pressure_valve2_psi ?? data.presion_out;
+  const { pressure_difference_psi, relay_state, temperature } = data;
   
   console.log('📦 [handlePressure] Datos recibidos:', {
     pressure_valve1_psi,
@@ -966,8 +969,8 @@ async function handlePressureProduct(product, data) {
 
   // Define los valores esperados
   const updates = [
-    { code: 'pressure_valve1_psi', value: pressure_valve1_psi },
-    { code: 'pressure_valve2_psi', value: pressure_valve2_psi },
+    { code: 'pressure_valve1_psi', value: inPsi },
+    { code: 'pressure_valve2_psi', value: outPsi },
     { code: 'pressure_difference_psi', value: pressure_difference_psi },
     { code: 'relay_state', value: relay_state },
     { code: 'temperature', value: temperature },
@@ -1080,8 +1083,9 @@ export const componentInput = async (req, res) => {
     console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.product_type || product.type})`);
 
     const data = {
-      pressure_valve1_psi,
-      pressure_valve2_psi,
+      // Para Pressure: admite presion_in / presion_out o pressure_valve1_psi / pressure_valve2_psi
+      pressure_valve1_psi: pressure_valve1_psi ?? presion_in,
+      pressure_valve2_psi: pressure_valve2_psi ?? presion_out,
       pressure_difference_psi,
       relay_state,
       temperature,
