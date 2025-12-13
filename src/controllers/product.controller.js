@@ -136,52 +136,53 @@ export const getAllProducts = async (req, res) => {
       product.cliente = cliente || clientes.find(c => c.name === 'All') || clientes[0];
       
       // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
-      const isOsmosis = product.product_type === 'Osmosis' || product.product_type === 'osmosis';
+      // COMENTADO PARA MEJORAR RENDIMIENTO - Esta sección consulta ProductLog para obtener valores de flowrate
+      // const isOsmosis = product.product_type === 'Osmosis' || product.product_type === 'osmosis';
       
-      if (isOsmosis && product.status && Array.isArray(product.status)) {
-        const flowSpeed1 = product.status.find(s => s.code === 'flowrate_speed_1');
-        const flowSpeed2 = product.status.find(s => s.code === 'flowrate_speed_2');
-        
-        const needsFlowSpeed1 = !flowSpeed1 || flowSpeed1.value === 0;
-        const needsFlowSpeed2 = !flowSpeed2 || flowSpeed2.value === 0;
-        
-        if (needsFlowSpeed1 || needsFlowSpeed2) {
-          console.log(`🔍 [getAllProducts] Producto ${product.id}: flowrate en 0, consultando ProductLog...`);
-          
-          try {
-            // Obtener el registro más reciente de ProductLog
-            const latestLog = await ProductLog.findOne({ product_id: product.id })
-              .sort({ date: -1 })
-              .limit(1);
-            
-            if (latestLog) {
-              console.log(`✅ [getAllProducts] Log encontrado para ${product.id}`);
-              
-              if (needsFlowSpeed1 && latestLog.flujo_produccion) {
-                if (flowSpeed1) {
-                  flowSpeed1.value = latestLog.flujo_produccion;
-                } else {
-                  product.status.push({ code: 'flowrate_speed_1', value: latestLog.flujo_produccion });
-                }
-                console.log(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
-              }
-              
-              if (needsFlowSpeed2 && latestLog.flujo_rechazo) {
-                if (flowSpeed2) {
-                  flowSpeed2.value = latestLog.flujo_rechazo;
-                } else {
-                  product.status.push({ code: 'flowrate_speed_2', value: latestLog.flujo_rechazo });
-                }
-                console.log(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
-              }
-            } else {
-              console.log(`⚠️ [getAllProducts] No se encontraron logs para ${product.id}`);
-            }
-          } catch (logError) {
-            console.error(`❌ [getAllProducts] Error obteniendo logs para ${product.id}:`, logError.message);
-          }
-        }
-      }
+      // if (isOsmosis && product.status && Array.isArray(product.status)) {
+      //   const flowSpeed1 = product.status.find(s => s.code === 'flowrate_speed_1');
+      //   const flowSpeed2 = product.status.find(s => s.code === 'flowrate_speed_2');
+      
+      //   const needsFlowSpeed1 = !flowSpeed1 || flowSpeed1.value === 0;
+      //   const needsFlowSpeed2 = !flowSpeed2 || flowSpeed2.value === 0;
+      
+      //   if (needsFlowSpeed1 || needsFlowSpeed2) {
+      //     console.log(`🔍 [getAllProducts] Producto ${product.id}: flowrate en 0, consultando ProductLog...`);
+      
+      //     try {
+      //       // Obtener el registro más reciente de ProductLog
+      //       const latestLog = await ProductLog.findOne({ product_id: product.id })
+      //         .sort({ date: -1 })
+      //         .limit(1);
+      
+      //       if (latestLog) {
+      //         console.log(`✅ [getAllProducts] Log encontrado para ${product.id}`);
+      
+      //         if (needsFlowSpeed1 && latestLog.flujo_produccion) {
+      //           if (flowSpeed1) {
+      //             flowSpeed1.value = latestLog.flujo_produccion;
+      //           } else {
+      //             product.status.push({ code: 'flowrate_speed_1', value: latestLog.flujo_produccion });
+      //           }
+      //           console.log(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
+      //         }
+      
+      //         if (needsFlowSpeed2 && latestLog.flujo_rechazo) {
+      //           if (flowSpeed2) {
+      //             flowSpeed2.value = latestLog.flujo_rechazo;
+      //           } else {
+      //             product.status.push({ code: 'flowrate_speed_2', value: latestLog.flujo_rechazo });
+      //           }
+      //           console.log(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
+      //         }
+      //       } else {
+      //         console.log(`⚠️ [getAllProducts] No se encontraron logs para ${product.id}`);
+      //       }
+      //     } catch (logError) {
+      //       console.error(`❌ [getAllProducts] Error obteniendo logs para ${product.id}:`, logError.message);
+      //     }
+      //   }
+      // }
       
       // Aplicar transformaciones a los status
       const PRODUCTOS_ESPECIALES = [
