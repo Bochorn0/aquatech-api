@@ -77,7 +77,63 @@ export const getAllProducts = async (req, res) => {
 
     console.log('Fetching products from MongoDB with filters:', filtros);
 
-    // Obtener productos de la BD
+    // 🔄 SINCRONIZAR PRODUCTOS DE TUYA CON MONGODB
+    console.log('🔄 [Sincronización] Iniciando sincronización de productos de Tuya con MongoDB...');
+    const clientesList = await Client.find();
+    const defaultCliente = clientesList.find(c => c.name === 'Caffenio') || clientesList.find(c => c.name === 'All') || clientesList[0];
+    
+    let productosActualizados = 0;
+    let productosInsertados = 0;
+    let productosConError = 0;
+
+    for (const tuyaProduct of realProducts.data) {
+      try {
+        // Buscar si el producto ya existe en MongoDB por su id (ID de Tuya)
+        const existingProduct = await Product.findOne({ id: tuyaProduct.id });
+        
+        // Preparar datos del producto (Tuya es la fuente de verdad)
+        // Los datos de Tuya tienen prioridad, pero preservamos campos que Tuya no proporciona
+        const productData = {
+          ...tuyaProduct, // Datos de Tuya primero (fuente de verdad)
+          // Campos que se preservan o asignan por defecto si no vienen de Tuya
+          cliente: tuyaProduct.cliente || existingProduct?.cliente || defaultCliente?._id,
+          product_type: tuyaProduct.product_type || existingProduct?.product_type || (tuyaProduct.id === 'ebe24cce942e6266b1wixy' ? 'Nivel' : 'Osmosis'),
+          city: tuyaProduct.city || existingProduct?.city || 'Hermosillo',
+          state: tuyaProduct.state || existingProduct?.state || 'Sonora',
+          drive: tuyaProduct.drive || existingProduct?.drive,
+        };
+
+        if (existingProduct) {
+          // Actualizar producto existente (Tuya es fuente de verdad)
+          // Actualizar todos los campos con los datos de Tuya
+          Object.keys(productData).forEach(key => {
+            if (productData[key] !== undefined && productData[key] !== null) {
+              existingProduct[key] = productData[key];
+            }
+          });
+          // Marcar el campo status como modificado si existe
+          if (productData.status) {
+            existingProduct.markModified('status');
+          }
+          await existingProduct.save();
+          productosActualizados++;
+          console.log(`✅ [Sincronización] Producto actualizado: ${tuyaProduct.name} (id: ${tuyaProduct.id})`);
+        } else {
+          // Insertar nuevo producto
+          const newProduct = new Product(productData);
+          await newProduct.save();
+          productosInsertados++;
+          console.log(`➕ [Sincronización] Producto insertado: ${tuyaProduct.name} (id: ${tuyaProduct.id})`);
+        }
+      } catch (error) {
+        productosConError++;
+        console.error(`❌ [Sincronización] Error procesando producto ${tuyaProduct.id} (${tuyaProduct.name}):`, error.message);
+      }
+    }
+
+    console.log(`🔄 [Sincronización] Completada: ${productosActualizados} actualizados, ${productosInsertados} insertados, ${productosConError} con error`);
+
+    // Obtener productos de la BD (después de la sincronización)
     let dbProducts = await Product.find(filtros);
     console.log(`📦 Found ${dbProducts.length} products in database`);
     console.log(`🌐 Found ${realProducts.data.length} products from Tuya`);
