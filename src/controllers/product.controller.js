@@ -1409,6 +1409,8 @@ export const fetchLogsRoutine = async (req, res) => {
       { id: 'ebf9738480d78e0132gnru', type: 'Osmosis' },
       { id: 'ebea4ffa2ab1483940nrqn', type: 'Osmosis' },
       { id: 'ebe24cce942e6266b1wixy', type: 'Nivel' },
+      { id: 'ebbe9512565e8a06a2ucnr', type: 'Nivel' },
+
       // Agrega más productos según necesites
     ];
 
