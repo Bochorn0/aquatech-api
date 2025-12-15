@@ -1084,7 +1084,7 @@ async function handlePressureProduct(product, data) {
 
   // Verificación post-save
   const refreshed = await product.constructor.findById(product._id).lean();
-  console.log('🧩 [handlePressure] Status final guardado en DB:', JSON.stringify(refreshed.status, null, 2));
+  // console.log('🧩 [handlePressure] Status final guardado en DB:', JSON.stringify(refreshed.status, null, 2));
 
   return { success: true, message: 'Datos de presión actualizados', product: refreshed };
 }
