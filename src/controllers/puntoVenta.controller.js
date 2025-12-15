@@ -152,6 +152,7 @@ export const getPuntoVentaById = async (req, res) => {
               product: reportResult.data.product,
               date: reportResult.data.date,
               total_logs: reportResult.data.total_logs,
+              promedio_general: reportResult.data.promedio_general, // Incluir promedio general del backend
               hours_with_data: reportResult.data.hours_with_data.map(hourData => ({
                 hora: hourData.hora,
                 total_logs: hourData.total_logs,
@@ -161,6 +162,9 @@ export const getPuntoVentaById = async (req, res) => {
             
             productObj.historico = historicoSimplificado;
             console.log(`📊 Histórico agregado para producto Nivel: ${productObj.id} (${historicoSimplificado.hours_with_data.length} horas)`);
+            if (historicoSimplificado.promedio_general !== null && historicoSimplificado.promedio_general !== undefined) {
+              console.log(`📊 Promedio general incluido: ${historicoSimplificado.promedio_general}%`);
+            }
           } else {
             console.warn(`⚠️ No se pudo generar histórico para ${productObj.id}:`, reportResult.error);
             productObj.historico = null;
