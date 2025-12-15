@@ -7,6 +7,12 @@ import ProductLog from '../models/product_logs.model.js';
 import * as tuyaService from '../services/tuya.service.js';
 import moment from 'moment';
 
+// IDs de productos tipo "Nivel"
+const productos_nivel = [
+  'ebe24cce942e6266b1wixy',
+  'ebbe9512565e8a06a2ucnr',
+  // Agregar más IDs de productos tipo Nivel aquí
+];
 
 const drives = ["Humalla", "Piaxtla", "Tierra Blanca", "Estadio", "Sarzana", "Buena vista", "Valle marquez", "Aeropuerto", "Navarrete", "Planta2", "Pinos", "Perisur"];
 
@@ -97,7 +103,7 @@ export const getAllProducts = async (req, res) => {
           ...tuyaProduct, // Datos de Tuya primero (fuente de verdad)
           // Campos que se preservan o asignan por defecto si no vienen de Tuya
           cliente: tuyaProduct.cliente || existingProduct?.cliente || defaultCliente?._id,
-          product_type: tuyaProduct.product_type || existingProduct?.product_type || (tuyaProduct.id === 'ebe24cce942e6266b1wixy' ? 'Nivel' : 'Osmosis'),
+          product_type: tuyaProduct.product_type || existingProduct?.product_type || (productos_nivel.includes(tuyaProduct.id) ? 'Nivel' : 'Osmosis'),
           city: tuyaProduct.city || existingProduct?.city || 'Hermosillo',
           state: tuyaProduct.state || existingProduct?.state || 'Sonora',
           drive: tuyaProduct.drive || existingProduct?.drive,
@@ -166,7 +172,7 @@ export const getAllProducts = async (req, res) => {
         return {
           ...realProduct,
           cliente: defaultCliente?._id,
-          product_type: realProduct.id === 'ebe24cce942e6266b1wixy' ? 'Nivel' : 'Osmosis',
+          product_type: productos_nivel.includes(realProduct.id) ? 'Nivel' : 'Osmosis',
           city: realProduct.city || 'Hermosillo',
           state: realProduct.state || 'Sonora',
         };
@@ -181,7 +187,7 @@ export const getAllProducts = async (req, res) => {
       product.online = product.online || false;
       
       // Tipo de producto especial
-      if (product.id === 'ebe24cce942e6266b1wixy') {
+      if (productos_nivel.includes(product.id)) {
         product.product_type = 'Nivel';
       }
 
@@ -606,7 +612,7 @@ export const getProductById = async (req, res) => {
     const productData = {
       ...response.data,
       cliente: defaultCliente._id,
-      product_type: response.data.id === 'ebe24cce942e6266b1wixy' ? 'Nivel' : 'Osmosis',
+      product_type: productos_nivel.includes(response.data.id) ? 'Nivel' : 'Osmosis',
       city: response.data.city || 'Hermosillo',
       state: response.data.state || 'Sonora',
     };
@@ -1408,8 +1414,8 @@ export const fetchLogsRoutine = async (req, res) => {
     const productosWhitelist = [
       { id: 'ebf9738480d78e0132gnru', type: 'Osmosis' },
       { id: 'ebea4ffa2ab1483940nrqn', type: 'Osmosis' },
-      { id: 'ebe24cce942e6266b1wixy', type: 'Nivel' },
-      { id: 'ebbe9512565e8a06a2ucnr', type: 'Nivel' },
+      // Productos tipo Nivel (usando constante productos_nivel)
+      ...productos_nivel.map(id => ({ id, type: 'Nivel' })),
 
       // Agrega más productos según necesites
     ];
