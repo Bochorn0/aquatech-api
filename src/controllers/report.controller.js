@@ -38,8 +38,12 @@ export const getReports = async (req, res) => {
 /**
  * Función helper privada para generar reporte de logs
  * Puede ser llamada internamente desde otros controladores
+ * @param {string} product_id - ID del producto
+ * @param {string} date - Fecha en formato YYYY-MM-DD
+ * @param {Object} product - Objeto del producto (opcional)
+ * @param {boolean} useLastValue - Si es true, usa el último valor de cada hora en lugar del promedio (solo para tipo Nivel)
  */
-export async function generateProductLogsReport(product_id, date, product = null) {
+export async function generateProductLogsReport(product_id, date, product = null, useLastValue = false) {
   try {
     console.log('📊 [generateProductLogsReport] Generando reporte para:', { product_id, date });
 
@@ -207,20 +211,51 @@ export async function generateProductLogsReport(product_id, date, product = null
     // ====== CALCULAR ESTADÍSTICAS POR HORA ======
     const hoursWithStats = hoursWithData.map(hourData => {
       if (productType === 'Nivel') {
-        // Estadísticas para productos tipo Nivel
-        const avgLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
-          ? (hourData.liquid_depth_agrupado.reduce((sum, item) => sum + item.liquid_depth, 0) / hourData.liquid_depth_agrupado.length).toFixed(2)
-          : 0;
+        let liquidDepthValue = 0;
+        let liquidPercentValue = 0;
 
-        const avgLiquidPercent = hourData.liquid_level_percent_agrupado?.length > 0
-          ? (hourData.liquid_level_percent_agrupado.reduce((sum, item) => sum + item.liquid_level_percent, 0) / hourData.liquid_level_percent_agrupado.length).toFixed(2)
-          : 0;
+        if (useLastValue) {
+          // Usar el último valor de cada hora (para gráficas del punto de venta detalle)
+          // Ordenar por timestamp descendente para tomar el más reciente primero
+          const sortedLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
+            ? [...hourData.liquid_depth_agrupado].sort((a, b) => 
+                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+              )
+            : [];
+          
+          const sortedLiquidPercent = hourData.liquid_level_percent_agrupado?.length > 0
+            ? [...hourData.liquid_level_percent_agrupado].sort((a, b) => 
+                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+              )
+            : [];
+
+          // Tomar el primer elemento (más reciente) después de ordenar descendente
+          liquidDepthValue = sortedLiquidDepth.length > 0
+            ? sortedLiquidDepth[0].liquid_depth
+            : 0;
+
+          liquidPercentValue = sortedLiquidPercent.length > 0
+            ? sortedLiquidPercent[0].liquid_level_percent
+            : 0;
+        } else {
+          // Usar el promedio (comportamiento por defecto para reportes)
+          const avgLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
+            ? (hourData.liquid_depth_agrupado.reduce((sum, item) => sum + item.liquid_depth, 0) / hourData.liquid_depth_agrupado.length).toFixed(2)
+            : 0;
+
+          const avgLiquidPercent = hourData.liquid_level_percent_agrupado?.length > 0
+            ? (hourData.liquid_level_percent_agrupado.reduce((sum, item) => sum + item.liquid_level_percent, 0) / hourData.liquid_level_percent_agrupado.length).toFixed(2)
+            : 0;
+
+          liquidDepthValue = parseFloat(avgLiquidDepth);
+          liquidPercentValue = parseFloat(avgLiquidPercent);
+        }
 
         return {
           ...hourData,
           estadisticas: {
-            liquid_depth_promedio: parseFloat(avgLiquidDepth),
-            liquid_level_percent_promedio: parseFloat(avgLiquidPercent),
+            liquid_depth_promedio: parseFloat(Number(liquidDepthValue).toFixed(2)),
+            liquid_level_percent_promedio: parseFloat(Number(liquidPercentValue).toFixed(2)),
           },
         };
       } else {

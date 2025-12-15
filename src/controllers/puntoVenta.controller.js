@@ -143,7 +143,8 @@ export const getPuntoVentaById = async (req, res) => {
       if (productObj.product_type === 'Nivel') {
         try {
           const today = moment().format('YYYY-MM-DD');
-          const reportResult = await generateProductLogsReport(productObj.id, today, product);
+          // Usar último valor en lugar de promedio para la gráfica del punto de venta detalle
+          const reportResult = await generateProductLogsReport(productObj.id, today, product, true);
           
           if (reportResult.success) {
             // Filtrar solo los datos esenciales: hora, total_logs y estadísticas
