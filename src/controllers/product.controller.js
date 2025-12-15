@@ -1129,7 +1129,7 @@ async function handleLevelProduct(product, data) {
 
 export const componentInput = async (req, res) => {
   try {
-    console.log('📥 [componentInput] Body recibido:', req.body);
+    // console.log('📥 [componentInput] Body recibido:', req.body);
 
     const {
       productId = '',
@@ -1154,17 +1154,17 @@ export const componentInput = async (req, res) => {
     } = req.body;
 
     if (!productId) {
-      console.log('⚠️ [componentInput] Faltan datos requeridos');
+      // console.log('⚠️ [componentInput] Faltan datos requeridos');
       return res.status(400).json({ message: 'Datos incompletos' });
     }
 
     const product = await Product.findById(productId);
     if (!product) {
-      console.log('❌ [componentInput] Producto no encontrado');
+      // console.log('❌ [componentInput] Producto no encontrado');
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
-    console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.product_type || product.type})`);
+    // console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.product_type || product.type})`);
 
     const data = {
       // Para Pressure: admite presion_in / presion_out o pressure_valve1_psi / pressure_valve2_psi
@@ -1203,7 +1203,7 @@ export const componentInput = async (req, res) => {
         break;
 
       default:
-        console.log('ℹ️ [componentInput] Tipo de producto sin lógica especial, guardando sin cambios');
+        // console.log('ℹ️ [componentInput] Tipo de producto sin lógica especial, guardando sin cambios');
         await product.save();
         result = { success: true, message: 'Producto actualizado sin lógica especial', product };
         break;
