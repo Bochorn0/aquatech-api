@@ -8,6 +8,29 @@ const PuntoVentaSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Código único de tienda (ej: CODIGO_TIENDA_001)
+    // Opcional para mantener compatibilidad con datos existentes
+    codigo_tienda: {
+      type: String,
+      required: false,  // Opcional para no romper datos existentes
+      unique: true,
+      sparse: true,     // Permite múltiples null/undefined, pero valores únicos si existen
+      trim: true,
+      uppercase: true,
+      index: true,
+      default: null,
+      // Validación solo si el valor existe
+      validate: {
+        validator: function(v) {
+          // Si no hay valor, es válido (opcional)
+          if (!v) return true;
+          // Si hay valor, debe cumplir el formato
+          return /^CODIGO_TIENDA_\d{3}$/.test(v);
+        },
+        message: 'El código debe tener formato: CODIGO_TIENDA_XXX o estar vacío'
+      }
+    },
+
     // Relación con Cliente
     cliente: {
       type: mongoose.Schema.Types.ObjectId,

@@ -21,8 +21,10 @@ import clientRoutes from './routes/client.routes.js';  // Use `import` for clien
 import reportRoutes from './routes/report.routes.js';  // Use `import` for reportRoutes
 import controllerRoutes from './routes/controller.routes.js' // Use `import` for controllerRouters
 import puntoVentaRoutes from './routes/puntoVenta.routes.js' // Use `import` for PuntoVenta
+import sensorDataRoutes from './routes/sensorData.routes.js';  // Use `import` for sensorDataRoutes
 import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoutes
 import { authenticate, authorizeRoles } from './middlewares/auth.middleware.js';  // Import the authentication and authorization middleware
+import mqttService from './services/mqtt.service.js';  // Import MQTT service
 
 const app = express();
 app.use(bodyParser.json({ limit: '5mb' }));
@@ -38,6 +40,15 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.get('/health', (req, res) => {
   res.json({ message: 'API Working' });
+});
+
+// MQTT Status endpoint
+app.get('/api/v1.0/mqtt/status', (req, res) => {
+  const status = mqttService.getConnectionStatus();
+  res.json({
+    message: 'MQTT Service Status',
+    ...status
+  });
 });
 
 // Apply authentication middleware to any route that needs protection
@@ -74,6 +85,9 @@ app.use('/api/v1.0/controllers', authenticate, authorizeRoles('admin', 'cliente'
 // Example: Protect the `/api/v1.0/puntoVenta` route for 'admin' only
 app.use('/api/v1.0/puntoVentas', authenticate, authorizeRoles('admin', 'cliente'), puntoVentaRoutes);
 
+// Example: Protect the `/api/v1.0/sensor-data` route for 'admin' and 'cliente'
+app.use('/api/v1.0/sensor-data', authenticate, authorizeRoles('admin', 'cliente'), sensorDataRoutes);
+
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/auth', authRoutes);
 
@@ -89,11 +103,24 @@ mongoose
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
-  .then(() => console.log('Connected to MongoDB'))
+  .then(() => {
+    console.log('Connected to MongoDB');
+    
+    // Iniciar servicio MQTT después de conectar a MongoDB
+    mqttService.connect();
+  })
   .catch((err) => console.error('MongoDB connection error:', err));
 
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+});
+
+// Manejar cierre graceful
+process.on('SIGINT', () => {
+  console.log('\nCerrando servidor...');
+  mqttService.disconnect();
+  mongoose.connection.close();
+  process.exit(0);
 });
