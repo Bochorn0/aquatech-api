@@ -144,6 +144,7 @@ export const getPuntoVentaById = async (req, res) => {
         try {
           const today = moment().format('YYYY-MM-DD');
           // Usar último valor en lugar de promedio para la gráfica del punto de venta detalle
+          console.log(`📊 [puntoVenta] Generando histórico con useLastValue=true para producto ${productObj.id}`);
           const reportResult = await generateProductLogsReport(productObj.id, today, product, true);
           
           if (reportResult.success) {

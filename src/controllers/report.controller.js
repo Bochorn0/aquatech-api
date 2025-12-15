@@ -45,7 +45,7 @@ export const getReports = async (req, res) => {
  */
 export async function generateProductLogsReport(product_id, date, product = null, useLastValue = false) {
   try {
-    console.log('📊 [generateProductLogsReport] Generando reporte para:', { product_id, date });
+    console.log('📊 [generateProductLogsReport] Generando reporte para:', { product_id, date, useLastValue });
 
     // Verificar que el producto existe (si no se pasó)
     if (!product) {
@@ -216,17 +216,30 @@ export async function generateProductLogsReport(product_id, date, product = null
 
         if (useLastValue) {
           // Usar el último valor de cada hora (para gráficas del punto de venta detalle)
+          console.log(`📊 [useLastValue=true] Procesando hora ${hourData.hora} con ${hourData.liquid_level_percent_agrupado?.length || 0} registros`);
+          
           // Ordenar por timestamp descendente para tomar el más reciente primero
+          // Asegurarse de que el timestamp sea válido antes de ordenar
           const sortedLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
-            ? [...hourData.liquid_depth_agrupado].sort((a, b) => 
-                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-              )
+            ? [...hourData.liquid_depth_agrupado]
+                .filter(item => item.timestamp) // Filtrar items sin timestamp
+                .sort((a, b) => {
+                  const timeA = new Date(a.timestamp).getTime();
+                  const timeB = new Date(b.timestamp).getTime();
+                  if (isNaN(timeA) || isNaN(timeB)) return 0; // Si algún timestamp es inválido, mantener orden
+                  return timeB - timeA; // Descendente (más reciente primero)
+                })
             : [];
           
           const sortedLiquidPercent = hourData.liquid_level_percent_agrupado?.length > 0
-            ? [...hourData.liquid_level_percent_agrupado].sort((a, b) => 
-                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-              )
+            ? [...hourData.liquid_level_percent_agrupado]
+                .filter(item => item.timestamp) // Filtrar items sin timestamp
+                .sort((a, b) => {
+                  const timeA = new Date(a.timestamp).getTime();
+                  const timeB = new Date(b.timestamp).getTime();
+                  if (isNaN(timeA) || isNaN(timeB)) return 0; // Si algún timestamp es inválido, mantener orden
+                  return timeB - timeA; // Descendente (más reciente primero)
+                })
             : [];
 
           // Tomar el primer elemento (más reciente) después de ordenar descendente
@@ -237,6 +250,10 @@ export async function generateProductLogsReport(product_id, date, product = null
           liquidPercentValue = sortedLiquidPercent.length > 0
             ? sortedLiquidPercent[0].liquid_level_percent
             : 0;
+
+          if (sortedLiquidPercent.length > 0) {
+            console.log(`📊 [useLastValue=true] Hora ${hourData.hora}: Último valor liquid_level_percent = ${liquidPercentValue} (de ${sortedLiquidPercent.length} registros, timestamp más reciente: ${sortedLiquidPercent[0].timestamp})`);
+          }
         } else {
           // Usar el promedio (comportamiento por defecto para reportes)
           const avgLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
