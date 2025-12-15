@@ -1009,13 +1009,15 @@ async function handlePressureProduct(product, data) {
   const pressure_difference_psi = data.pressure_difference_psi;
   const relay_state             = data.relay_state;
   const temperature             = data.temperature;
+  const voltage_in              = data.voltage_in;
+  const voltage_out             = data.voltage_out;
 
   console.log('📦 [handlePressure] Datos recibidos:', {
-    inPsi, outPsi, pressure_difference_psi, relay_state, temperature
+    inPsi, outPsi, pressure_difference_psi, relay_state, temperature, voltage_in, voltage_out
   });
 
-  // Solo los códigos estándar para Pressure
-  const allowedCodes = ['presion_in', 'presion_out', 'pressure_difference_psi', 'relay_state', 'temperature'];
+  // Solo los códigos estándar para Pressure (incluyendo voltajes para monitoreo)
+  const allowedCodes = ['presion_in', 'presion_out', 'pressure_difference_psi', 'relay_state', 'temperature', 'voltage_in', 'voltage_out'];
   if (!Array.isArray(product.status)) {
     console.log('🧩 [handlePressure] No existe array de status, creando uno nuevo.');
     product.status = [];
@@ -1031,12 +1033,24 @@ async function handlePressureProduct(product, data) {
     { code: 'pressure_difference_psi', value: pressure_difference_psi },
     { code: 'relay_state', value: relay_state },
     { code: 'temperature', value: temperature },
+    { code: 'voltage_in', value: voltage_in },
+    { code: 'voltage_out', value: voltage_out },
   ];
 
   for (const { code, value } of updates) {
+    // Validación estándar: omitir valores null o undefined
     if (value === undefined || value === null) {
       console.log(`⚠️ [handlePressure] Valor omitido para '${code}' (undefined o null)`);
       continue;
+    }
+
+    // Validación adicional para voltajes: deben ser números válidos (opcionales)
+    if ((code === 'voltage_in' || code === 'voltage_out')) {
+      const numValue = Number(value);
+      if (isNaN(numValue) || numValue < 0 || numValue > 5) {
+        console.log(`⚠️ [handlePressure] Valor de voltaje inválido para '${code}': ${value} (omitido)`);
+        continue;
+      }
     }
 
     const existing = product.status.find((s) => s.code === code);
@@ -1128,7 +1142,9 @@ export const componentInput = async (req, res) => {
       timestamp = null,
       flujo_prod = null,
       flujo_rech = null,
-      tds = null
+      tds = null,
+      voltage_in = null,
+      voltage_out = null
     } = req.body;
 
     if (!productId) {
@@ -1157,6 +1173,8 @@ export const componentInput = async (req, res) => {
       max_set,
       mini_set,
       timestamp,
+      voltage_in,
+      voltage_out,
     };
 
     let result;
