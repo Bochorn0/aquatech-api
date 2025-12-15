@@ -43,9 +43,9 @@ export const getReports = async (req, res) => {
  * @param {Object} product - Objeto del producto (opcional)
  * @param {boolean} useLastValue - Si es true, usa el último valor de cada hora en lugar del promedio (solo para tipo Nivel)
  */
-export async function generateProductLogsReport(product_id, date, product = null, useLastValue = false) {
+export async function generateProductLogsReport(product_id, date, product = null, useLastValue = false, startDate = null, endDate = null) {
   try {
-    console.log('📊 [generateProductLogsReport] Generando reporte para:', { product_id, date });
+    console.log('📊 [generateProductLogsReport] Generando reporte para:', { product_id, date, startDate, endDate });
 
     // Verificar que el producto existe (si no se pasó)
     if (!product) {
@@ -62,8 +62,17 @@ export async function generateProductLogsReport(product_id, date, product = null
     const productType = product.product_type || 'Osmosis';
 
     // ====== CALCULAR RANGO DE FECHA ======
-    const startOfDay = moment(date).startOf('day').toDate();
-    const endOfDay = moment(date).endOf('day').toDate();
+    let startOfDay, endOfDay;
+    
+    if (startDate && endDate) {
+      // Si se proporcionan fechas de inicio y fin, usar el rango completo
+      startOfDay = moment(startDate).startOf('day').toDate();
+      endOfDay = moment(endDate).endOf('day').toDate();
+    } else {
+      // Si solo se proporciona una fecha, usar ese día
+      startOfDay = moment(date).startOf('day').toDate();
+      endOfDay = moment(date).endOf('day').toDate();
+    }
 
     console.log(`📅 [getProductLogsReport] Rango: ${startOfDay.toISOString()} - ${endOfDay.toISOString()}`);
 
@@ -88,7 +97,9 @@ export async function generateProductLogsReport(product_id, date, product = null
             name: product.name,
             product_type: productType,
           },
-          date: date,
+          date: startDate && endDate ? `${startDate} a ${endDate}` : date,
+          start_date: startDate || date,
+          end_date: endDate || date,
           total_logs: 0,
           hours_with_data: [],
         },
@@ -352,7 +363,7 @@ export async function generateProductLogsReport(product_id, date, product = null
  */
 export const getProductLogsReport = async (req, res) => {
   try {
-    const { product_id, date } = req.query;
+    const { product_id, date, start_date, end_date } = req.query;
 
     // ====== VALIDACIONES ======
     if (!product_id) {
@@ -362,15 +373,27 @@ export const getProductLogsReport = async (req, res) => {
       });
     }
 
-    if (!date) {
+    // Si se proporcionan start_date y end_date, usarlos; si no, usar date
+    if (!date && !start_date && !end_date) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameter: date (format: YYYY-MM-DD)',
+        message: 'Missing required parameter: date or start_date and end_date (format: YYYY-MM-DD)',
       });
     }
 
+    // Validar que si se proporciona start_date, también se proporcione end_date
+    if ((start_date && !end_date) || (!start_date && end_date)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Both start_date and end_date must be provided together (format: YYYY-MM-DD)',
+      });
+    }
+
+    // Usar date como fallback si no se proporcionan start_date y end_date
+    const dateToUse = date || start_date;
+
     // Llamar a la función helper
-    const result = await generateProductLogsReport(product_id, date);
+    const result = await generateProductLogsReport(product_id, dateToUse, null, false, start_date, end_date);
 
     if (!result.success) {
       return res.status(404).json({
