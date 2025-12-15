@@ -318,6 +318,24 @@ export async function generateProductLogsReport(product_id, date, product = null
       }
     });
 
+    // ====== CALCULAR PROMEDIO GENERAL (solo para productos tipo Nivel) ======
+    let promedioGeneral = null;
+    if (productType === 'Nivel' && hoursWithStats.length > 0) {
+      // Calcular el promedio general de los últimos valores por hora
+      // Estos son los valores que se usan en la gráfica (últimos valores por hora cuando useLastValue=true)
+      const valoresPorHora = hoursWithStats.map(hour => 
+        hour.estadisticas?.liquid_level_percent_promedio || 0
+      ).filter(val => val > 0); // Filtrar valores válidos (mayores a 0)
+      
+      if (valoresPorHora.length > 0) {
+        const sumaTotal = valoresPorHora.reduce((sum, val) => sum + val, 0);
+        promedioGeneral = Number((sumaTotal / valoresPorHora.length).toFixed(2));
+        console.log(`📊 [generateProductLogsReport] Promedio general calculado: ${promedioGeneral}% (de ${valoresPorHora.length} horas con datos válidos)`);
+        console.log(`📊 [generateProductLogsReport] Valores usados para el promedio:`, valoresPorHora);
+        console.log(`📊 [generateProductLogsReport] Último valor: ${valoresPorHora[valoresPorHora.length - 1]}%`);
+      }
+    }
+
     // ====== RESPUESTA ======
     console.log(`✅ [generateProductLogsReport] Reporte generado con ${hoursWithStats.length} horas con datos`);
 
@@ -332,6 +350,7 @@ export async function generateProductLogsReport(product_id, date, product = null
         date: date,
         total_logs: logs.length,
         hours_with_data: hoursWithStats,
+        promedio_general: promedioGeneral, // Agregar promedio general a la respuesta
       },
     };
 
