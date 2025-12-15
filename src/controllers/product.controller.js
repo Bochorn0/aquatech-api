@@ -1025,12 +1025,12 @@ async function handlePressureProduct(product, data) {
   // Solo los códigos estándar para Pressure (incluyendo voltajes para monitoreo)
   const allowedCodes = ['presion_in', 'presion_out', 'pressure_difference_psi', 'relay_state', 'temperature', 'voltage_in', 'voltage_out'];
   if (!Array.isArray(product.status)) {
-    console.log('🧩 [handlePressure] No existe array de status, creando uno nuevo.');
+    // console.log('🧩 [handlePressure] No existe array de status, creando uno nuevo.');
     product.status = [];
   }
   product.status = product.status.filter(s => allowedCodes.includes(s.code));
 
-  console.log('📋 [handlePressure] Status actual antes de actualizar:', JSON.stringify(product.status, null, 2));
+  // console.log('📋 [handlePressure] Status actual antes de actualizar:', JSON.stringify(product.status, null, 2));
 
   // Sólo almacena los códigos normalizados
   const updates = [
@@ -1072,7 +1072,7 @@ async function handlePressureProduct(product, data) {
   // Marca el campo como modificado
   product.markModified('status');
 
-  console.log('🧩 [handlePressure] Status final antes de guardar:', JSON.stringify(product.status, null, 2));
+  // console.log('🧩 [handlePressure] Status final antes de guardar:', JSON.stringify(product.status, null, 2));
 
   try {
     await product.save();
