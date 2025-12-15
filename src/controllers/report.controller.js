@@ -45,7 +45,7 @@ export const getReports = async (req, res) => {
  */
 export async function generateProductLogsReport(product_id, date, product = null, useLastValue = false) {
   try {
-    console.log('📊 [generateProductLogsReport] Generando reporte para:', { product_id, date, useLastValue });
+    console.log('📊 [generateProductLogsReport] Generando reporte para:', { product_id, date });
 
     // Verificar que el producto existe (si no se pasó)
     if (!product) {
@@ -215,9 +215,16 @@ export async function generateProductLogsReport(product_id, date, product = null
         let liquidPercentValue = 0;
 
         if (useLastValue) {
+          // Calcular promedio para comparación
+          const avgLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
+            ? (hourData.liquid_depth_agrupado.reduce((sum, item) => sum + item.liquid_depth, 0) / hourData.liquid_depth_agrupado.length).toFixed(2)
+            : 0;
+
+          const avgLiquidPercent = hourData.liquid_level_percent_agrupado?.length > 0
+            ? (hourData.liquid_level_percent_agrupado.reduce((sum, item) => sum + item.liquid_level_percent, 0) / hourData.liquid_level_percent_agrupado.length).toFixed(2)
+            : 0;
+
           // Usar el último valor de cada hora (para gráficas del punto de venta detalle)
-          console.log(`📊 [useLastValue=true] Procesando hora ${hourData.hora} con ${hourData.liquid_level_percent_agrupado?.length || 0} registros`);
-          
           // Ordenar por timestamp descendente para tomar el más reciente primero
           // Asegurarse de que el timestamp sea válido antes de ordenar
           const sortedLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
@@ -251,8 +258,9 @@ export async function generateProductLogsReport(product_id, date, product = null
             ? sortedLiquidPercent[0].liquid_level_percent
             : 0;
 
+          // Log de comparación: promedio vs último valor usado
           if (sortedLiquidPercent.length > 0) {
-            console.log(`📊 [useLastValue=true] Hora ${hourData.hora}: Último valor liquid_level_percent = ${liquidPercentValue} (de ${sortedLiquidPercent.length} registros, timestamp más reciente: ${sortedLiquidPercent[0].timestamp})`);
+            console.log(`📊 [useLastValue=true] Hora ${hourData.hora}: Promedio=${avgLiquidPercent}% | Último valor usado=${liquidPercentValue}% (de ${sortedLiquidPercent.length} registros)`);
           }
         } else {
           // Usar el promedio (comportamiento por defecto para reportes)
