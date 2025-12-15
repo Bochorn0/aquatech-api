@@ -1007,7 +1007,7 @@ async function handleOsmosisProduct(product, data) {
 // ⚙️ — PRESIÓN
 // 🔧 Lógica específica para productos de tipo "pressure"
 async function handlePressureProduct(product, data) {
-  console.log('🔧 [handlePressure] Iniciando procesamiento del producto de tipo Pressure...');
+  // console.log('🔧 [handlePressure] Iniciando procesamiento del producto de tipo Pressure...');
   
   // Acceso seguro y normalización de nombres
   const inPsi  = data.pressure_valve1_psi ?? data.presion_in;
@@ -1018,9 +1018,9 @@ async function handlePressureProduct(product, data) {
   const voltage_in              = data.voltage_in;
   const voltage_out             = data.voltage_out;
 
-  console.log('📦 [handlePressure] Datos recibidos:', {
-    inPsi, outPsi, pressure_difference_psi, relay_state, temperature, voltage_in, voltage_out
-  });
+  // console.log('📦 [handlePressure] Datos recibidos:', {
+  //   inPsi, outPsi, pressure_difference_psi, relay_state, temperature, voltage_in, voltage_out
+  // });
 
   // Solo los códigos estándar para Pressure (incluyendo voltajes para monitoreo)
   const allowedCodes = ['presion_in', 'presion_out', 'pressure_difference_psi', 'relay_state', 'temperature', 'voltage_in', 'voltage_out'];
@@ -1046,7 +1046,7 @@ async function handlePressureProduct(product, data) {
   for (const { code, value } of updates) {
     // Validación estándar: omitir valores null o undefined
     if (value === undefined || value === null) {
-      console.log(`⚠️ [handlePressure] Valor omitido para '${code}' (undefined o null)`);
+      // console.log(`⚠️ [handlePressure] Valor omitido para '${code}' (undefined o null)`);
       continue;
     }
 
@@ -1054,17 +1054,17 @@ async function handlePressureProduct(product, data) {
     if ((code === 'voltage_in' || code === 'voltage_out')) {
       const numValue = Number(value);
       if (isNaN(numValue) || numValue < 0 || numValue > 5) {
-        console.log(`⚠️ [handlePressure] Valor de voltaje inválido para '${code}': ${value} (omitido)`);
+        // console.log(`⚠️ [handlePressure] Valor de voltaje inválido para '${code}': ${value} (omitido)`);
         continue;
       }
     }
 
     const existing = product.status.find((s) => s.code === code);
     if (existing) {
-      console.log(`🔁 [handlePressure] Actualizando '${code}' de ${existing.value} → ${value}`);
+      // console.log(`🔁 [handlePressure] Actualizando '${code}' de ${existing.value} → ${value}`);
       existing.value = value;
     } else {
-      console.log(`➕ [handlePressure] Agregando nuevo status '${code}' = ${value}`);
+      // console.log(`➕ [handlePressure] Agregando nuevo status '${code}' = ${value}`);
       product.status.push({ code, value });
     }
   }
@@ -1076,7 +1076,7 @@ async function handlePressureProduct(product, data) {
 
   try {
     await product.save();
-    console.log('✅ [handlePressure] Producto actualizado correctamente en MongoDB');
+    // console.log('✅ [handlePressure] Producto actualizado correctamente en MongoDB');
   } catch (err) {
     console.error('❌ [handlePressure] Error al guardar producto:', err);
     throw err;
