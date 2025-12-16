@@ -1704,3 +1704,187 @@ export const fetchLogsRoutine = async (req, res) => {
     });
   }
 };
+
+/**
+ * Convierte fecha + hora local (Hermosillo) a timestamp ms
+ */
+function buildTimestamp(dateStr, timeStr) {
+  // dateStr: YYYY-MM-DD
+  // timeStr: HH:mm:ss
+  const localDate = new Date(`${dateStr}T${timeStr}-07:00`); // Hermosillo fijo
+  return localDate.getTime();
+}
+
+/**
+ * Genera arreglo de fechas entre start y end (inclusive)
+ */
+function getDateRange(start, end) {
+  const dates = [];
+  let current = new Date(start);
+  const endDate = new Date(end);
+
+  while (current <= endDate) {
+    dates.push(current.toISOString().slice(0, 10));
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dates;
+}
+
+export const generarLogsPorFecha = async (req, res) => {
+  try {
+    const { dateStart, dateEnd } = req.query;
+
+    if (!dateStart || !dateEnd) {
+      return res.status(400).json({
+        success: false,
+        message: 'dateStart y dateEnd son requeridos',
+      });
+    }
+
+    const PRODUCT_ID = 'ebea4ffa2ab1483940nrqn';
+
+    const LOG_CODES = [
+      'flowrate_speed_1',
+      'flowrate_speed_2',
+      'flowrate_total_1',
+      'flowrate_total_2',
+      'tds_out',
+    ];
+
+    const WINDOWS = [
+      { label: 'mañana', start: '06:00:00', end: '06:05:00' },
+      { label: 'tarde', start: '18:00:00', end: '18:05:00' },
+    ];
+
+    const product = await Product.findOne({ id: PRODUCT_ID });
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Producto no encontrado',
+      });
+    }
+
+    const dates = getDateRange(dateStart, dateEnd);
+
+    let totalInserted = 0;
+    let totalFetched = 0;
+
+    for (const date of dates) {
+      console.log(`📅 Procesando fecha ${date}`);
+
+      for (const window of WINDOWS) {
+        const startTime = buildTimestamp(date, window.start);
+        const endTime = buildTimestamp(date, window.end);
+
+        console.log(`⏰ Ventana ${window.label}: ${window.start} - ${window.end}`);
+
+        const allLogs = [];
+
+        for (const code of LOG_CODES) {
+          try {
+            const response = await tuyaService.getDeviceLogsForRoutine({
+              id: PRODUCT_ID,
+              start_date: startTime,
+              end_date: endTime,
+              fields: code,
+              size: 100,
+            });
+
+            if (response?.success && response?.data?.logs?.length) {
+              allLogs.push(...response.data.logs);
+              totalFetched += response.data.logs.length;
+            }
+
+            await new Promise(r => setTimeout(r, 200));
+          } catch (err) {
+            console.error(`❌ Error código ${code}`, err.message);
+          }
+        }
+
+        if (!allLogs.length) continue;
+
+        /**
+         * Agrupar por timestamp
+         */
+        const grouped = {};
+
+        for (const log of allLogs) {
+          const ts = log.event_time;
+
+          if (!grouped[ts]) {
+            grouped[ts] = {
+              product_id: PRODUCT_ID,
+              producto: product._id,
+              date: new Date(ts),
+              source: 'tuya',
+              tds: 0,
+              production_volume: 0,
+              rejected_volume: 0,
+              flujo_produccion: 0,
+              flujo_rechazo: 0,
+              tiempo_inicio: Math.floor(ts / 1000),
+              tiempo_fin: Math.floor(ts / 1000),
+            };
+          }
+
+          switch (log.code) {
+            case 'flowrate_speed_1':
+              grouped[ts].flujo_produccion = Number(log.value) || 0;
+              break;
+            case 'flowrate_speed_2':
+              grouped[ts].flujo_rechazo = Number(log.value) || 0;
+              break;
+            case 'flowrate_total_1':
+              grouped[ts].production_volume = Number(log.value) || 0;
+              break;
+            case 'flowrate_total_2':
+              grouped[ts].rejected_volume = Number(log.value) || 0;
+              break;
+            case 'tds_out':
+              grouped[ts].tds = Number(log.value) || 0;
+              break;
+          }
+        }
+
+        const logsToSave = Object.values(grouped).filter(log =>
+          log.tds ||
+          log.production_volume ||
+          log.rejected_volume ||
+          log.flujo_produccion ||
+          log.flujo_rechazo
+        );
+
+        for (const logData of logsToSave) {
+          const exists = await ProductLog.findOne({
+            product_id: PRODUCT_ID,
+            date: logData.date,
+          });
+
+          if (!exists) {
+            await new ProductLog(logData).save();
+            totalInserted++;
+          }
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Generación histórica completada',
+      summary: {
+        dateStart,
+        dateEnd,
+        totalFetched,
+        totalInserted,
+      },
+    });
+
+  } catch (error) {
+    console.error('❌ Error generación histórica:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
