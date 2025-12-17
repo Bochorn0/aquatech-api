@@ -1745,8 +1745,8 @@ export const generarLogsPorFecha = async (req, res) => {
     const PRODUCT_ID = 'ebea4ffa2ab1483940nrqn';
 
     const LOG_CODES = [
-      'flowrate_speed_1',
-      'flowrate_speed_2',
+      // 'flowrate_speed_1', // Comentado: genera muchos registros
+      // 'flowrate_speed_2', // Comentado: genera muchos registros
       'flowrate_total_1',
       'flowrate_total_2',
       'tds_out',
@@ -1770,101 +1770,141 @@ export const generarLogsPorFecha = async (req, res) => {
     let totalInserted = 0;
     let totalFetched = 0;
 
+    // Todos los códigos en un solo string separado por comas
+    const allCodesString = LOG_CODES.join(',');
+
+    // Delay entre ventana mañana y tarde
+    const DELAY_BETWEEN_WINDOWS = 100; // 100ms
+
     for (const date of dates) {
       console.log(`📅 Procesando fecha ${date}`);
 
-      for (const window of WINDOWS) {
-        const startTime = buildTimestamp(date, window.start);
-        const endTime = buildTimestamp(date, window.end);
+      // Procesar ventana de la mañana
+      const morningWindow = WINDOWS[0];
+      const morningStartTime = buildTimestamp(date, morningWindow.start);
+      const morningEndTime = buildTimestamp(date, morningWindow.end);
 
-        console.log(`⏰ Ventana ${window.label}: ${window.start} - ${window.end}`);
+      console.log(`⏰ Ventana ${morningWindow.label}: ${morningWindow.start} - ${morningWindow.end}`);
 
-        const allLogs = [];
+      let morningLogs = [];
+      try {
+        // Un solo request con todos los códigos juntos
+        const response = await tuyaService.getDeviceLogsForRoutine({
+          id: PRODUCT_ID,
+          start_date: morningStartTime,
+          end_date: morningEndTime,
+          fields: allCodesString, // Todos los códigos juntos separados por comas
+          size: 100,
+        });
 
-        for (const code of LOG_CODES) {
-          try {
-            const response = await tuyaService.getDeviceLogsForRoutine({
-              id: PRODUCT_ID,
-              start_date: startTime,
-              end_date: endTime,
-              fields: code,
-              size: 100,
-            });
-
-            if (response?.success && response?.data?.logs?.length) {
-              allLogs.push(...response.data.logs);
-              totalFetched += response.data.logs.length;
-            }
-
-            await new Promise(r => setTimeout(r, 200));
-          } catch (err) {
-            console.error(`❌ Error código ${code}`, err.message);
-          }
+        if (response?.success && response?.data?.logs?.length) {
+          morningLogs = response.data.logs;
+          totalFetched += morningLogs.length;
+          console.log(`  ✅ ${morningLogs.length} logs obtenidos para ventana ${morningWindow.label}`);
+        } else {
+          console.warn(`  ⚠️ No se obtuvieron logs para ventana ${morningWindow.label}`);
         }
+      } catch (err) {
+        console.error(`❌ Error ventana ${morningWindow.label}:`, err.message);
+      }
 
-        if (!allLogs.length) continue;
+      // Sleep de 100ms entre ventana mañana y tarde
+      await new Promise(r => setTimeout(r, DELAY_BETWEEN_WINDOWS));
 
-        /**
-         * Agrupar por timestamp
-         */
-        const grouped = {};
+      // Procesar ventana de la tarde
+      const afternoonWindow = WINDOWS[1];
+      const afternoonStartTime = buildTimestamp(date, afternoonWindow.start);
+      const afternoonEndTime = buildTimestamp(date, afternoonWindow.end);
 
-        for (const log of allLogs) {
-          const ts = log.event_time;
+      console.log(`⏰ Ventana ${afternoonWindow.label}: ${afternoonWindow.start} - ${afternoonWindow.end}`);
 
-          if (!grouped[ts]) {
-            grouped[ts] = {
-              product_id: PRODUCT_ID,
-              producto: product._id,
-              date: new Date(ts),
-              source: 'tuya',
-              tds: 0,
-              production_volume: 0,
-              rejected_volume: 0,
-              flujo_produccion: 0,
-              flujo_rechazo: 0,
-              tiempo_inicio: Math.floor(ts / 1000),
-              tiempo_fin: Math.floor(ts / 1000),
-            };
-          }
+      let afternoonLogs = [];
+      try {
+        // Un solo request con todos los códigos juntos
+        const response = await tuyaService.getDeviceLogsForRoutine({
+          id: PRODUCT_ID,
+          start_date: afternoonStartTime,
+          end_date: afternoonEndTime,
+          fields: allCodesString, // Todos los códigos juntos separados por comas
+          size: 100,
+        });
 
-          switch (log.code) {
-            case 'flowrate_speed_1':
-              grouped[ts].flujo_produccion = Number(log.value) || 0;
-              break;
-            case 'flowrate_speed_2':
-              grouped[ts].flujo_rechazo = Number(log.value) || 0;
-              break;
-            case 'flowrate_total_1':
-              grouped[ts].production_volume = Number(log.value) || 0;
-              break;
-            case 'flowrate_total_2':
-              grouped[ts].rejected_volume = Number(log.value) || 0;
-              break;
-            case 'tds_out':
-              grouped[ts].tds = Number(log.value) || 0;
-              break;
-          }
+        if (response?.success && response?.data?.logs?.length) {
+          afternoonLogs = response.data.logs;
+          totalFetched += afternoonLogs.length;
+          console.log(`  ✅ ${afternoonLogs.length} logs obtenidos para ventana ${afternoonWindow.label}`);
+        } else {
+          console.warn(`  ⚠️ No se obtuvieron logs para ventana ${afternoonWindow.label}`);
         }
+      } catch (err) {
+        console.error(`❌ Error ventana ${afternoonWindow.label}:`, err.message);
+      }
 
-        const logsToSave = Object.values(grouped).filter(log =>
-          log.tds ||
-          log.production_volume ||
-          log.rejected_volume ||
-          log.flujo_produccion ||
-          log.flujo_rechazo
-        );
+      // Combinar logs de ambas ventanas
+      const allLogs = [...morningLogs, ...afternoonLogs];
 
-        for (const logData of logsToSave) {
-          const exists = await ProductLog.findOne({
+      if (!allLogs.length) continue;
+
+      /**
+       * Agrupar por timestamp
+       */
+      const grouped = {};
+
+      for (const log of allLogs) {
+        const ts = log.event_time;
+
+        if (!grouped[ts]) {
+          grouped[ts] = {
             product_id: PRODUCT_ID,
-            date: logData.date,
-          });
+            producto: product._id,
+            date: new Date(ts),
+            source: 'tuya',
+            tds: 0,
+            production_volume: 0,
+            rejected_volume: 0,
+            flujo_produccion: 0,
+            flujo_rechazo: 0,
+            tiempo_inicio: Math.floor(ts / 1000),
+            tiempo_fin: Math.floor(ts / 1000),
+          };
+        }
 
-          if (!exists) {
-            await new ProductLog(logData).save();
-            totalInserted++;
-          }
+        switch (log.code) {
+          // case 'flowrate_speed_1': // Comentado: no se usa
+          //   grouped[ts].flujo_produccion = Number(log.value) || 0;
+          //   break;
+          // case 'flowrate_speed_2': // Comentado: no se usa
+          //   grouped[ts].flujo_rechazo = Number(log.value) || 0;
+          //   break;
+          case 'flowrate_total_1':
+            grouped[ts].production_volume = Number(log.value) || 0;
+            break;
+          case 'flowrate_total_2':
+            grouped[ts].rejected_volume = Number(log.value) || 0;
+            break;
+          case 'tds_out':
+            grouped[ts].tds = Number(log.value) || 0;
+            break;
+        }
+      }
+
+      const logsToSave = Object.values(grouped).filter(log =>
+        log.tds ||
+        log.production_volume ||
+        log.rejected_volume
+        // log.flujo_produccion || // Comentado: no se usa
+        // log.flujo_rechazo // Comentado: no se usa
+      );
+
+      for (const logData of logsToSave) {
+        const exists = await ProductLog.findOne({
+          product_id: PRODUCT_ID,
+          date: logData.date,
+        });
+
+        if (!exists) {
+          await new ProductLog(logData).save();
+          totalInserted++;
         }
       }
     }
