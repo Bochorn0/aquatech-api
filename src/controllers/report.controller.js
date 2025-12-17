@@ -469,50 +469,52 @@ export const reporteMensual = async (req, res) => {
       });
     }
 
-    // Agrupar por día
-    const groupedByDay = {};
+    // Agrupar logs por día (mantener todos los logs de cada día)
+    const logsByDay = {};
 
     for (const log of logs) {
       // Obtener la fecha en formato YYYY-MM-DD
       const logDate = new Date(log.date);
       const dayKey = logDate.toISOString().split('T')[0]; // YYYY-MM-DD
 
-      if (!groupedByDay[dayKey]) {
-        groupedByDay[dayKey] = {
-          dia: dayKey,
-          datos: {
-            flowrate_total_1: null,
-            flowrate_total_2: null,
-            tds_out: null,
-            flowrate_speed_1: null,
-            flowrate_speed_2: null,
-          },
-        };
+      if (!logsByDay[dayKey]) {
+        logsByDay[dayKey] = [];
       }
 
-      // Mapear los valores del modelo a los códigos solicitados
-      // Solo asignar si el valor no es 0 y existe
-      if (log.production_volume != null && log.production_volume !== 0) {
-        groupedByDay[dayKey].datos.flowrate_total_1 = log.production_volume;
-      }
-      if (log.rejected_volume != null && log.rejected_volume !== 0) {
-        groupedByDay[dayKey].datos.flowrate_total_2 = log.rejected_volume;
-      }
-      if (log.tds != null && log.tds !== 0) {
-        groupedByDay[dayKey].datos.tds_out = log.tds;
-      }
-      if (log.flujo_produccion != null && log.flujo_produccion !== 0) {
-        groupedByDay[dayKey].datos.flowrate_speed_1 = log.flujo_produccion;
-      }
-      if (log.flujo_rechazo != null && log.flujo_rechazo !== 0) {
-        groupedByDay[dayKey].datos.flowrate_speed_2 = log.flujo_rechazo;
-      }
+      logsByDay[dayKey].push(log);
     }
 
-    // Convertir objeto a array y ordenar por fecha
-    const result = Object.values(groupedByDay).sort((a, b) => {
-      return new Date(a.dia) - new Date(b.dia);
-    });
+    // Para cada día, obtener el primer y último registro
+    const result = [];
+
+    for (const dayKey of Object.keys(logsByDay).sort()) {
+      const dayLogs = logsByDay[dayKey];
+      
+      if (dayLogs.length === 0) continue;
+
+      // Primer registro del día (más antiguo - ya están ordenados)
+      const firstLog = dayLogs[0];
+      
+      // Último registro del día (más reciente)
+      const lastLog = dayLogs[dayLogs.length - 1];
+
+      // Función helper para mapear valores del log
+      const mapLogData = (log) => {
+        return {
+          flowrate_total_1: (log.production_volume != null && log.production_volume !== 0) ? log.production_volume : null,
+          flowrate_total_2: (log.rejected_volume != null && log.rejected_volume !== 0) ? log.rejected_volume : null,
+          tds_out: (log.tds != null && log.tds !== 0) ? log.tds : null,
+          flowrate_speed_1: (log.flujo_produccion != null && log.flujo_produccion !== 0) ? log.flujo_produccion : null,
+          flowrate_speed_2: (log.flujo_rechazo != null && log.flujo_rechazo !== 0) ? log.flujo_rechazo : null,
+        };
+      };
+
+      result.push({
+        dia: dayKey,
+        inicio: mapLogData(firstLog),
+        fin: mapLogData(lastLog),
+      });
+    }
 
     console.log(`   ✅ Reporte generado con ${result.length} días con datos`);
 
