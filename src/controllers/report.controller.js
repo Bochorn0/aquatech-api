@@ -484,13 +484,19 @@ export const reporteMensual = async (req, res) => {
       logsByDay[dayKey].push(log);
     }
 
-    // Función helper para obtener hora en formato HH:mm:ss
+    // Función helper para obtener hora en formato HH:mm:ss (zona horaria Hermosillo)
     const getTimeString = (date) => {
       const d = new Date(date);
-      const hours = String(d.getHours()).padStart(2, '0');
-      const minutes = String(d.getMinutes()).padStart(2, '0');
-      const seconds = String(d.getSeconds()).padStart(2, '0');
-      return `${hours}:${minutes}:${seconds}`;
+      // Convertir a zona horaria de Hermosillo (America/Hermosillo)
+      const options = {
+        timeZone: 'America/Hermosillo',
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      };
+      const timeStr = d.toLocaleTimeString('es-MX', options);
+      return timeStr; // Formato: HH:mm:ss
     };
 
     // Función helper para buscar el primer match de un campo
