@@ -604,10 +604,57 @@ export const reporteMensual = async (req, res) => {
         flowrate_speed_2: findLastMatch(dayLogs, 'flowrate_speed_2', 'flujo_rechazo'),
       };
 
+      // Calcular producción diaria
+      const produccion = {
+        // Para totales: diferencia (fin - inicio)
+        flowrate_total_1: (inicio.flowrate_total_1 && fin.flowrate_total_1) 
+          ? {
+              value: parseFloat((fin.flowrate_total_1.value - inicio.flowrate_total_1.value).toFixed(2)),
+              inicio: inicio.flowrate_total_1.value,
+              fin: fin.flowrate_total_1.value,
+            }
+          : null,
+        
+        flowrate_total_2: (inicio.flowrate_total_2 && fin.flowrate_total_2)
+          ? {
+              value: parseFloat((fin.flowrate_total_2.value - inicio.flowrate_total_2.value).toFixed(2)),
+              inicio: inicio.flowrate_total_2.value,
+              fin: fin.flowrate_total_2.value,
+            }
+          : null,
+        
+        // Para TDS: diferencia (fin - inicio)
+        tds_out: (inicio.tds_out && fin.tds_out)
+          ? {
+              value: parseFloat((fin.tds_out.value - inicio.tds_out.value).toFixed(2)),
+              inicio: inicio.tds_out.value,
+              fin: fin.tds_out.value,
+            }
+          : null,
+        
+        // Para speeds: promedio (suma de inicio y fin dividido entre 2)
+        flowrate_speed_1: (inicio.flowrate_speed_1 && fin.flowrate_speed_1)
+          ? {
+              value: parseFloat(((inicio.flowrate_speed_1.value + fin.flowrate_speed_1.value) / 2).toFixed(2)),
+              inicio: inicio.flowrate_speed_1.value,
+              fin: fin.flowrate_speed_1.value,
+            }
+          : null,
+        
+        flowrate_speed_2: (inicio.flowrate_speed_2 && fin.flowrate_speed_2)
+          ? {
+              value: parseFloat(((inicio.flowrate_speed_2.value + fin.flowrate_speed_2.value) / 2).toFixed(2)),
+              inicio: inicio.flowrate_speed_2.value,
+              fin: fin.flowrate_speed_2.value,
+            }
+          : null,
+      };
+
       result.push({
         dia: dayKey,
         inicio: inicio,
         fin: fin,
+        produccion: produccion,
       });
     }
 
