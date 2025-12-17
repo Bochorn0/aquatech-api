@@ -413,3 +413,128 @@ export const getProductLogsReport = async (req, res) => {
     });
   }
 };
+
+/* ======================================================
+   📊 REPORTE MENSUAL DE LOGS POR DÍA
+   ====================================================== */
+
+/**
+ * Reporte mensual que obtiene registros de la base de datos agrupados por día
+ * Por ahora filtra del mes actual (2025-12-01 a 2025-12-16) para el producto especificado
+ * Solo considera registros con valores diferentes de 0
+ * Ordena de fecha más antigua a más nueva
+ */
+export const reporteMensual = async (req, res) => {
+  try {
+    const PRODUCT_ID = 'ebea4ffa2ab1483940nrqn';
+    const START_DATE = '2025-12-01';
+    const END_DATE = '2025-12-16';
+
+    console.log(`📊 [reporteMensual] Generando reporte para producto ${PRODUCT_ID}`);
+    console.log(`   Rango de fechas: ${START_DATE} a ${END_DATE}`);
+
+    // Convertir fechas a objetos Date
+    const startDate = new Date(START_DATE);
+    startDate.setHours(0, 0, 0, 0); // Inicio del día
+    
+    const endDate = new Date(END_DATE);
+    endDate.setHours(23, 59, 59, 999); // Fin del día
+
+    // Obtener logs del producto en el rango de fechas
+    // Filtrar solo registros donde al menos uno de los valores no sea 0
+    const logs = await ProductLog.find({
+      product_id: PRODUCT_ID,
+      date: {
+        $gte: startDate,
+        $lte: endDate,
+      },
+      $or: [
+        { tds: { $ne: 0, $exists: true } },
+        { production_volume: { $ne: 0, $exists: true } },
+        { rejected_volume: { $ne: 0, $exists: true } },
+        { flujo_produccion: { $ne: 0, $exists: true } },
+        { flujo_rechazo: { $ne: 0, $exists: true } },
+      ],
+    })
+      .sort({ date: 1 }) // Ordenar de más antigua a más nueva
+      .lean(); // Usar lean() para mejor rendimiento
+
+    console.log(`   📋 Total de logs encontrados: ${logs.length}`);
+
+    if (logs.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No se encontraron registros para el rango de fechas especificado',
+        data: [],
+      });
+    }
+
+    // Agrupar por día
+    const groupedByDay = {};
+
+    for (const log of logs) {
+      // Obtener la fecha en formato YYYY-MM-DD
+      const logDate = new Date(log.date);
+      const dayKey = logDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      if (!groupedByDay[dayKey]) {
+        groupedByDay[dayKey] = {
+          dia: dayKey,
+          datos: {
+            flowrate_total_1: null,
+            flowrate_total_2: null,
+            tds_out: null,
+            flowrate_speed_1: null,
+            flowrate_speed_2: null,
+          },
+        };
+      }
+
+      // Mapear los valores del modelo a los códigos solicitados
+      // Solo asignar si el valor no es 0 y existe
+      if (log.production_volume != null && log.production_volume !== 0) {
+        groupedByDay[dayKey].datos.flowrate_total_1 = log.production_volume;
+      }
+      if (log.rejected_volume != null && log.rejected_volume !== 0) {
+        groupedByDay[dayKey].datos.flowrate_total_2 = log.rejected_volume;
+      }
+      if (log.tds != null && log.tds !== 0) {
+        groupedByDay[dayKey].datos.tds_out = log.tds;
+      }
+      if (log.flujo_produccion != null && log.flujo_produccion !== 0) {
+        groupedByDay[dayKey].datos.flowrate_speed_1 = log.flujo_produccion;
+      }
+      if (log.flujo_rechazo != null && log.flujo_rechazo !== 0) {
+        groupedByDay[dayKey].datos.flowrate_speed_2 = log.flujo_rechazo;
+      }
+    }
+
+    // Convertir objeto a array y ordenar por fecha
+    const result = Object.values(groupedByDay).sort((a, b) => {
+      return new Date(a.dia) - new Date(b.dia);
+    });
+
+    console.log(`   ✅ Reporte generado con ${result.length} días con datos`);
+
+    return res.json({
+      success: true,
+      message: 'Reporte mensual generado exitosamente',
+      data: result,
+      summary: {
+        producto: PRODUCT_ID,
+        fechaInicio: START_DATE,
+        fechaFin: END_DATE,
+        totalDias: result.length,
+        totalLogs: logs.length,
+      },
+    });
+
+  } catch (error) {
+    console.error('❌ [reporteMensual] Error generando reporte:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error generando reporte mensual',
+      error: error.message,
+    });
+  }
+};
