@@ -1753,8 +1753,8 @@ export const generarLogsPorFecha = async (req, res) => {
     ];
 
     const WINDOWS = [
-      { label: 'mañana', start: '06:00:00', end: '06:05:00' },
-      { label: 'tarde', start: '18:00:00', end: '18:05:00' },
+      { label: 'mañana', start: '06:00:00', end: '06:01:00' },
+      { label: 'tarde', start: '18:00:00', end: '18:01:00' },
     ];
 
     const product = await Product.findOne({ id: PRODUCT_ID });
@@ -1785,6 +1785,8 @@ export const generarLogsPorFecha = async (req, res) => {
       const morningEndTime = buildTimestamp(date, morningWindow.end);
 
       console.log(`⏰ Ventana ${morningWindow.label}: ${morningWindow.start} - ${morningWindow.end}`);
+      console.log(`   Timestamps: ${morningStartTime} - ${morningEndTime}`);
+      console.log(`   Fechas: ${new Date(morningStartTime).toISOString()} - ${new Date(morningEndTime).toISOString()}`);
 
       let morningLogs = [];
       try {
@@ -1801,8 +1803,29 @@ export const generarLogsPorFecha = async (req, res) => {
           morningLogs = response.data.logs;
           totalFetched += morningLogs.length;
           console.log(`  ✅ ${morningLogs.length} logs obtenidos para ventana ${morningWindow.label}`);
+          
+          // Mostrar detalles de los logs obtenidos
+          const codesCount = {};
+          morningLogs.forEach(log => {
+            codesCount[log.code] = (codesCount[log.code] || 0) + 1;
+          });
+          console.log(`   Códigos encontrados:`, codesCount);
+          
+          // Mostrar algunos ejemplos de logs
+          if (morningLogs.length > 0) {
+            console.log(`   Ejemplo de logs (primeros 3):`);
+            morningLogs.slice(0, 3).forEach((log, idx) => {
+              console.log(`     [${idx + 1}] code: ${log.code}, value: ${log.value}, time: ${new Date(log.event_time).toISOString()}`);
+            });
+          }
         } else {
           console.warn(`  ⚠️ No se obtuvieron logs para ventana ${morningWindow.label}`);
+          if (response && !response.success) {
+            console.warn(`   Error: ${response.error || 'Sin datos'}`);
+            if (response.code) {
+              console.warn(`   Código de error: ${response.code}`);
+            }
+          }
         }
       } catch (err) {
         console.error(`❌ Error ventana ${morningWindow.label}:`, err.message);
@@ -1817,6 +1840,8 @@ export const generarLogsPorFecha = async (req, res) => {
       const afternoonEndTime = buildTimestamp(date, afternoonWindow.end);
 
       console.log(`⏰ Ventana ${afternoonWindow.label}: ${afternoonWindow.start} - ${afternoonWindow.end}`);
+      console.log(`   Timestamps: ${afternoonStartTime} - ${afternoonEndTime}`);
+      console.log(`   Fechas: ${new Date(afternoonStartTime).toISOString()} - ${new Date(afternoonEndTime).toISOString()}`);
 
       let afternoonLogs = [];
       try {
@@ -1833,8 +1858,29 @@ export const generarLogsPorFecha = async (req, res) => {
           afternoonLogs = response.data.logs;
           totalFetched += afternoonLogs.length;
           console.log(`  ✅ ${afternoonLogs.length} logs obtenidos para ventana ${afternoonWindow.label}`);
+          
+          // Mostrar detalles de los logs obtenidos
+          const codesCount = {};
+          afternoonLogs.forEach(log => {
+            codesCount[log.code] = (codesCount[log.code] || 0) + 1;
+          });
+          console.log(`   Códigos encontrados:`, codesCount);
+          
+          // Mostrar algunos ejemplos de logs
+          if (afternoonLogs.length > 0) {
+            console.log(`   Ejemplo de logs (primeros 3):`);
+            afternoonLogs.slice(0, 3).forEach((log, idx) => {
+              console.log(`     [${idx + 1}] code: ${log.code}, value: ${log.value}, time: ${new Date(log.event_time).toISOString()}`);
+            });
+          }
         } else {
           console.warn(`  ⚠️ No se obtuvieron logs para ventana ${afternoonWindow.label}`);
+          if (response && !response.success) {
+            console.warn(`   Error: ${response.error || 'Sin datos'}`);
+            if (response.code) {
+              console.warn(`   Código de error: ${response.code}`);
+            }
+          }
         }
       } catch (err) {
         console.error(`❌ Error ventana ${afternoonWindow.label}:`, err.message);
@@ -1896,6 +1942,9 @@ export const generarLogsPorFecha = async (req, res) => {
         // log.flujo_rechazo // Comentado: no se usa
       );
 
+      console.log(`  📊 Logs agrupados: ${Object.keys(grouped).length} timestamps únicos`);
+      console.log(`  💾 Logs a guardar: ${logsToSave.length} (filtrados con datos válidos)`);
+
       for (const logData of logsToSave) {
         const exists = await ProductLog.findOne({
           product_id: PRODUCT_ID,
@@ -1905,6 +1954,9 @@ export const generarLogsPorFecha = async (req, res) => {
         if (!exists) {
           await new ProductLog(logData).save();
           totalInserted++;
+          console.log(`  ✅ Guardado log para fecha ${new Date(logData.date).toISOString()} - TDS: ${logData.tds}, Prod: ${logData.production_volume}, Rech: ${logData.rejected_volume}`);
+        } else {
+          console.log(`  ⏭️  Log ya existe para fecha ${new Date(logData.date).toISOString()}, omitido`);
         }
       }
     }
