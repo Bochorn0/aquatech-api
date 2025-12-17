@@ -484,7 +484,45 @@ export const reporteMensual = async (req, res) => {
       logsByDay[dayKey].push(log);
     }
 
-    // Para cada día, obtener el primer y último registro
+    // Función helper para obtener hora en formato HH:mm:ss
+    const getTimeString = (date) => {
+      const d = new Date(date);
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const seconds = String(d.getSeconds()).padStart(2, '0');
+      return `${hours}:${minutes}:${seconds}`;
+    };
+
+    // Función helper para buscar el primer match de un campo
+    const findFirstMatch = (dayLogs, fieldName, fieldValue) => {
+      for (const log of dayLogs) {
+        const value = log[fieldValue];
+        if (value != null && value !== 0) {
+          return {
+            hora: getTimeString(log.date),
+            value: value,
+          };
+        }
+      }
+      return null;
+    };
+
+    // Función helper para buscar el último match de un campo
+    const findLastMatch = (dayLogs, fieldName, fieldValue) => {
+      for (let i = dayLogs.length - 1; i >= 0; i--) {
+        const log = dayLogs[i];
+        const value = log[fieldValue];
+        if (value != null && value !== 0) {
+          return {
+            hora: getTimeString(log.date),
+            value: value,
+          };
+        }
+      }
+      return null;
+    };
+
+    // Para cada día, obtener el primer y último match de cada campo
     const result = [];
 
     for (const dayKey of Object.keys(logsByDay).sort()) {
@@ -492,27 +530,28 @@ export const reporteMensual = async (req, res) => {
       
       if (dayLogs.length === 0) continue;
 
-      // Primer registro del día (más antiguo - ya están ordenados)
-      const firstLog = dayLogs[0];
-      
-      // Último registro del día (más reciente)
-      const lastLog = dayLogs[dayLogs.length - 1];
+      // Buscar primer match de cada campo
+      const inicio = {
+        flowrate_total_1: findFirstMatch(dayLogs, 'flowrate_total_1', 'production_volume'),
+        flowrate_total_2: findFirstMatch(dayLogs, 'flowrate_total_2', 'rejected_volume'),
+        tds_out: findFirstMatch(dayLogs, 'tds_out', 'tds'),
+        flowrate_speed_1: findFirstMatch(dayLogs, 'flowrate_speed_1', 'flujo_produccion'),
+        flowrate_speed_2: findFirstMatch(dayLogs, 'flowrate_speed_2', 'flujo_rechazo'),
+      };
 
-      // Función helper para mapear valores del log
-      const mapLogData = (log) => {
-        return {
-          flowrate_total_1: (log.production_volume != null && log.production_volume !== 0) ? log.production_volume : null,
-          flowrate_total_2: (log.rejected_volume != null && log.rejected_volume !== 0) ? log.rejected_volume : null,
-          tds_out: (log.tds != null && log.tds !== 0) ? log.tds : null,
-          flowrate_speed_1: (log.flujo_produccion != null && log.flujo_produccion !== 0) ? log.flujo_produccion : null,
-          flowrate_speed_2: (log.flujo_rechazo != null && log.flujo_rechazo !== 0) ? log.flujo_rechazo : null,
-        };
+      // Buscar último match de cada campo
+      const fin = {
+        flowrate_total_1: findLastMatch(dayLogs, 'flowrate_total_1', 'production_volume'),
+        flowrate_total_2: findLastMatch(dayLogs, 'flowrate_total_2', 'rejected_volume'),
+        tds_out: findLastMatch(dayLogs, 'tds_out', 'tds'),
+        flowrate_speed_1: findLastMatch(dayLogs, 'flowrate_speed_1', 'flujo_produccion'),
+        flowrate_speed_2: findLastMatch(dayLogs, 'flowrate_speed_2', 'flujo_rechazo'),
       };
 
       result.push({
         dia: dayKey,
-        inicio: mapLogData(firstLog),
-        fin: mapLogData(lastLog),
+        inicio: inicio,
+        fin: fin,
       });
     }
 
