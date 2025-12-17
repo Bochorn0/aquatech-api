@@ -428,11 +428,6 @@ export const reporteMensual = async (req, res) => {
   try {
     const PRODUCT_ID = 'ebea4ffa2ab1483940nrqn';
     
-    // Calcular fechas dinámicamente: del día actual un mes atrás hasta hoy
-    const today = new Date();
-    const oneMonthAgo = new Date(today);
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-    
     // Formatear fechas como YYYY-MM-DD
     const formatDate = (date) => {
       const year = date.getFullYear();
@@ -441,8 +436,41 @@ export const reporteMensual = async (req, res) => {
       return `${year}-${month}-${day}`;
     };
     
-    const START_DATE = formatDate(oneMonthAgo);
-    const END_DATE = formatDate(today);
+    // Obtener fechas de query params o usar fallback (último mes)
+    let START_DATE, END_DATE;
+    
+    if (req.query.dateStart && req.query.dateEnd) {
+      // Validar formato de fechas (YYYY-MM-DD)
+      const dateStartRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateStartRegex.test(req.query.dateStart) || !dateStartRegex.test(req.query.dateEnd)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Formato de fecha inválido. Use YYYY-MM-DD',
+        });
+      }
+      
+      START_DATE = req.query.dateStart;
+      END_DATE = req.query.dateEnd;
+      
+      // Validar que startDate <= endDate
+      const startDateObj = new Date(START_DATE);
+      const endDateObj = new Date(END_DATE);
+      
+      if (startDateObj > endDateObj) {
+        return res.status(400).json({
+          success: false,
+          message: 'La fecha de inicio debe ser menor o igual a la fecha de fin',
+        });
+      }
+    } else {
+      // Fallback: calcular fechas dinámicamente del día actual un mes atrás hasta hoy
+      const today = new Date();
+      const oneMonthAgo = new Date(today);
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+      
+      START_DATE = formatDate(oneMonthAgo);
+      END_DATE = formatDate(today);
+    }
 
     console.log(`📊 [reporteMensual] Generando reporte para producto ${PRODUCT_ID}`);
     console.log(`   Rango de fechas: ${START_DATE} a ${END_DATE} (último mes hasta hoy)`);
