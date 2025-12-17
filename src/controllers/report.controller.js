@@ -427,11 +427,25 @@ export const getProductLogsReport = async (req, res) => {
 export const reporteMensual = async (req, res) => {
   try {
     const PRODUCT_ID = 'ebea4ffa2ab1483940nrqn';
-    const START_DATE = '2025-12-01';
-    const END_DATE = '2025-12-16';
+    
+    // Calcular fechas dinámicamente: del día actual un mes atrás hasta hoy
+    const today = new Date();
+    const oneMonthAgo = new Date(today);
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    
+    // Formatear fechas como YYYY-MM-DD
+    const formatDate = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    const START_DATE = formatDate(oneMonthAgo);
+    const END_DATE = formatDate(today);
 
     console.log(`📊 [reporteMensual] Generando reporte para producto ${PRODUCT_ID}`);
-    console.log(`   Rango de fechas: ${START_DATE} a ${END_DATE}`);
+    console.log(`   Rango de fechas: ${START_DATE} a ${END_DATE} (último mes hasta hoy)`);
 
     // Convertir fechas a objetos Date
     const startDate = new Date(START_DATE);
@@ -499,14 +513,49 @@ export const reporteMensual = async (req, res) => {
       return timeStr; // Formato: HH:mm:ss
     };
 
+    // Función helper para aplicar todas las conversiones (igual que en getAllProducts)
+    const applySpecialProductLogic = (fieldName, value) => {
+      if (value == null || value === 0) return value;
+
+      const PRODUCTOS_ESPECIALES = [
+        'ebf9738480d78e0132gnru',
+        'ebea4ffa2ab1483940nrqn'
+      ];
+
+      const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
+      const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
+      const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
+
+      let convertedValue = value;
+
+      // 1. Si es producto especial y es código de flujo: multiplicar por 1.6
+      if (PRODUCTOS_ESPECIALES.includes(PRODUCT_ID) && flujos_codes.includes(fieldName)) {
+        convertedValue = convertedValue * 1.6;
+        
+        // 2. Si es total (flowrate_total_1 o flowrate_total_2): dividir por 10
+        if (flujos_total_codes.includes(fieldName)) {
+          convertedValue = convertedValue / 10;
+        }
+      }
+
+      // 3. Si es flowrate_speed_1 o flowrate_speed_2: siempre dividir por 10 (conversión a L/s)
+      // Esto se aplica después de la conversión especial si aplica
+      if (arrayCodes.includes(fieldName) && convertedValue > 0) {
+        convertedValue = convertedValue / 10;
+      }
+      
+      return parseFloat(convertedValue.toFixed(2));
+    };
+
     // Función helper para buscar el primer match de un campo
     const findFirstMatch = (dayLogs, fieldName, fieldValue) => {
       for (const log of dayLogs) {
         const value = log[fieldValue];
         if (value != null && value !== 0) {
+          const convertedValue = applySpecialProductLogic(fieldName, value);
           return {
             hora: getTimeString(log.date),
-            value: value,
+            value: convertedValue,
           };
         }
       }
@@ -519,9 +568,10 @@ export const reporteMensual = async (req, res) => {
         const log = dayLogs[i];
         const value = log[fieldValue];
         if (value != null && value !== 0) {
+          const convertedValue = applySpecialProductLogic(fieldName, value);
           return {
             hora: getTimeString(log.date),
-            value: value,
+            value: convertedValue,
           };
         }
       }
