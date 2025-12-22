@@ -7,6 +7,12 @@ import ProductLog from '../models/product_logs.model.js';
 import * as tuyaService from '../services/tuya.service.js';
 import moment from 'moment';
 
+// IDs de productos tipo "Nivel"
+const productos_nivel = [
+  'ebe24cce942e6266b1wixy',
+  'ebbe9512565e8a06a2ucnr',
+  // Agregar más IDs de productos tipo Nivel aquí
+];
 
 const drives = ["Humalla", "Piaxtla", "Tierra Blanca", "Estadio", "Sarzana", "Buena vista", "Valle marquez", "Aeropuerto", "Navarrete", "Planta2", "Pinos", "Perisur"];
 
@@ -97,7 +103,7 @@ export const getAllProducts = async (req, res) => {
           ...tuyaProduct, // Datos de Tuya primero (fuente de verdad)
           // Campos que se preservan o asignan por defecto si no vienen de Tuya
           cliente: tuyaProduct.cliente || existingProduct?.cliente || defaultCliente?._id,
-          product_type: tuyaProduct.product_type || existingProduct?.product_type || (tuyaProduct.id === 'ebe24cce942e6266b1wixy' ? 'Nivel' : 'Osmosis'),
+          product_type: tuyaProduct.product_type || existingProduct?.product_type || (productos_nivel.includes(tuyaProduct.id) ? 'Nivel' : 'Osmosis'),
           city: tuyaProduct.city || existingProduct?.city || 'Hermosillo',
           state: tuyaProduct.state || existingProduct?.state || 'Sonora',
           drive: tuyaProduct.drive || existingProduct?.drive,
@@ -166,7 +172,7 @@ export const getAllProducts = async (req, res) => {
         return {
           ...realProduct,
           cliente: defaultCliente?._id,
-          product_type: realProduct.id === 'ebe24cce942e6266b1wixy' ? 'Nivel' : 'Osmosis',
+          product_type: productos_nivel.includes(realProduct.id) ? 'Nivel' : 'Osmosis',
           city: realProduct.city || 'Hermosillo',
           state: realProduct.state || 'Sonora',
         };
@@ -181,7 +187,7 @@ export const getAllProducts = async (req, res) => {
       product.online = product.online || false;
       
       // Tipo de producto especial
-      if (product.id === 'ebe24cce942e6266b1wixy') {
+      if (productos_nivel.includes(product.id)) {
         product.product_type = 'Nivel';
       }
 
@@ -606,7 +612,7 @@ export const getProductById = async (req, res) => {
     const productData = {
       ...response.data,
       cliente: defaultCliente._id,
-      product_type: response.data.id === 'ebe24cce942e6266b1wixy' ? 'Nivel' : 'Osmosis',
+      product_type: productos_nivel.includes(response.data.id) ? 'Nivel' : 'Osmosis',
       city: response.data.city || 'Hermosillo',
       state: response.data.state || 'Sonora',
     };
@@ -1001,7 +1007,7 @@ async function handleOsmosisProduct(product, data) {
 // ⚙️ — PRESIÓN
 // 🔧 Lógica específica para productos de tipo "pressure"
 async function handlePressureProduct(product, data) {
-  console.log('🔧 [handlePressure] Iniciando procesamiento del producto de tipo Pressure...');
+  // console.log('🔧 [handlePressure] Iniciando procesamiento del producto de tipo Pressure...');
   
   // Acceso seguro y normalización de nombres
   const inPsi  = data.pressure_valve1_psi ?? data.presion_in;
@@ -1012,19 +1018,19 @@ async function handlePressureProduct(product, data) {
   const voltage_in              = data.voltage_in;
   const voltage_out             = data.voltage_out;
 
-  console.log('📦 [handlePressure] Datos recibidos:', {
-    inPsi, outPsi, pressure_difference_psi, relay_state, temperature, voltage_in, voltage_out
-  });
+  // console.log('📦 [handlePressure] Datos recibidos:', {
+  //   inPsi, outPsi, pressure_difference_psi, relay_state, temperature, voltage_in, voltage_out
+  // });
 
   // Solo los códigos estándar para Pressure (incluyendo voltajes para monitoreo)
   const allowedCodes = ['presion_in', 'presion_out', 'pressure_difference_psi', 'relay_state', 'temperature', 'voltage_in', 'voltage_out'];
   if (!Array.isArray(product.status)) {
-    console.log('🧩 [handlePressure] No existe array de status, creando uno nuevo.');
+    // console.log('🧩 [handlePressure] No existe array de status, creando uno nuevo.');
     product.status = [];
   }
   product.status = product.status.filter(s => allowedCodes.includes(s.code));
 
-  console.log('📋 [handlePressure] Status actual antes de actualizar:', JSON.stringify(product.status, null, 2));
+  // console.log('📋 [handlePressure] Status actual antes de actualizar:', JSON.stringify(product.status, null, 2));
 
   // Sólo almacena los códigos normalizados
   const updates = [
@@ -1040,7 +1046,7 @@ async function handlePressureProduct(product, data) {
   for (const { code, value } of updates) {
     // Validación estándar: omitir valores null o undefined
     if (value === undefined || value === null) {
-      console.log(`⚠️ [handlePressure] Valor omitido para '${code}' (undefined o null)`);
+      // console.log(`⚠️ [handlePressure] Valor omitido para '${code}' (undefined o null)`);
       continue;
     }
 
@@ -1048,17 +1054,17 @@ async function handlePressureProduct(product, data) {
     if ((code === 'voltage_in' || code === 'voltage_out')) {
       const numValue = Number(value);
       if (isNaN(numValue) || numValue < 0 || numValue > 5) {
-        console.log(`⚠️ [handlePressure] Valor de voltaje inválido para '${code}': ${value} (omitido)`);
+        // console.log(`⚠️ [handlePressure] Valor de voltaje inválido para '${code}': ${value} (omitido)`);
         continue;
       }
     }
 
     const existing = product.status.find((s) => s.code === code);
     if (existing) {
-      console.log(`🔁 [handlePressure] Actualizando '${code}' de ${existing.value} → ${value}`);
+      // console.log(`🔁 [handlePressure] Actualizando '${code}' de ${existing.value} → ${value}`);
       existing.value = value;
     } else {
-      console.log(`➕ [handlePressure] Agregando nuevo status '${code}' = ${value}`);
+      // console.log(`➕ [handlePressure] Agregando nuevo status '${code}' = ${value}`);
       product.status.push({ code, value });
     }
   }
@@ -1066,11 +1072,11 @@ async function handlePressureProduct(product, data) {
   // Marca el campo como modificado
   product.markModified('status');
 
-  console.log('🧩 [handlePressure] Status final antes de guardar:', JSON.stringify(product.status, null, 2));
+  // console.log('🧩 [handlePressure] Status final antes de guardar:', JSON.stringify(product.status, null, 2));
 
   try {
     await product.save();
-    console.log('✅ [handlePressure] Producto actualizado correctamente en MongoDB');
+    // console.log('✅ [handlePressure] Producto actualizado correctamente en MongoDB');
   } catch (err) {
     console.error('❌ [handlePressure] Error al guardar producto:', err);
     throw err;
@@ -1078,7 +1084,7 @@ async function handlePressureProduct(product, data) {
 
   // Verificación post-save
   const refreshed = await product.constructor.findById(product._id).lean();
-  console.log('🧩 [handlePressure] Status final guardado en DB:', JSON.stringify(refreshed.status, null, 2));
+  // console.log('🧩 [handlePressure] Status final guardado en DB:', JSON.stringify(refreshed.status, null, 2));
 
   return { success: true, message: 'Datos de presión actualizados', product: refreshed };
 }
@@ -1123,7 +1129,7 @@ async function handleLevelProduct(product, data) {
 
 export const componentInput = async (req, res) => {
   try {
-    console.log('📥 [componentInput] Body recibido:', req.body);
+    // console.log('📥 [componentInput] Body recibido:', req.body);
 
     const {
       productId = '',
@@ -1148,17 +1154,17 @@ export const componentInput = async (req, res) => {
     } = req.body;
 
     if (!productId) {
-      console.log('⚠️ [componentInput] Faltan datos requeridos');
+      // console.log('⚠️ [componentInput] Faltan datos requeridos');
       return res.status(400).json({ message: 'Datos incompletos' });
     }
 
     const product = await Product.findById(productId);
     if (!product) {
-      console.log('❌ [componentInput] Producto no encontrado');
+      // console.log('❌ [componentInput] Producto no encontrado');
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
-    console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.product_type || product.type})`);
+    // console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.product_type || product.type})`);
 
     const data = {
       // Para Pressure: admite presion_in / presion_out o pressure_valve1_psi / pressure_valve2_psi
@@ -1197,7 +1203,7 @@ export const componentInput = async (req, res) => {
         break;
 
       default:
-        console.log('ℹ️ [componentInput] Tipo de producto sin lógica especial, guardando sin cambios');
+        // console.log('ℹ️ [componentInput] Tipo de producto sin lógica especial, guardando sin cambios');
         await product.save();
         result = { success: true, message: 'Producto actualizado sin lógica especial', product };
         break;
@@ -1408,7 +1414,9 @@ export const fetchLogsRoutine = async (req, res) => {
     const productosWhitelist = [
       { id: 'ebf9738480d78e0132gnru', type: 'Osmosis' },
       { id: 'ebea4ffa2ab1483940nrqn', type: 'Osmosis' },
-      { id: 'ebe24cce942e6266b1wixy', type: 'Nivel' },
+      // Productos tipo Nivel (usando constante productos_nivel)
+      ...productos_nivel.map(id => ({ id, type: 'Nivel' })),
+
       // Agrega más productos según necesites
     ];
 
@@ -1692,6 +1700,282 @@ export const fetchLogsRoutine = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error executing logs routine',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Convierte fecha + hora local (Hermosillo) a timestamp ms
+ */
+function buildTimestamp(dateStr, timeStr) {
+  // dateStr: YYYY-MM-DD
+  // timeStr: HH:mm:ss
+  const localDate = new Date(`${dateStr}T${timeStr}-07:00`); // Hermosillo fijo
+  return localDate.getTime();
+}
+
+/**
+ * Genera arreglo de fechas entre start y end (inclusive)
+ */
+function getDateRange(start, end) {
+  const dates = [];
+  let current = new Date(start);
+  const endDate = new Date(end);
+
+  while (current <= endDate) {
+    dates.push(current.toISOString().slice(0, 10));
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dates;
+}
+
+export const generarLogsPorFecha = async (req, res) => {
+  try {
+    const { dateStart, dateEnd } = req.query;
+
+    if (!dateStart || !dateEnd) {
+      return res.status(400).json({
+        success: false,
+        message: 'dateStart y dateEnd son requeridos',
+      });
+    }
+
+    const PRODUCT_ID = 'ebea4ffa2ab1483940nrqn';
+
+    const LOG_CODES = [
+      // 'flowrate_speed_1', // Comentado: genera muchos registros
+      // 'flowrate_speed_2', // Comentado: genera muchos registros
+      'flowrate_total_1',
+      'flowrate_total_2',
+      'tds_out',
+    ];
+
+    const WINDOWS = [
+      { label: 'mañana', start: '06:00:00', end: '06:01:00' },
+      { label: 'tarde', start: '18:00:00', end: '18:01:00' },
+    ];
+
+    const product = await Product.findOne({ id: PRODUCT_ID });
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Producto no encontrado',
+      });
+    }
+
+    const dates = getDateRange(dateStart, dateEnd);
+
+    let totalInserted = 0;
+    let totalFetched = 0;
+
+    // Todos los códigos en un solo string separado por comas
+    const allCodesString = LOG_CODES.join(',');
+
+    // Delay entre ventana mañana y tarde
+    const DELAY_BETWEEN_WINDOWS = 100; // 100ms
+
+    for (const date of dates) {
+      console.log(`📅 Procesando fecha ${date}`);
+
+      // Procesar ventana de la mañana
+      const morningWindow = WINDOWS[0];
+      const morningStartTime = buildTimestamp(date, morningWindow.start);
+      const morningEndTime = buildTimestamp(date, morningWindow.end);
+
+      console.log(`⏰ Ventana ${morningWindow.label}: ${morningWindow.start} - ${morningWindow.end}`);
+      console.log(`   Timestamps: ${morningStartTime} - ${morningEndTime}`);
+      console.log(`   Fechas: ${new Date(morningStartTime).toISOString()} - ${new Date(morningEndTime).toISOString()}`);
+
+      let morningLogs = [];
+      try {
+        // Un solo request con todos los códigos juntos
+        const response = await tuyaService.getDeviceLogsForRoutine({
+          id: PRODUCT_ID,
+          start_date: morningStartTime,
+          end_date: morningEndTime,
+          fields: allCodesString, // Todos los códigos juntos separados por comas
+          size: 100,
+        });
+
+        if (response?.success && response?.data?.logs?.length) {
+          morningLogs = response.data.logs;
+          totalFetched += morningLogs.length;
+          console.log(`  ✅ ${morningLogs.length} logs obtenidos para ventana ${morningWindow.label}`);
+          
+          // Mostrar detalles de los logs obtenidos
+          const codesCount = {};
+          morningLogs.forEach(log => {
+            codesCount[log.code] = (codesCount[log.code] || 0) + 1;
+          });
+          console.log(`   Códigos encontrados:`, codesCount);
+          
+          // Mostrar algunos ejemplos de logs
+          if (morningLogs.length > 0) {
+            console.log(`   Ejemplo de logs (primeros 3):`);
+            morningLogs.slice(0, 3).forEach((log, idx) => {
+              console.log(`     [${idx + 1}] code: ${log.code}, value: ${log.value}, time: ${new Date(log.event_time).toISOString()}`);
+            });
+          }
+        } else {
+          console.warn(`  ⚠️ No se obtuvieron logs para ventana ${morningWindow.label}`);
+          if (response && !response.success) {
+            console.warn(`   Error: ${response.error || 'Sin datos'}`);
+            if (response.code) {
+              console.warn(`   Código de error: ${response.code}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`❌ Error ventana ${morningWindow.label}:`, err.message);
+      }
+
+      // Sleep de 100ms entre ventana mañana y tarde
+      await new Promise(r => setTimeout(r, DELAY_BETWEEN_WINDOWS));
+
+      // Procesar ventana de la tarde
+      const afternoonWindow = WINDOWS[1];
+      const afternoonStartTime = buildTimestamp(date, afternoonWindow.start);
+      const afternoonEndTime = buildTimestamp(date, afternoonWindow.end);
+
+      console.log(`⏰ Ventana ${afternoonWindow.label}: ${afternoonWindow.start} - ${afternoonWindow.end}`);
+      console.log(`   Timestamps: ${afternoonStartTime} - ${afternoonEndTime}`);
+      console.log(`   Fechas: ${new Date(afternoonStartTime).toISOString()} - ${new Date(afternoonEndTime).toISOString()}`);
+
+      let afternoonLogs = [];
+      try {
+        // Un solo request con todos los códigos juntos
+        const response = await tuyaService.getDeviceLogsForRoutine({
+          id: PRODUCT_ID,
+          start_date: afternoonStartTime,
+          end_date: afternoonEndTime,
+          fields: allCodesString, // Todos los códigos juntos separados por comas
+          size: 100,
+        });
+
+        if (response?.success && response?.data?.logs?.length) {
+          afternoonLogs = response.data.logs;
+          totalFetched += afternoonLogs.length;
+          console.log(`  ✅ ${afternoonLogs.length} logs obtenidos para ventana ${afternoonWindow.label}`);
+          
+          // Mostrar detalles de los logs obtenidos
+          const codesCount = {};
+          afternoonLogs.forEach(log => {
+            codesCount[log.code] = (codesCount[log.code] || 0) + 1;
+          });
+          console.log(`   Códigos encontrados:`, codesCount);
+          
+          // Mostrar algunos ejemplos de logs
+          if (afternoonLogs.length > 0) {
+            console.log(`   Ejemplo de logs (primeros 3):`);
+            afternoonLogs.slice(0, 3).forEach((log, idx) => {
+              console.log(`     [${idx + 1}] code: ${log.code}, value: ${log.value}, time: ${new Date(log.event_time).toISOString()}`);
+            });
+          }
+        } else {
+          console.warn(`  ⚠️ No se obtuvieron logs para ventana ${afternoonWindow.label}`);
+          if (response && !response.success) {
+            console.warn(`   Error: ${response.error || 'Sin datos'}`);
+            if (response.code) {
+              console.warn(`   Código de error: ${response.code}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`❌ Error ventana ${afternoonWindow.label}:`, err.message);
+      }
+
+      // Combinar logs de ambas ventanas
+      const allLogs = [...morningLogs, ...afternoonLogs];
+
+      if (!allLogs.length) continue;
+
+      /**
+       * Agrupar por timestamp
+       */
+      const grouped = {};
+
+      for (const log of allLogs) {
+        const ts = log.event_time;
+
+        if (!grouped[ts]) {
+          grouped[ts] = {
+            product_id: PRODUCT_ID,
+            producto: product._id,
+            date: new Date(ts),
+            source: 'tuya',
+            tds: 0,
+            production_volume: 0,
+            rejected_volume: 0,
+            flujo_produccion: 0,
+            flujo_rechazo: 0,
+            tiempo_inicio: Math.floor(ts / 1000),
+            tiempo_fin: Math.floor(ts / 1000),
+          };
+        }
+
+        switch (log.code) {
+          // case 'flowrate_speed_1': // Comentado: no se usa
+          //   grouped[ts].flujo_produccion = Number(log.value) || 0;
+          //   break;
+          // case 'flowrate_speed_2': // Comentado: no se usa
+          //   grouped[ts].flujo_rechazo = Number(log.value) || 0;
+          //   break;
+          case 'flowrate_total_1':
+            grouped[ts].production_volume = Number(log.value) || 0;
+            break;
+          case 'flowrate_total_2':
+            grouped[ts].rejected_volume = Number(log.value) || 0;
+            break;
+          case 'tds_out':
+            grouped[ts].tds = Number(log.value) || 0;
+            break;
+        }
+      }
+
+      const logsToSave = Object.values(grouped).filter(log =>
+        log.tds ||
+        log.production_volume ||
+        log.rejected_volume
+        // log.flujo_produccion || // Comentado: no se usa
+        // log.flujo_rechazo // Comentado: no se usa
+      );
+
+      console.log(`  📊 Logs agrupados: ${Object.keys(grouped).length} timestamps únicos`);
+      console.log(`  💾 Logs a guardar: ${logsToSave.length} (filtrados con datos válidos)`);
+
+      for (const logData of logsToSave) {
+        const exists = await ProductLog.findOne({
+          product_id: PRODUCT_ID,
+          date: logData.date,
+        });
+
+        if (!exists) {
+          await new ProductLog(logData).save();
+          totalInserted++;
+          console.log(`  ✅ Guardado log para fecha ${new Date(logData.date).toISOString()} - TDS: ${logData.tds}, Prod: ${logData.production_volume}, Rech: ${logData.rejected_volume}`);
+        } else {
+          console.log(`  ⏭️  Log ya existe para fecha ${new Date(logData.date).toISOString()}, omitido`);
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Generación histórica completada',
+      summary: {
+        dateStart,
+        dateEnd,
+        totalFetched,
+        totalInserted,
+      },
+    });
+
+  } catch (error) {
+    console.error('❌ Error generación histórica:', error);
+    return res.status(500).json({
+      success: false,
       error: error.message,
     });
   }

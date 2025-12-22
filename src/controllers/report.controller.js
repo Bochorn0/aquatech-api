@@ -38,10 +38,14 @@ export const getReports = async (req, res) => {
 /**
  * Función helper privada para generar reporte de logs
  * Puede ser llamada internamente desde otros controladores
+ * @param {string} product_id - ID del producto
+ * @param {string} date - Fecha en formato YYYY-MM-DD
+ * @param {Object} product - Objeto del producto (opcional)
+ * @param {boolean} useLastValue - Si es true, usa el último valor de cada hora en lugar del promedio (solo para tipo Nivel)
  */
-export async function generateProductLogsReport(product_id, date, product = null) {
+export async function generateProductLogsReport(product_id, date, product = null, useLastValue = false, startDate = null, endDate = null) {
   try {
-    console.log('📊 [generateProductLogsReport] Generando reporte para:', { product_id, date });
+    console.log('📊 [generateProductLogsReport] Generando reporte para:', { product_id, date, startDate, endDate });
 
     // Verificar que el producto existe (si no se pasó)
     if (!product) {
@@ -58,8 +62,17 @@ export async function generateProductLogsReport(product_id, date, product = null
     const productType = product.product_type || 'Osmosis';
 
     // ====== CALCULAR RANGO DE FECHA ======
-    const startOfDay = moment(date).startOf('day').toDate();
-    const endOfDay = moment(date).endOf('day').toDate();
+    let startOfDay, endOfDay;
+    
+    if (startDate && endDate) {
+      // Si se proporcionan fechas de inicio y fin, usar el rango completo
+      startOfDay = moment(startDate).startOf('day').toDate();
+      endOfDay = moment(endDate).endOf('day').toDate();
+    } else {
+      // Si solo se proporciona una fecha, usar ese día
+      startOfDay = moment(date).startOf('day').toDate();
+      endOfDay = moment(date).endOf('day').toDate();
+    }
 
     console.log(`📅 [getProductLogsReport] Rango: ${startOfDay.toISOString()} - ${endOfDay.toISOString()}`);
 
@@ -84,7 +97,9 @@ export async function generateProductLogsReport(product_id, date, product = null
             name: product.name,
             product_type: productType,
           },
-          date: date,
+          date: startDate && endDate ? `${startDate} a ${endDate}` : date,
+          start_date: startDate || date,
+          end_date: endDate || date,
           total_logs: 0,
           hours_with_data: [],
         },
@@ -207,20 +222,76 @@ export async function generateProductLogsReport(product_id, date, product = null
     // ====== CALCULAR ESTADÍSTICAS POR HORA ======
     const hoursWithStats = hoursWithData.map(hourData => {
       if (productType === 'Nivel') {
-        // Estadísticas para productos tipo Nivel
-        const avgLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
-          ? (hourData.liquid_depth_agrupado.reduce((sum, item) => sum + item.liquid_depth, 0) / hourData.liquid_depth_agrupado.length).toFixed(2)
-          : 0;
+        let liquidDepthValue = 0;
+        let liquidPercentValue = 0;
 
-        const avgLiquidPercent = hourData.liquid_level_percent_agrupado?.length > 0
-          ? (hourData.liquid_level_percent_agrupado.reduce((sum, item) => sum + item.liquid_level_percent, 0) / hourData.liquid_level_percent_agrupado.length).toFixed(2)
-          : 0;
+        if (useLastValue) {
+          // Calcular promedio para comparación
+          const avgLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
+            ? (hourData.liquid_depth_agrupado.reduce((sum, item) => sum + item.liquid_depth, 0) / hourData.liquid_depth_agrupado.length).toFixed(2)
+            : 0;
+
+          const avgLiquidPercent = hourData.liquid_level_percent_agrupado?.length > 0
+            ? (hourData.liquid_level_percent_agrupado.reduce((sum, item) => sum + item.liquid_level_percent, 0) / hourData.liquid_level_percent_agrupado.length).toFixed(2)
+            : 0;
+
+          // Usar el último valor de cada hora (para gráficas del punto de venta detalle)
+          // Ordenar por timestamp descendente para tomar el más reciente primero
+          // Asegurarse de que el timestamp sea válido antes de ordenar
+          const sortedLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
+            ? [...hourData.liquid_depth_agrupado]
+                .filter(item => item.timestamp) // Filtrar items sin timestamp
+                .sort((a, b) => {
+                  const timeA = new Date(a.timestamp).getTime();
+                  const timeB = new Date(b.timestamp).getTime();
+                  if (isNaN(timeA) || isNaN(timeB)) return 0; // Si algún timestamp es inválido, mantener orden
+                  return timeB - timeA; // Descendente (más reciente primero)
+                })
+            : [];
+          
+          const sortedLiquidPercent = hourData.liquid_level_percent_agrupado?.length > 0
+            ? [...hourData.liquid_level_percent_agrupado]
+                .filter(item => item.timestamp) // Filtrar items sin timestamp
+                .sort((a, b) => {
+                  const timeA = new Date(a.timestamp).getTime();
+                  const timeB = new Date(b.timestamp).getTime();
+                  if (isNaN(timeA) || isNaN(timeB)) return 0; // Si algún timestamp es inválido, mantener orden
+                  return timeB - timeA; // Descendente (más reciente primero)
+                })
+            : [];
+
+          // Tomar el primer elemento (más reciente) después de ordenar descendente
+          liquidDepthValue = sortedLiquidDepth.length > 0
+            ? sortedLiquidDepth[0].liquid_depth
+            : 0;
+
+          liquidPercentValue = sortedLiquidPercent.length > 0
+            ? sortedLiquidPercent[0].liquid_level_percent
+            : 0;
+
+          // Log de comparación: promedio vs último valor usado
+          if (sortedLiquidPercent.length > 0) {
+            console.log(`📊 [useLastValue=true] Hora ${hourData.hora}: Promedio=${avgLiquidPercent}% | Último valor usado=${liquidPercentValue}% (de ${sortedLiquidPercent.length} registros)`);
+          }
+        } else {
+          // Usar el promedio (comportamiento por defecto para reportes)
+          const avgLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
+            ? (hourData.liquid_depth_agrupado.reduce((sum, item) => sum + item.liquid_depth, 0) / hourData.liquid_depth_agrupado.length).toFixed(2)
+            : 0;
+
+          const avgLiquidPercent = hourData.liquid_level_percent_agrupado?.length > 0
+            ? (hourData.liquid_level_percent_agrupado.reduce((sum, item) => sum + item.liquid_level_percent, 0) / hourData.liquid_level_percent_agrupado.length).toFixed(2)
+            : 0;
+
+          liquidDepthValue = parseFloat(avgLiquidDepth);
+          liquidPercentValue = parseFloat(avgLiquidPercent);
+        }
 
         return {
           ...hourData,
           estadisticas: {
-            liquid_depth_promedio: parseFloat(avgLiquidDepth),
-            liquid_level_percent_promedio: parseFloat(avgLiquidPercent),
+            liquid_depth_promedio: parseFloat(Number(liquidDepthValue).toFixed(2)),
+            liquid_level_percent_promedio: parseFloat(Number(liquidPercentValue).toFixed(2)),
           },
         };
       } else {
@@ -292,7 +363,7 @@ export async function generateProductLogsReport(product_id, date, product = null
  */
 export const getProductLogsReport = async (req, res) => {
   try {
-    const { product_id, date } = req.query;
+    const { product_id, date, start_date, end_date } = req.query;
 
     // ====== VALIDACIONES ======
     if (!product_id) {
@@ -302,15 +373,27 @@ export const getProductLogsReport = async (req, res) => {
       });
     }
 
-    if (!date) {
+    // Si se proporcionan start_date y end_date, usarlos; si no, usar date
+    if (!date && !start_date && !end_date) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameter: date (format: YYYY-MM-DD)',
+        message: 'Missing required parameter: date or start_date and end_date (format: YYYY-MM-DD)',
       });
     }
 
+    // Validar que si se proporciona start_date, también se proporcione end_date
+    if ((start_date && !end_date) || (!start_date && end_date)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Both start_date and end_date must be provided together (format: YYYY-MM-DD)',
+      });
+    }
+
+    // Usar date como fallback si no se proporcionan start_date y end_date
+    const dateToUse = date || start_date;
+
     // Llamar a la función helper
-    const result = await generateProductLogsReport(product_id, date);
+    const result = await generateProductLogsReport(product_id, dateToUse, null, false, start_date, end_date);
 
     if (!result.success) {
       return res.status(404).json({
@@ -326,6 +409,303 @@ export const getProductLogsReport = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error generating product logs report',
+      error: error.message,
+    });
+  }
+};
+
+/* ======================================================
+   📊 REPORTE MENSUAL DE LOGS POR DÍA
+   ====================================================== */
+
+/**
+ * Reporte mensual que obtiene registros de la base de datos agrupados por día
+ * Por ahora filtra del mes actual (2025-12-01 a 2025-12-16) para el producto especificado
+ * Solo considera registros con valores diferentes de 0
+ * Ordena de fecha más antigua a más nueva
+ */
+export const reporteMensual = async (req, res) => {
+  try {
+    const PRODUCT_ID = 'ebea4ffa2ab1483940nrqn';
+    
+    // Formatear fechas como YYYY-MM-DD
+    const formatDate = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    // Obtener fechas de query params o usar fallback (último mes)
+    let START_DATE, END_DATE;
+    
+    if (req.query.dateStart && req.query.dateEnd) {
+      // Validar formato de fechas (YYYY-MM-DD)
+      const dateStartRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateStartRegex.test(req.query.dateStart) || !dateStartRegex.test(req.query.dateEnd)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Formato de fecha inválido. Use YYYY-MM-DD',
+        });
+      }
+      
+      START_DATE = req.query.dateStart;
+      END_DATE = req.query.dateEnd;
+      
+      // Validar que startDate <= endDate
+      const startDateObj = new Date(START_DATE);
+      const endDateObj = new Date(END_DATE);
+      
+      if (startDateObj > endDateObj) {
+        return res.status(400).json({
+          success: false,
+          message: 'La fecha de inicio debe ser menor o igual a la fecha de fin',
+        });
+      }
+    } else {
+      // Fallback: calcular fechas dinámicamente del día actual un mes atrás hasta hoy
+      const today = new Date();
+      const oneMonthAgo = new Date(today);
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+      
+      START_DATE = formatDate(oneMonthAgo);
+      END_DATE = formatDate(today);
+    }
+
+    console.log(`📊 [reporteMensual] Generando reporte para producto ${PRODUCT_ID}`);
+    console.log(`   Rango de fechas: ${START_DATE} a ${END_DATE} (último mes hasta hoy)`);
+
+    // Convertir fechas a objetos Date
+    const startDate = new Date(START_DATE);
+    startDate.setHours(0, 0, 0, 0); // Inicio del día
+    
+    const endDate = new Date(END_DATE);
+    endDate.setHours(23, 59, 59, 999); // Fin del día
+
+    // Obtener logs del producto en el rango de fechas
+    // Filtrar solo registros donde al menos uno de los valores no sea 0
+    const logs = await ProductLog.find({
+      product_id: PRODUCT_ID,
+      date: {
+        $gte: startDate,
+        $lte: endDate,
+      },
+      $or: [
+        { tds: { $ne: 0, $exists: true } },
+        { production_volume: { $ne: 0, $exists: true } },
+        { rejected_volume: { $ne: 0, $exists: true } },
+        { flujo_produccion: { $ne: 0, $exists: true } },
+        { flujo_rechazo: { $ne: 0, $exists: true } },
+      ],
+    })
+      .sort({ date: 1 }) // Ordenar de más antigua a más nueva
+      .lean(); // Usar lean() para mejor rendimiento
+
+    console.log(`   📋 Total de logs encontrados: ${logs.length}`);
+
+    if (logs.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No se encontraron registros para el rango de fechas especificado',
+        data: [],
+      });
+    }
+
+    // Agrupar logs por día (mantener todos los logs de cada día)
+    const logsByDay = {};
+
+    for (const log of logs) {
+      // Obtener la fecha en formato YYYY-MM-DD
+      const logDate = new Date(log.date);
+      const dayKey = logDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      if (!logsByDay[dayKey]) {
+        logsByDay[dayKey] = [];
+      }
+
+      logsByDay[dayKey].push(log);
+    }
+
+    // Función helper para obtener hora en formato HH:mm:ss (zona horaria Hermosillo)
+    const getTimeString = (date) => {
+      const d = new Date(date);
+      // Convertir a zona horaria de Hermosillo (America/Hermosillo)
+      const options = {
+        timeZone: 'America/Hermosillo',
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      };
+      const timeStr = d.toLocaleTimeString('es-MX', options);
+      return timeStr; // Formato: HH:mm:ss
+    };
+
+    // Función helper para aplicar todas las conversiones (igual que en getAllProducts)
+    const applySpecialProductLogic = (fieldName, value) => {
+      if (value == null || value === 0) return value;
+
+      const PRODUCTOS_ESPECIALES = [
+        'ebf9738480d78e0132gnru',
+        'ebea4ffa2ab1483940nrqn'
+      ];
+
+      const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
+      const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
+      const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
+
+      let convertedValue = value;
+
+      // 1. Si es producto especial y es código de flujo: multiplicar por 1.6
+      if (PRODUCTOS_ESPECIALES.includes(PRODUCT_ID) && flujos_codes.includes(fieldName)) {
+        convertedValue = convertedValue * 1.6;
+        
+        // 2. Si es total (flowrate_total_1 o flowrate_total_2): dividir por 10
+        if (flujos_total_codes.includes(fieldName)) {
+          convertedValue = convertedValue / 10;
+        }
+      }
+
+      // 3. Si es flowrate_speed_1 o flowrate_speed_2: siempre dividir por 10 (conversión a L/s)
+      // Esto se aplica después de la conversión especial si aplica
+      if (arrayCodes.includes(fieldName) && convertedValue > 0) {
+        convertedValue = convertedValue / 10;
+      }
+      
+      return parseFloat(convertedValue.toFixed(2));
+    };
+
+    // Función helper para buscar el primer match de un campo
+    const findFirstMatch = (dayLogs, fieldName, fieldValue) => {
+      for (const log of dayLogs) {
+        const value = log[fieldValue];
+        if (value != null && value !== 0) {
+          const convertedValue = applySpecialProductLogic(fieldName, value);
+          return {
+            hora: getTimeString(log.date),
+            value: convertedValue,
+          };
+        }
+      }
+      return null;
+    };
+
+    // Función helper para buscar el último match de un campo
+    const findLastMatch = (dayLogs, fieldName, fieldValue) => {
+      for (let i = dayLogs.length - 1; i >= 0; i--) {
+        const log = dayLogs[i];
+        const value = log[fieldValue];
+        if (value != null && value !== 0) {
+          const convertedValue = applySpecialProductLogic(fieldName, value);
+          return {
+            hora: getTimeString(log.date),
+            value: convertedValue,
+          };
+        }
+      }
+      return null;
+    };
+
+    // Para cada día, obtener el primer y último match de cada campo
+    const result = [];
+
+    for (const dayKey of Object.keys(logsByDay).sort()) {
+      const dayLogs = logsByDay[dayKey];
+      
+      if (dayLogs.length === 0) continue;
+
+      // Buscar primer match de cada campo
+      const inicio = {
+        flowrate_total_1: findFirstMatch(dayLogs, 'flowrate_total_1', 'production_volume'),
+        flowrate_total_2: findFirstMatch(dayLogs, 'flowrate_total_2', 'rejected_volume'),
+        tds_out: findFirstMatch(dayLogs, 'tds_out', 'tds'),
+        flowrate_speed_1: findFirstMatch(dayLogs, 'flowrate_speed_1', 'flujo_produccion'),
+        flowrate_speed_2: findFirstMatch(dayLogs, 'flowrate_speed_2', 'flujo_rechazo'),
+      };
+
+      // Buscar último match de cada campo
+      const fin = {
+        flowrate_total_1: findLastMatch(dayLogs, 'flowrate_total_1', 'production_volume'),
+        flowrate_total_2: findLastMatch(dayLogs, 'flowrate_total_2', 'rejected_volume'),
+        tds_out: findLastMatch(dayLogs, 'tds_out', 'tds'),
+        flowrate_speed_1: findLastMatch(dayLogs, 'flowrate_speed_1', 'flujo_produccion'),
+        flowrate_speed_2: findLastMatch(dayLogs, 'flowrate_speed_2', 'flujo_rechazo'),
+      };
+
+      // Calcular producción diaria
+      const produccion = {
+        // Para totales: diferencia (fin - inicio)
+        flowrate_total_1: (inicio.flowrate_total_1 && fin.flowrate_total_1) 
+          ? {
+              value: parseFloat((fin.flowrate_total_1.value - inicio.flowrate_total_1.value).toFixed(2)),
+              inicio: inicio.flowrate_total_1.value,
+              fin: fin.flowrate_total_1.value,
+            }
+          : null,
+        
+        flowrate_total_2: (inicio.flowrate_total_2 && fin.flowrate_total_2)
+          ? {
+              value: parseFloat((fin.flowrate_total_2.value - inicio.flowrate_total_2.value).toFixed(2)),
+              inicio: inicio.flowrate_total_2.value,
+              fin: fin.flowrate_total_2.value,
+            }
+          : null,
+        
+        // Para TDS: diferencia (fin - inicio)
+        tds_out: (inicio.tds_out && fin.tds_out)
+          ? {
+              value: parseFloat((fin.tds_out.value - inicio.tds_out.value).toFixed(2)),
+              inicio: inicio.tds_out.value,
+              fin: fin.tds_out.value,
+            }
+          : null,
+        
+        // Para speeds: promedio (suma de inicio y fin dividido entre 2)
+        flowrate_speed_1: (inicio.flowrate_speed_1 && fin.flowrate_speed_1)
+          ? {
+              value: parseFloat(((inicio.flowrate_speed_1.value + fin.flowrate_speed_1.value) / 2).toFixed(2)),
+              inicio: inicio.flowrate_speed_1.value,
+              fin: fin.flowrate_speed_1.value,
+            }
+          : null,
+        
+        flowrate_speed_2: (inicio.flowrate_speed_2 && fin.flowrate_speed_2)
+          ? {
+              value: parseFloat(((inicio.flowrate_speed_2.value + fin.flowrate_speed_2.value) / 2).toFixed(2)),
+              inicio: inicio.flowrate_speed_2.value,
+              fin: fin.flowrate_speed_2.value,
+            }
+          : null,
+      };
+
+      result.push({
+        dia: dayKey,
+        inicio: inicio,
+        fin: fin,
+        produccion: produccion,
+      });
+    }
+
+    console.log(`   ✅ Reporte generado con ${result.length} días con datos`);
+
+    return res.json({
+      success: true,
+      message: 'Reporte mensual generado exitosamente',
+      data: result,
+      summary: {
+        producto: PRODUCT_ID,
+        fechaInicio: START_DATE,
+        fechaFin: END_DATE,
+        totalDias: result.length,
+        totalLogs: logs.length,
+      },
+    });
+
+  } catch (error) {
+    console.error('❌ [reporteMensual] Error generando reporte:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error generando reporte mensual',
       error: error.message,
     });
   }

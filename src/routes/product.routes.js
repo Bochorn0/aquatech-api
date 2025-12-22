@@ -1,6 +1,6 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine } from '../controllers/product.controller.js'; // Named imports
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha } from '../controllers/product.controller.js'; // Named imports
 import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -32,5 +32,7 @@ router.post('/componentInput', authenticate, authorizeRoles('admin'), componentI
 // Fetch logs routine - Manual trigger endpoint
 router.post('/fetchLogsRoutine', authenticate, fetchLogsRoutine);
 
+// fetch reporte por fechas 
+router.post('/generarLogsPorFecha', authenticate, generarLogsPorFecha);
 
 export default router;
