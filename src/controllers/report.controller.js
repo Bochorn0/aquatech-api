@@ -61,6 +61,40 @@ export async function generateProductLogsReport(product_id, date, product = null
     // Determinar tipo de producto
     const productType = product.product_type || 'Osmosis';
 
+    // ====== FUNCIÓN PARA APLICAR CONVERSIONES (igual que en reporte mensual) ======
+    const applySpecialProductLogic = (fieldName, value) => {
+      if (value == null || value === 0) return value;
+
+      const PRODUCTOS_ESPECIALES = [
+        'ebf9738480d78e0132gnru',
+        'ebea4ffa2ab1483940nrqn'
+      ];
+
+      const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
+      const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
+      const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
+
+      let convertedValue = value;
+
+      // 1. Si es producto especial y es código de flujo: multiplicar por 1.6
+      if (PRODUCTOS_ESPECIALES.includes(product_id) && flujos_codes.includes(fieldName)) {
+        convertedValue = convertedValue * 1.6;
+        
+        // 2. Si es total (flowrate_total_1 o flowrate_total_2): dividir por 10
+        if (flujos_total_codes.includes(fieldName)) {
+          convertedValue = convertedValue / 10;
+        }
+      }
+
+      // 3. Si es flowrate_speed_1 o flowrate_speed_2: siempre dividir por 10 (conversión a L/s)
+      // Esto se aplica después de la conversión especial si aplica
+      if (arrayCodes.includes(fieldName) && convertedValue > 0) {
+        convertedValue = convertedValue / 10;
+      }
+      
+      return parseFloat(convertedValue.toFixed(2));
+    };
+
     // ====== CALCULAR RANGO DE FECHA ======
     let startOfDay, endOfDay;
     
@@ -164,7 +198,7 @@ export async function generateProductLogsReport(product_id, date, product = null
         } else {
           // Para productos tipo Osmosis
           
-          // TDS (excluir si es 0)
+          // TDS (excluir si es 0) - sin conversión especial
           if (log.tds !== undefined && log.tds !== null && log.tds !== 0) {
             hoursMap[hour].tds_agrupado.push({
               tds: log.tds,
@@ -173,37 +207,41 @@ export async function generateProductLogsReport(product_id, date, product = null
             });
           }
 
-          // Flujo Producción (excluir si es 0)
+          // Flujo Producción (excluir si es 0) - aplicar conversiones
           if (log.flujo_produccion !== undefined && log.flujo_produccion !== null && log.flujo_produccion !== 0) {
+            const valorConvertido = applySpecialProductLogic('flowrate_speed_1', log.flujo_produccion);
             hoursMap[hour].flujo_produccion_agrupado.push({
-              flujo_produccion: log.flujo_produccion,
+              flujo_produccion: valorConvertido,
               hora: hourMinute,
               timestamp: log.date,
             });
           }
 
-          // Flujo Rechazo (excluir si es 0)
+          // Flujo Rechazo (excluir si es 0) - aplicar conversiones
           if (log.flujo_rechazo !== undefined && log.flujo_rechazo !== null && log.flujo_rechazo !== 0) {
+            const valorConvertido = applySpecialProductLogic('flowrate_speed_2', log.flujo_rechazo);
             hoursMap[hour].flujo_rechazo_agrupado.push({
-              flujo_rechazo: log.flujo_rechazo,
+              flujo_rechazo: valorConvertido,
               hora: hourMinute,
               timestamp: log.date,
             });
           }
 
-          // Production Volume (excluir si es 0)
+          // Production Volume (excluir si es 0) - aplicar conversiones
           if (log.production_volume !== undefined && log.production_volume !== null && log.production_volume !== 0) {
+            const valorConvertido = applySpecialProductLogic('flowrate_total_1', log.production_volume);
             hoursMap[hour].production_volume_agrupado.push({
-              production_volume: log.production_volume,
+              production_volume: valorConvertido,
               hora: hourMinute,
               timestamp: log.date,
             });
           }
 
-          // Rejected Volume (excluir si es 0)
+          // Rejected Volume (excluir si es 0) - aplicar conversiones
           if (log.rejected_volume !== undefined && log.rejected_volume !== null && log.rejected_volume !== 0) {
+            const valorConvertido = applySpecialProductLogic('flowrate_total_2', log.rejected_volume);
             hoursMap[hour].rejected_volume_agrupado.push({
-              rejected_volume: log.rejected_volume,
+              rejected_volume: valorConvertido,
               hora: hourMinute,
               timestamp: log.date,
             });
