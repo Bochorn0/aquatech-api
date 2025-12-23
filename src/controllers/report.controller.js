@@ -252,10 +252,14 @@ export async function generateProductLogsReport(product_id, date, product = null
       }
     });
 
-    // ====== FILTRAR SOLO HORAS CON DATOS ======
-    const hoursWithData = Object.values(hoursMap).filter(
-      hourData => hourData.total_logs > 0
-    );
+    // ====== FILTRAR SOLO HORAS CON DATOS Y ORDENAR POR HORA ======
+    // Obtener las horas ordenadas numéricamente (00, 01, 02, ..., 23)
+    const sortedHourKeys = Object.keys(hoursMap).sort((a, b) => parseInt(a) - parseInt(b));
+    
+    // Filtrar solo horas con datos y mantener el orden
+    const hoursWithData = sortedHourKeys
+      .map(key => hoursMap[key])
+      .filter(hourData => hourData.total_logs > 0);
 
     // ====== CALCULAR ESTADÍSTICAS POR HORA ======
     const hoursWithStats = hoursWithData.map(hourData => {
