@@ -86,22 +86,77 @@ export async function getDeviceLogs(query) {
   const { id, start_date, end_date, fields, size = 100, last_row_key } = query;
   const safeStart = Number(start_date);
   const safeEnd = Number(end_date);
-  const encodedFields = encodeURIComponent(fields);
+  
+  // Si fields es una cadena con múltiples códigos separados por comas, hacer consultas separadas
+  const fieldCodes = typeof fields === 'string' ? fields.split(',').map(f => f.trim()) : [fields];
+  
+  // Si hay múltiples códigos, hacer consultas separadas y combinar resultados
+  if (fieldCodes.length > 1) {
+    console.log(`📡 Consultando ${fieldCodes.length} códigos por separado para evitar error de parámetros`);
+    
+    const allLogs = [];
+    const promises = fieldCodes.map(async (code) => {
+      const path = `/v2.0/cloud/thing/${id}/report-logs?codes=${code}&start_time=${safeStart}&end_time=${safeEnd}&size=${size}` +
+                    (last_row_key ? `&last_row_key=${last_row_key}` : '');
+      
+      try {
+        const response = await context.request({ method: 'GET', path });
+        const responseData = handleResponse(response);
+        
+        if (responseData.success && responseData.data?.logs) {
+          return responseData.data.logs;
+        }
+        return [];
+      } catch (error) {
+        console.warn(`⚠️ Error obteniendo logs para código ${code}:`, error.message);
+        return [];
+      }
+    });
+    
+    const results = await Promise.all(promises);
+    const combinedLogs = results.flat();
+    
+    // Eliminar duplicados basándose en event_time y code
+    const uniqueLogs = [];
+    const seen = new Set();
+    combinedLogs.forEach(log => {
+      const key = `${log.event_time}_${log.code}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueLogs.push(log);
+      }
+    });
+    
+    // Ordenar por event_time descendente
+    uniqueLogs.sort((a, b) => b.event_time - a.event_time);
+    
+    console.log(`✅ Logs combinados: ${uniqueLogs.length} registros únicos de ${combinedLogs.length} totales`);
+    
+    return {
+      success: true,
+      data: {
+        logs: uniqueLogs,
+        has_more: false, // No manejamos paginación en modo combinado por ahora
+      }
+    };
+  } else {
+    // Un solo código, consulta normal
+    const code = fieldCodes[0];
+    const path = `/v2.0/cloud/thing/${id}/report-logs?codes=${code}&start_time=${safeStart}&end_time=${safeEnd}&size=${size}` +
+                  (last_row_key ? `&last_row_key=${last_row_key}` : '');
 
-  const path = `/v2.0/cloud/thing/${id}/report-logs?codes=${encodedFields}&start_time=${safeStart}&end_time=${safeEnd}&size=${size}` +
-                (last_row_key ? `&last_row_key=${last_row_key}` : '');
+    console.log('path', path);
 
-  console.log('path', path);
+    try {
+      const response = await context.request({ method: 'GET', path });
+      const responseData = handleResponse(response);
 
-  try {
-    const response = await context.request({ method: 'GET', path });
-    const responseData = handleResponse(response);
-
-    if (responseData.success && responseData.data) return responseData;
-    return { success: false, error: 'No logs found' };
-  } catch (error) {
-    console.error('Error fetching device logs:', error.message);
-    return { success: false, error: error.message };
+      if (responseData.success && responseData.data) return responseData;
+      return { success: false, error: 'No logs found' };
+    } catch (error) {
+      console.error('Error fetching device logs:', error.message);
+      return { success: false, error: error.message };
+    }
   }
 }
 
