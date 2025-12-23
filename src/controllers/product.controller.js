@@ -796,9 +796,10 @@ export const getProductLogsById = async (req, res) => {
         .lean(); // Usar lean() para mejor rendimiento
 
       // Asegurar que todos los logs de MongoDB tengan source='database'
+      // Forzar 'database' sin importar qué tengan guardado, ya que vienen de MongoDB
       rawLogs = rawLogs.map(log => ({
         ...log,
-        source: log.source || 'database', // Establecer source como 'database' si no existe
+        source: 'database', // Forzar source='database' para todos los logs de MongoDB
       }));
 
       console.log(`✅ Logs obtenidos desde DB (${rawLogs.length})`);
@@ -818,15 +819,14 @@ export const getProductLogsById = async (req, res) => {
       const logDate = log.date ? new Date(log.date) : new Date(log.createdAt || Date.now());
       const timestamp = Math.floor(logDate.getTime() / 1000) * 1000; // Redondear a segundos
       
-      // Determinar el origen real del log
-      // Si el log tiene source, usarlo; si no, usar el source general (tuya o database)
-      const logSource = log.source || source;
+      // Usar el source del log individual (ya establecido correctamente arriba)
+      const logSource = log.source;
       
       if (!groupedLogs[timestamp]) {
         groupedLogs[timestamp] = {
           date: new Date(timestamp),
           createdAt: log.createdAt || new Date(timestamp),
-          source: logSource, // Usar el origen real del log
+          source: logSource, // Usar el origen real del log (ya establecido correctamente)
           _id: log._id,
           producto: log.producto,
           product_id: log.product_id || id,
