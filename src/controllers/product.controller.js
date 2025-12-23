@@ -792,9 +792,22 @@ export const getProductLogsById = async (req, res) => {
 
       rawLogs = await ProductLog.find(query)
         .sort({ date: -1 })
-        .limit(parseInt(limit) * 5); // Obtener más logs para agrupar
+        .limit(parseInt(limit) * 5) // Obtener más logs para agrupar
+        .lean(); // Usar lean() para mejor rendimiento
+
+      // Asegurar que todos los logs de MongoDB tengan source='database'
+      rawLogs = rawLogs.map(log => ({
+        ...log,
+        source: log.source || 'database', // Establecer source como 'database' si no existe
+      }));
 
       console.log(`✅ Logs obtenidos desde DB (${rawLogs.length})`);
+    } else {
+      // Si los logs vienen de Tuya, asegurar que todos tengan source='tuya'
+      rawLogs = rawLogs.map(log => ({
+        ...log,
+        source: 'tuya', // Forzar source='tuya' para logs de Tuya
+      }));
     }
 
     // ====== AGRUPAR LOGS POR TIMESTAMP (redondeado a segundos) ======
@@ -805,11 +818,15 @@ export const getProductLogsById = async (req, res) => {
       const logDate = log.date ? new Date(log.date) : new Date(log.createdAt || Date.now());
       const timestamp = Math.floor(logDate.getTime() / 1000) * 1000; // Redondear a segundos
       
+      // Determinar el origen real del log
+      // Si el log tiene source, usarlo; si no, usar el source general (tuya o database)
+      const logSource = log.source || source;
+      
       if (!groupedLogs[timestamp]) {
         groupedLogs[timestamp] = {
           date: new Date(timestamp),
           createdAt: log.createdAt || new Date(timestamp),
-          source: log.source || source,
+          source: logSource, // Usar el origen real del log
           _id: log._id,
           producto: log.producto,
           product_id: log.product_id || id,
@@ -822,6 +839,12 @@ export const getProductLogsById = async (req, res) => {
           tiempo_inicio: null,
           tiempo_fin: null,
         };
+      } else {
+        // Si ya existe un log en este timestamp, priorizar 'tuya' sobre 'database'
+        // Esto asegura que si hay mezcla de orígenes, se muestre 'tuya'
+        if (logSource === 'tuya' && groupedLogs[timestamp].source === 'database') {
+          groupedLogs[timestamp].source = 'tuya';
+        }
       }
 
       // Agregar valores si existen y no son 0
