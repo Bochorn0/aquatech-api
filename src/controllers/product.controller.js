@@ -704,7 +704,7 @@ export const getProductLogsById = async (req, res) => {
       id,
       start_date,
       end_date,
-      limit = 20,
+      limit = 100,
       last_row_key = null,
     } = req.query.params || {};
 
@@ -712,26 +712,59 @@ export const getProductLogsById = async (req, res) => {
       return res.status(400).json({ message: 'Missing required parameter: id' });
     }
 
+    // ====== FUNCIÓN PARA APLICAR CONVERSIONES ======
+    const applySpecialProductLogic = (fieldName, value) => {
+      if (value == null || value === 0) return value;
+
+      const PRODUCTOS_ESPECIALES = [
+        'ebf9738480d78e0132gnru',
+        'ebea4ffa2ab1483940nrqn'
+      ];
+
+      const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
+      const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
+      const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
+
+      let convertedValue = value;
+
+      // 1. Si es producto especial y es código de flujo: multiplicar por 1.6
+      if (PRODUCTOS_ESPECIALES.includes(id) && flujos_codes.includes(fieldName)) {
+        convertedValue = convertedValue * 1.6;
+        
+        // 2. Si es total (flowrate_total_1 o flowrate_total_2): dividir por 10
+        if (flujos_total_codes.includes(fieldName)) {
+          convertedValue = convertedValue / 10;
+        }
+      }
+
+      // 3. Si es flowrate_speed_1 o flowrate_speed_2: siempre dividir por 10 (conversión a L/s)
+      if (arrayCodes.includes(fieldName) && convertedValue > 0) {
+        convertedValue = convertedValue / 10;
+      }
+      
+      return parseFloat(convertedValue.toFixed(2));
+    };
+
     // ====== Preparar filtros para Tuya ======
     const filters = {
       id,
       start_date: start_date || Date.now() - 24 * 60 * 60 * 1000, // por defecto: últimas 24h
       end_date: end_date || Date.now(),
       fields: 'flowrate_speed_1,flowrate_speed_2,flowrate_total_1,flowrate_total_2,tds_out', // hardcodeados
-      size: limit,
+      size: limit * 5, // Obtener más logs para agrupar
       last_row_key,
     };
 
-    let logs = [];
+    let rawLogs = [];
     let source = 'database';
 
     // ====== Intentar obtener desde Tuya ======
     try {
       const response = await tuyaService.getDeviceLogs(filters);
       if (response.success && response.data && response.data.logs?.length > 0) {
-        logs = mapTuyaLogs(response.data.logs); // <--- aquí mapeamos
+        rawLogs = mapTuyaLogs(response.data.logs);
         source = 'tuya';
-        console.log(`✅ Logs obtenidos desde Tuya (${logs.length})`);
+        console.log(`✅ Logs obtenidos desde Tuya (${rawLogs.length})`);
       } else {
         console.warn('⚠️ No se encontraron logs en Tuya');
       }
@@ -740,29 +773,103 @@ export const getProductLogsById = async (req, res) => {
     }
 
     // ====== Si Tuya no devolvió datos, usar base de datos local ======
-    if (!logs.length) {
+    if (!rawLogs.length) {
       console.log('🔁 Consultando logs desde base de datos local...');
       const query = { product_id: id };
 
       if (start_date && end_date) {
-        query.createdAt = {
+        query.date = {
           $gte: new Date(Number(start_date)),
           $lte: new Date(Number(end_date)),
         };
       }
 
-      logs = await ProductLog.find(query)
-        .sort({ createdAt: -1 })
-        .limit(parseInt(limit));
+      rawLogs = await ProductLog.find(query)
+        .sort({ date: -1 })
+        .limit(parseInt(limit) * 5); // Obtener más logs para agrupar
 
-      console.log(`✅ Logs obtenidos desde DB (${logs.length})`);
+      console.log(`✅ Logs obtenidos desde DB (${rawLogs.length})`);
     }
 
-    const nextLastRowKey = logs.length > 0 ? logs[logs.length - 1]._id : null;
+    // ====== AGRUPAR LOGS POR TIMESTAMP (redondeado a segundos) ======
+    const groupedLogs = {};
+    
+    rawLogs.forEach(log => {
+      // Usar el timestamp como clave, redondeado a segundos para agrupar
+      const logDate = log.date ? new Date(log.date) : new Date(log.createdAt || Date.now());
+      const timestamp = Math.floor(logDate.getTime() / 1000) * 1000; // Redondear a segundos
+      
+      if (!groupedLogs[timestamp]) {
+        groupedLogs[timestamp] = {
+          date: new Date(timestamp),
+          createdAt: log.createdAt || new Date(timestamp),
+          source: log.source || source,
+          _id: log._id,
+          producto: log.producto,
+          product_id: log.product_id || id,
+          // Inicializar todos los campos
+          tds: null,
+          production_volume: null,
+          rejected_volume: null,
+          flujo_produccion: null,
+          flujo_rechazo: null,
+          tiempo_inicio: null,
+          tiempo_fin: null,
+        };
+      }
+
+      // Agregar valores si existen y no son 0
+      if (log.tds != null && log.tds !== 0) {
+        groupedLogs[timestamp].tds = log.tds;
+      }
+      if (log.production_volume != null && log.production_volume !== 0) {
+        groupedLogs[timestamp].production_volume = log.production_volume;
+      }
+      if (log.rejected_volume != null && log.rejected_volume !== 0) {
+        groupedLogs[timestamp].rejected_volume = log.rejected_volume;
+      }
+      if (log.flujo_produccion != null && log.flujo_produccion !== 0) {
+        groupedLogs[timestamp].flujo_produccion = log.flujo_produccion;
+      }
+      if (log.flujo_rechazo != null && log.flujo_rechazo !== 0) {
+        groupedLogs[timestamp].flujo_rechazo = log.flujo_rechazo;
+      }
+      if (log.tiempo_inicio != null) {
+        groupedLogs[timestamp].tiempo_inicio = log.tiempo_inicio;
+      }
+      if (log.tiempo_fin != null) {
+        groupedLogs[timestamp].tiempo_fin = log.tiempo_fin;
+      }
+    });
+
+    // ====== APLICAR CONVERSIONES Y CONVERTIR A ARRAY ======
+    const groupedArray = Object.values(groupedLogs)
+      .map(log => {
+        // Aplicar conversiones
+        if (log.flujo_produccion != null) {
+          log.flujo_produccion = applySpecialProductLogic('flowrate_speed_1', log.flujo_produccion);
+        }
+        if (log.flujo_rechazo != null) {
+          log.flujo_rechazo = applySpecialProductLogic('flowrate_speed_2', log.flujo_rechazo);
+        }
+        if (log.production_volume != null) {
+          log.production_volume = applySpecialProductLogic('flowrate_total_1', log.production_volume);
+        }
+        if (log.rejected_volume != null) {
+          log.rejected_volume = applySpecialProductLogic('flowrate_total_2', log.rejected_volume);
+        }
+        // TDS no necesita conversión especial
+        
+        return log;
+      })
+      .sort((a, b) => new Date(b.date) - new Date(a.date)) // Ordenar descendente
+      .slice(0, parseInt(limit)); // Limitar resultados
+
+    const nextLastRowKey = groupedArray.length > 0 ? groupedArray[groupedArray.length - 1]._id : null;
 
     return res.json({
       success: true,
-      data: logs,
+      data: groupedArray,
       next_last_row_key: nextLastRowKey,
       source,
     });
