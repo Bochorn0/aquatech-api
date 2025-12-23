@@ -746,14 +746,20 @@ export const getProductLogsById = async (req, res) => {
     };
 
     // ====== Preparar filtros para Tuya ======
+    const numericLimit = parseInt(limit, 10) || 100;
+    const numericStartDate = start_date ? Number(start_date) : Date.now() - 24 * 60 * 60 * 1000;
+    const numericEndDate = end_date ? Number(end_date) : Date.now();
+    
     const filters = {
       id,
-      start_date: start_date || Date.now() - 24 * 60 * 60 * 1000, // por defecto: últimas 24h
-      end_date: end_date || Date.now(),
+      start_date: numericStartDate,
+      end_date: numericEndDate,
       fields: 'flowrate_speed_1,flowrate_speed_2,flowrate_total_1,flowrate_total_2,tds_out', // hardcodeados
-      size: limit * 5, // Obtener más logs para agrupar
+      size: numericLimit * 5, // Obtener más logs para agrupar
       last_row_key,
     };
+    
+    console.log('📊 Filtros para Tuya:', filters);
 
     let rawLogs = [];
     let source = 'database';

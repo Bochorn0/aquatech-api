@@ -86,6 +86,19 @@ export async function getDeviceLogs(query) {
   const { id, start_date, end_date, fields, size = 100, last_row_key } = query;
   const safeStart = Number(start_date);
   const safeEnd = Number(end_date);
+  const safeSize = Math.min(Number(size) || 100, 100); // Limitar a máximo 100 para evitar errores
+  
+  // Validar que los parámetros numéricos sean válidos
+  if (isNaN(safeStart) || isNaN(safeEnd) || isNaN(safeSize) || safeSize <= 0) {
+    console.error('❌ Parámetros inválidos:', { start_date, end_date, size, safeStart, safeEnd, safeSize });
+    return { success: false, error: 'Invalid date or size parameters' };
+  }
+  
+  // Validar que start_date < end_date
+  if (safeStart >= safeEnd) {
+    console.error('❌ Rango de fechas inválido: start_date debe ser menor que end_date');
+    return { success: false, error: 'Invalid date range: start_date must be less than end_date' };
+  }
   
   // Si fields es una cadena con múltiples códigos separados por comas, hacer consultas separadas
   const fieldCodes = typeof fields === 'string' ? fields.split(',').map(f => f.trim()) : [fields];
@@ -93,22 +106,29 @@ export async function getDeviceLogs(query) {
   // Si hay múltiples códigos, hacer consultas separadas y combinar resultados
   if (fieldCodes.length > 1) {
     console.log(`📡 Consultando ${fieldCodes.length} códigos por separado para evitar error de parámetros`);
+    console.log(`   Códigos: ${fieldCodes.join(', ')}`);
+    console.log(`   Rango: ${safeStart} - ${safeEnd}`);
     
     const allLogs = [];
     const promises = fieldCodes.map(async (code) => {
-      const path = `/v2.0/cloud/thing/${id}/report-logs?codes=${code}&start_time=${safeStart}&end_time=${safeEnd}&size=${size}` +
-                    (last_row_key ? `&last_row_key=${last_row_key}` : '');
+      // No incluir last_row_key en consultas múltiples para evitar problemas
+      const path = `/v2.0/cloud/thing/${id}/report-logs?codes=${code}&start_time=${safeStart}&end_time=${safeEnd}&size=${safeSize}`;
+      
+      console.log(`   🔍 Consultando código ${code}: ${path}`);
       
       try {
         const response = await context.request({ method: 'GET', path });
         const responseData = handleResponse(response);
         
         if (responseData.success && responseData.data?.logs) {
+          console.log(`   ✅ Código ${code}: ${responseData.data.logs.length} logs obtenidos`);
           return responseData.data.logs;
+        } else {
+          console.log(`   ⚠️ Código ${code}: No se encontraron logs`);
         }
         return [];
       } catch (error) {
-        console.warn(`⚠️ Error obteniendo logs para código ${code}:`, error.message);
+        console.warn(`   ❌ Error obteniendo logs para código ${code}:`, error.message);
         return [];
       }
     });
@@ -142,7 +162,7 @@ export async function getDeviceLogs(query) {
   } else {
     // Un solo código, consulta normal
     const code = fieldCodes[0];
-    const path = `/v2.0/cloud/thing/${id}/report-logs?codes=${code}&start_time=${safeStart}&end_time=${safeEnd}&size=${size}` +
+    const path = `/v2.0/cloud/thing/${id}/report-logs?codes=${code}&start_time=${safeStart}&end_time=${safeEnd}&size=${safeSize}` +
                   (last_row_key ? `&last_row_key=${last_row_key}` : '');
 
     console.log('path', path);
