@@ -6,6 +6,7 @@ import archiverZipEncrypted from 'archiver-zip-encrypted';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import User from '../models/user.model.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,14 +40,29 @@ BYZgMEvHi/6B83pecj+MoAVPhpwl8549NE92Sszv8OIKpR59WOuC+a4NiVktCctS
 U0YBXM/WsHxY/PyQl3qShJMZT3Q65aQAnC2Wocg=
 -----END CERTIFICATE-----`;
 
-// Contraseña para el ZIP (puedes cambiarla o hacerla configurable)
-const ZIP_PASSWORD = process.env.MQTT_CERT_ZIP_PASSWORD || 'Aquatech2025*';
-
 /**
  * Descargar certificado CA en un ZIP protegido con contraseña
+ * La contraseña se obtiene del usuario autenticado
  */
 export const downloadCertificateZip = async (req, res) => {
   try {
+    // Obtener el usuario autenticado desde el token
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({ message: 'Usuario no autenticado' });
+    }
+
+    // Obtener el usuario completo de la base de datos
+    const user = await User.findById(userId).select('email mqtt_zip_password');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    // Obtener la contraseña del ZIP del usuario
+    // Si tiene mqtt_zip_password configurado, usarlo; si no, usar el email como fallback
+    const ZIP_PASSWORD = user.mqtt_zip_password || user.email || process.env.MQTT_CERT_ZIP_PASSWORD || 'Aquatech2025*';
     // Crear directorio temporal si no existe
     const tempDir = path.join(__dirname, '../../temp');
     if (!fs.existsSync(tempDir)) {

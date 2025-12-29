@@ -13,7 +13,8 @@ const UserSchema = new mongoose.Schema({
   avatar: { type: String, default: '/assets/icons/navbar/ic-user.svg' },
   nombre: { type: String, default: '' },
   puesto: { type: String, default: '' },
-  user_description: { type: String, default: '' }
+  user_description: { type: String, default: '' },
+  mqtt_zip_password: { type: String, default: '' } // Contraseña para el ZIP del certificado MQTT
 }, { timestamps: true });
 
 // Hash password before saving
