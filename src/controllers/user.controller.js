@@ -103,6 +103,11 @@ export const updateUser = async (req, res) => {
       }
     }
 
+    // Si se actualiza el password, también actualizar mqtt_zip_password con el mismo valor
+    if (updatedUser.password && updatedUser.password.trim() !== '') {
+      updatedUser.mqtt_zip_password = updatedUser.password;
+    }
+    
     // Update user fields
     user.set(updatedUser);
     await user.save();
@@ -144,6 +149,12 @@ export const addUser = async (req, res) => {
     if (currentUser) {
       return res.status(409).json({ message: 'User already exists' });
     }
+    
+    // Si se proporciona un password, también establecer mqtt_zip_password con el mismo valor
+    if (userData.password && userData.password.trim() !== '') {
+      userData.mqtt_zip_password = userData.password;
+    }
+    
     const newUser = new User(userData);
     await newUser.save();
     res.status(201).json(newUser);
