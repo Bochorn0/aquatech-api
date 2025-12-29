@@ -23,6 +23,7 @@ import controllerRoutes from './routes/controller.routes.js' // Use `import` for
 import puntoVentaRoutes from './routes/puntoVenta.routes.js' // Use `import` for PuntoVenta
 import sensorDataRoutes from './routes/sensorData.routes.js';  // Use `import` for sensorDataRoutes
 import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoutes
+import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoutes
 import { authenticate, authorizeRoles } from './middlewares/auth.middleware.js';  // Import the authentication and authorization middleware
 import mqttService from './services/mqtt.service.js';  // Import MQTT service
 
@@ -90,6 +91,9 @@ app.use('/api/v1.0/sensor-data', authenticate, authorizeRoles('admin', 'cliente'
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/auth', authRoutes);
+
+// MQTT routes (certificado download, etc.)
+app.use('/api/v1.0/mqtt', mqttRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
