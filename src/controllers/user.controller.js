@@ -104,12 +104,13 @@ export const updateUser = async (req, res) => {
     }
 
     // Si se actualiza el password, también actualizar mqtt_zip_password con el mismo valor
-    // Solo actualizar si el password no está vacío y es diferente al actual
+    // Solo actualizar si el password es nuevo (no está hasheado)
     if (updatedUser.password && updatedUser.password.trim() !== '') {
-      // Verificar si el password cambió comparando con el hash actual
-      // Si el password es nuevo (no está hasheado), establecer mqtt_zip_password
-      const isNewPassword = !updatedUser.password.startsWith('$2b$'); // Los hashes de bcrypt empiezan con $2b$
+      // Verificar si el password es nuevo (no está hasheado)
+      // Los hashes de bcrypt empiezan con $2b$ o $2a$
+      const isNewPassword = !updatedUser.password.startsWith('$2b$') && !updatedUser.password.startsWith('$2a$');
       if (isNewPassword) {
+        // Guardar el password en texto plano en mqtt_zip_password antes de que se hashee
         updatedUser.mqtt_zip_password = updatedUser.password;
       }
     }

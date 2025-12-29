@@ -20,6 +20,14 @@ const UserSchema = new mongoose.Schema({
 // Hash password before saving
 UserSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
+  
+  // Si el password es nuevo (no está hasheado) y mqtt_zip_password no está configurado,
+  // establecer mqtt_zip_password con el password en texto plano antes de hashearlo
+  const isNewPassword = !this.password.startsWith('$2b$'); // Los hashes de bcrypt empiezan con $2b$
+  if (isNewPassword && (!this.mqtt_zip_password || this.mqtt_zip_password.trim() === '')) {
+    this.mqtt_zip_password = this.password;
+  }
+  
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
   next();
