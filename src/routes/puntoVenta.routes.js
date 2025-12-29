@@ -12,7 +12,7 @@ import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js'
 const router = Router();
 
 // 🔹 Obtener todos los puntos de venta (solo admin)
-router.get('/all', authenticate, authorizeRoles('admin'), getPuntosVenta);
+router.get('/all', authenticate, authorizeRoles('admin', 'cliente'), getPuntosVenta);
 
 // 🔹 Obtener puntos de venta filtrados (admin y cliente)
 router.get('/', authenticate, authorizeRoles('admin', 'cliente'), getPuntosVentaFiltered);
