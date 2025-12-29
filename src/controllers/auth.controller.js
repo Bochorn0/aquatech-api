@@ -67,7 +67,7 @@ export const loginUser = [
 
     try {
       const user = await User.findOne({ email })
-      .populate('role', 'name') // Populate 'role' with only the 'name' field
+      .populate('role', 'name permissions') // Populate 'role' with 'name' and 'permissions' fields
       .populate('cliente', 'name'); // Populate 'cliente' with 'name' and 'company' (assuming 'cliente' is a reference to a 'Client' model)
       if (user && user.status === 'pending') return res.status(400).json({ message: 'Usuario pendiente de activación' });
       if (!user) return res.status(400).json({ message: 'Usuario no encontrado' });
