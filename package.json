@@ -15,6 +15,8 @@
     "@tuya/tuya-connector-nodejs": "^2.1.2",
     "adm-zip": "^0.5.16",
     "archiver": "^7.0.1",
+    "archiver-zip-encrypted": "^1.0.12",
+    "archiver-zip-encrypted": "^2.0.0",
     "axios": "^1.5.0",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
@@ -28,6 +30,7 @@
     "mongoose": "^7.5.0",
     "morgan": "^1.10.0",
     "mqtt": "^5.3.0",
+    "node-7z": "^3.0.0",
     "tuyapi": "github:codetheweb/tuyapi",
     "uuid": "^9.0.1",
     "winston": "^3.10.0"

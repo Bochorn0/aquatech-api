@@ -1,16 +1,17 @@
 // src/controllers/mqtt.controller.js
 // Controlador para endpoints relacionados con MQTT
 
-import AdmZip from 'adm-zip';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import archiver from 'archiver';
+import archiverZipEncrypted from 'archiver-zip-encrypted';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Registrar el formato zip-encrypted
+archiver.registerFormat('zip-encrypted', archiverZipEncrypted);
 
 // Certificado CA (el mismo que está en el ESP32)
 const CA_CERT = `-----BEGIN CERTIFICATE-----
@@ -60,73 +61,66 @@ export const downloadCertificateZip = async (req, res) => {
     // Escribir el certificado a un archivo temporal
     fs.writeFileSync(tempCertPath, CA_CERT);
 
-    // Crear ZIP inicial sin contraseña usando adm-zip
-    const zip = new AdmZip();
-    zip.addLocalFile(tempCertPath, '', certFileName);
-    zip.writeZip(tempZipPath);
-
-    // Proteger el ZIP con contraseña usando comando del sistema
-    // Intentar con zip primero, luego con 7z
-    let protectedZipPath = tempZipPath;
-    
-    try {
-      // Método 1: Usar zip del sistema (más común en Linux/Mac)
-      const protectedPath = `${tempZipPath}.protected`;
-      // Escapar la contraseña para el shell
-      const escapedPassword = ZIP_PASSWORD.replace(/"/g, '\\"');
-      await execAsync(`zip -P "${escapedPassword}" -j "${protectedPath}" "${tempZipPath}"`);
+    // Crear ZIP protegido con contraseña usando archiver-zip-encrypted
+    return new Promise((resolve, reject) => {
+      const output = fs.createWriteStream(tempZipPath);
       
-      // Eliminar el ZIP sin protección y usar el protegido
-      fs.unlinkSync(tempZipPath);
-      protectedZipPath = protectedPath;
-      
-      console.log('ZIP protegido con contraseña usando zip del sistema');
-    } catch (zipError) {
-      try {
-        // Método 2: Usar 7z (alternativa)
-        const protectedPath = `${tempZipPath}.protected`;
-        const escapedPassword = ZIP_PASSWORD.replace(/"/g, '\\"');
-        await execAsync(`7z a -p"${escapedPassword}" "${protectedPath}" "${tempZipPath}"`);
+      // Crear archivo ZIP con cifrado y contraseña
+      const archive = archiver.create('zip-encrypted', {
+        zlib: { level: 9 }, // Máxima compresión
+        encryptionMethod: 'zip20', // Usar zip20 para mejor compatibilidad
+        password: ZIP_PASSWORD // Contraseña para el ZIP
+      });
+
+      // Manejar eventos
+      output.on('close', () => {
+        console.log(`ZIP protegido creado: ${archive.pointer()} bytes`);
         
-        fs.unlinkSync(tempZipPath);
-        protectedZipPath = protectedPath;
-        
-        console.log('ZIP protegido con contraseña usando 7z');
-      } catch (sevenZError) {
-        // Si ninguna herramienta está disponible, el ZIP se enviará sin protección
-        console.warn('No se pudo proteger el ZIP con contraseña. Herramientas zip/7z no disponibles en el sistema.');
-        console.warn('El ZIP se enviará sin protección.');
-      }
-    }
+        // Enviar el archivo
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', `attachment; filename="${zipFileName}"`);
 
-    // Enviar el archivo
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${zipFileName}"`);
+        const fileStream = fs.createReadStream(tempZipPath);
+        fileStream.pipe(res);
 
-    const fileStream = fs.createReadStream(protectedZipPath);
-    fileStream.pipe(res);
-
-    fileStream.on('end', () => {
-      // Limpiar archivos temporales
-      setTimeout(() => {
-        try {
-          if (fs.existsSync(tempCertPath)) fs.unlinkSync(tempCertPath);
-          if (fs.existsSync(tempZipPath)) fs.unlinkSync(tempZipPath);
-          if (fs.existsSync(`${tempZipPath}.protected`)) fs.unlinkSync(`${tempZipPath}.protected`);
-        } catch (cleanupError) {
-          console.error('Error limpiando archivos temporales:', cleanupError);
-        }
-      }, 1000);
-    });
-
-    fileStream.on('error', (error) => {
-      console.error('Error enviando archivo:', error);
-      if (!res.headersSent) {
-        res.status(500).json({ 
-          message: 'Error al enviar el archivo ZIP',
-          error: error.message 
+        fileStream.on('end', () => {
+          // Limpiar archivos temporales
+          setTimeout(() => {
+            try {
+              if (fs.existsSync(tempCertPath)) fs.unlinkSync(tempCertPath);
+              if (fs.existsSync(tempZipPath)) fs.unlinkSync(tempZipPath);
+            } catch (cleanupError) {
+              console.error('Error limpiando archivos temporales:', cleanupError);
+            }
+          }, 1000);
+          resolve();
         });
-      }
+
+        fileStream.on('error', (error) => {
+          console.error('Error enviando archivo:', error);
+          if (!res.headersSent) {
+            res.status(500).json({ 
+              message: 'Error al enviar el archivo ZIP',
+              error: error.message 
+            });
+          }
+          reject(error);
+        });
+      });
+
+      archive.on('error', (error) => {
+        console.error('Error creando ZIP:', error);
+        reject(error);
+      });
+
+      // Conectar el archiver al output
+      archive.pipe(output);
+
+      // Agregar el certificado al ZIP
+      archive.file(tempCertPath, { name: certFileName });
+
+      // Finalizar el archivo ZIP
+      archive.finalize();
     });
   } catch (error) {
     console.error('Error generando ZIP del certificado:', error);
