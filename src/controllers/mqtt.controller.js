@@ -1,7 +1,7 @@
 // src/controllers/mqtt.controller.js
 // Controlador para endpoints relacionados con MQTT
 
-import archiver from 'archiver';
+import AdmZip from 'adm-zip';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
@@ -60,76 +60,73 @@ export const downloadCertificateZip = async (req, res) => {
     // Escribir el certificado a un archivo temporal
     fs.writeFileSync(tempCertPath, CA_CERT);
 
-    // Crear ZIP usando archiver
-    const output = fs.createWriteStream(tempZipPath);
-    const archive = archiver('zip', {
-      zlib: { level: 9 } // Máxima compresión
+    // Crear ZIP inicial sin contraseña usando adm-zip
+    const zip = new AdmZip();
+    zip.addLocalFile(tempCertPath, '', certFileName);
+    zip.writeZip(tempZipPath);
+
+    // Proteger el ZIP con contraseña usando comando del sistema
+    // Intentar con zip primero, luego con 7z
+    let protectedZipPath = tempZipPath;
+    
+    try {
+      // Método 1: Usar zip del sistema (más común en Linux/Mac)
+      const protectedPath = `${tempZipPath}.protected`;
+      // Escapar la contraseña para el shell
+      const escapedPassword = ZIP_PASSWORD.replace(/"/g, '\\"');
+      await execAsync(`zip -P "${escapedPassword}" -j "${protectedPath}" "${tempZipPath}"`);
+      
+      // Eliminar el ZIP sin protección y usar el protegido
+      fs.unlinkSync(tempZipPath);
+      protectedZipPath = protectedPath;
+      
+      console.log('ZIP protegido con contraseña usando zip del sistema');
+    } catch (zipError) {
+      try {
+        // Método 2: Usar 7z (alternativa)
+        const protectedPath = `${tempZipPath}.protected`;
+        const escapedPassword = ZIP_PASSWORD.replace(/"/g, '\\"');
+        await execAsync(`7z a -p"${escapedPassword}" "${protectedPath}" "${tempZipPath}"`);
+        
+        fs.unlinkSync(tempZipPath);
+        protectedZipPath = protectedPath;
+        
+        console.log('ZIP protegido con contraseña usando 7z');
+      } catch (sevenZError) {
+        // Si ninguna herramienta está disponible, el ZIP se enviará sin protección
+        console.warn('No se pudo proteger el ZIP con contraseña. Herramientas zip/7z no disponibles en el sistema.');
+        console.warn('El ZIP se enviará sin protección.');
+      }
+    }
+
+    // Enviar el archivo
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipFileName}"`);
+
+    const fileStream = fs.createReadStream(protectedZipPath);
+    fileStream.pipe(res);
+
+    fileStream.on('end', () => {
+      // Limpiar archivos temporales
+      setTimeout(() => {
+        try {
+          if (fs.existsSync(tempCertPath)) fs.unlinkSync(tempCertPath);
+          if (fs.existsSync(tempZipPath)) fs.unlinkSync(tempZipPath);
+          if (fs.existsSync(`${tempZipPath}.protected`)) fs.unlinkSync(`${tempZipPath}.protected`);
+        } catch (cleanupError) {
+          console.error('Error limpiando archivos temporales:', cleanupError);
+        }
+      }, 1000);
     });
 
-    return new Promise((resolve, reject) => {
-      output.on('close', async () => {
-        try {
-          // Intentar proteger el ZIP con contraseña usando zip del sistema
-          // Si zip no está disponible, el ZIP se enviará sin contraseña
-          try {
-            // Usar zip con contraseña (requiere zip instalado en el sistema)
-            await execAsync(`zip -P "${ZIP_PASSWORD}" -j "${tempZipPath}.protected" "${tempZipPath}"`);
-            
-            // Eliminar el ZIP sin protección
-            fs.unlinkSync(tempZipPath);
-            
-            // Renombrar el ZIP protegido
-            fs.renameSync(`${tempZipPath}.protected`, tempZipPath);
-          } catch (zipError) {
-            // Si zip no está disponible, intentar con 7z
-            try {
-              await execAsync(`7z a -p"${ZIP_PASSWORD}" "${tempZipPath}.protected" "${tempZipPath}"`);
-              fs.unlinkSync(tempZipPath);
-              fs.renameSync(`${tempZipPath}.protected`, tempZipPath);
-            } catch (sevenZError) {
-              // Si ninguna herramienta está disponible, enviar el ZIP sin protección
-              // y agregar la contraseña en el nombre del archivo o en la respuesta
-              console.warn('No se pudo proteger el ZIP con contraseña. Herramientas zip/7z no disponibles.');
-            }
-          }
-
-          // Enviar el archivo
-          res.setHeader('Content-Type', 'application/zip');
-          res.setHeader('Content-Disposition', `attachment; filename="${zipFileName}"`);
-          res.setHeader('X-Zip-Password', ZIP_PASSWORD); // Enviar contraseña en header (opcional)
-
-          const fileStream = fs.createReadStream(tempZipPath);
-          fileStream.pipe(res);
-
-          fileStream.on('end', () => {
-            // Limpiar archivos temporales
-            setTimeout(() => {
-              try {
-                if (fs.existsSync(tempCertPath)) fs.unlinkSync(tempCertPath);
-                if (fs.existsSync(tempZipPath)) fs.unlinkSync(tempZipPath);
-                if (fs.existsSync(`${tempZipPath}.protected`)) fs.unlinkSync(`${tempZipPath}.protected`);
-              } catch (cleanupError) {
-                console.error('Error limpiando archivos temporales:', cleanupError);
-              }
-            }, 1000);
-            resolve();
-          });
-
-          fileStream.on('error', (error) => {
-            reject(error);
-          });
-        } catch (error) {
-          reject(error);
-        }
-      });
-
-      archive.on('error', (error) => {
-        reject(error);
-      });
-
-      archive.pipe(output);
-      archive.file(tempCertPath, { name: certFileName });
-      archive.finalize();
+    fileStream.on('error', (error) => {
+      console.error('Error enviando archivo:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ 
+          message: 'Error al enviar el archivo ZIP',
+          error: error.message 
+        });
+      }
     });
   } catch (error) {
     console.error('Error generando ZIP del certificado:', error);

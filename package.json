@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tuya/tuya-connector-nodejs": "^2.1.2",
+    "adm-zip": "^0.5.16",
     "archiver": "^7.0.1",
     "axios": "^1.5.0",
     "bcrypt": "^5.1.1",
