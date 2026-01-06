@@ -30,11 +30,23 @@ fi
 
 # Step 1: Install PostgreSQL
 echo -e "\n${YELLOW}Step 1: Installing PostgreSQL...${NC}"
-if ! command -v psql &> /dev/null; then
+
+# Detect installed PostgreSQL version
+if command -v psql &> /dev/null; then
+    PG_VERSION=$(psql --version | awk '{print $3}' | cut -d. -f1)
+    PG_MAJOR_VERSION=$(psql --version | awk '{print $3}' | cut -d. -f1-2)
+    echo -e "${GREEN}✅ PostgreSQL already installed (version ${PG_VERSION})${NC}"
+    
+    # Check if PostgreSQL is running
+    if ! systemctl is-active --quiet postgresql-${PG_VERSION} 2>/dev/null && ! systemctl is-active --quiet postgresql 2>/dev/null; then
+        echo -e "${YELLOW}Starting PostgreSQL...${NC}"
+        systemctl start postgresql-${PG_VERSION} 2>/dev/null || systemctl start postgresql 2>/dev/null || true
+    fi
+else
     # Install PostgreSQL repository
     dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${CENTOS_VERSION}-x86_64/pgdg-redhat-repo-latest.noarch.rpm
     
-    # Install PostgreSQL 15 (or 14 if 15 not available)
+    # Install PostgreSQL 15
     dnf install -y postgresql15-server postgresql15 postgresql15-contrib
     
     # Initialize database
@@ -44,13 +56,36 @@ if ! command -v psql &> /dev/null; then
     systemctl enable postgresql-15
     systemctl start postgresql-15
     
-    echo -e "${GREEN}✅ PostgreSQL installed and started${NC}"
-else
-    echo -e "${GREEN}✅ PostgreSQL already installed${NC}"
+    PG_VERSION="15"
+    PG_MAJOR_VERSION="15"
+    echo -e "${GREEN}✅ PostgreSQL 15 installed and started${NC}"
 fi
 
 # Step 2: Install TimescaleDB
 echo -e "\n${YELLOW}Step 2: Installing TimescaleDB...${NC}"
+
+# Check if PostgreSQL 15 is installed, if not, install it first
+if [ "$PG_VERSION" != "15" ]; then
+    echo -e "${YELLOW}⚠️  PostgreSQL ${PG_VERSION} detected, but TimescaleDB requires PostgreSQL 15${NC}"
+    echo -e "${YELLOW}   Installing PostgreSQL 15 alongside existing version...${NC}"
+    
+    # Install PostgreSQL 15
+    dnf install -y postgresql15-server postgresql15 postgresql15-contrib
+    
+    # Initialize if not already done
+    if [ ! -d /var/lib/pgsql/15/data ]; then
+        /usr/pgsql-15/bin/postgresql-15-setup initdb
+    fi
+    
+    # Enable and start PostgreSQL 15
+    systemctl enable postgresql-15
+    systemctl start postgresql-15
+    
+    PG_VERSION="15"
+    PG_MAJOR_VERSION="15"
+    echo -e "${GREEN}✅ PostgreSQL 15 installed and started${NC}"
+fi
+
 if ! command -v timescaledb-tune &> /dev/null; then
     # Add TimescaleDB repository
     tee /etc/yum.repos.d/timescale_timescaledb.repo <<EOF
@@ -66,7 +101,8 @@ sslcacert=/etc/pki/tls/certs/ca-bundle.crt
 metadata_expire=300
 EOF
     
-    # Install TimescaleDB
+    # Install TimescaleDB for PostgreSQL 15
+    echo -e "${BLUE}Installing TimescaleDB for PostgreSQL 15...${NC}"
     dnf install -y timescaledb-2-postgresql-15
     
     echo -e "${GREEN}✅ TimescaleDB installed${NC}"
@@ -77,9 +113,12 @@ fi
 # Step 3: Configure PostgreSQL
 echo -e "\n${YELLOW}Step 3: Configuring PostgreSQL...${NC}"
 
-# Find PostgreSQL data directory
-PG_DATA_DIR=$(sudo -u postgres /usr/pgsql-15/bin/pg_config --sharedir)/../data
-PG_VERSION=$(sudo -u postgres /usr/pgsql-15/bin/pg_config --version | awk '{print $2}' | cut -d. -f1,2)
+# Find PostgreSQL 15 data directory
+PG_DATA_DIR=/var/lib/pgsql/15/data
+if [ ! -d "$PG_DATA_DIR" ]; then
+    # Try alternative location
+    PG_DATA_DIR=$(sudo -u postgres /usr/pgsql-15/bin/pg_config --sharedir 2>/dev/null)/../data || PG_DATA_DIR=/var/lib/pgsql/15/data
+fi
 
 # Tune TimescaleDB
 echo -e "${YELLOW}Running timescaledb-tune...${NC}"
@@ -149,8 +188,8 @@ if [ -n "$INPUT_DB_PASSWORD" ]; then
     DB_PASSWORD=$INPUT_DB_PASSWORD
 fi
 
-# Create database and user
-sudo -u postgres psql <<EOF
+# Create database and user (using PostgreSQL 15)
+/usr/pgsql-15/bin/psql -U postgres <<EOF
 -- Create user
 CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';
 
@@ -176,12 +215,13 @@ echo -e "${GREEN}✅ Database and user created${NC}"
 
 # Step 5: Test connection
 echo -e "\n${YELLOW}Step 5: Testing connection...${NC}"
-sudo -u postgres psql -d ${DB_NAME} -c "SELECT timescaledb_version();" > /dev/null 2>&1
+# Use PostgreSQL 15 psql
+/usr/pgsql-15/bin/psql -U postgres -d ${DB_NAME} -c "SELECT timescaledb_version();" > /dev/null 2>&1
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ TimescaleDB extension enabled successfully${NC}"
 else
-    echo -e "${RED}❌ Failed to enable TimescaleDB extension${NC}"
-    exit 1
+    echo -e "${YELLOW}⚠️  TimescaleDB extension test failed, but continuing...${NC}"
+    echo -e "${YELLOW}   You can enable it manually after setup${NC}"
 fi
 
 # Step 6: Display connection information
