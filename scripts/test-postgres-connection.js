@@ -20,9 +20,28 @@ async function testConnection() {
 
     // Test 2: TimescaleDB extension
     console.log('Test 2: TimescaleDB extension...');
-    const timescaleResult = await pool.query('SELECT timescaledb_version() as version');
-    console.log('✅ TimescaleDB is enabled');
-    console.log('   TimescaleDB version:', timescaleResult.rows[0].version);
+    try {
+      // Try to get version function first
+      const timescaleResult = await pool.query('SELECT timescaledb_version() as version');
+      console.log('✅ TimescaleDB is enabled');
+      console.log('   TimescaleDB version:', timescaleResult.rows[0].version);
+    } catch (error) {
+      // If version function doesn't exist, check if extension is installed
+      const extCheck = await pool.query(`
+        SELECT extname, extversion 
+        FROM pg_extension 
+        WHERE extname = 'timescaledb'
+      `);
+      
+      if (extCheck.rows.length > 0) {
+        console.log('✅ TimescaleDB extension is installed');
+        console.log('   Extension version:', extCheck.rows[0].extversion);
+        console.log('   (timescaledb_version() function not available in this version)');
+      } else {
+        console.log('⚠️  TimescaleDB extension not found');
+        console.log('   The table will work but without time-series optimizations');
+      }
+    }
     console.log('');
 
     // Test 3: Check if sensores table exists
@@ -39,17 +58,31 @@ async function testConnection() {
       console.log('✅ sensores table exists');
       
       // Check if it's a hypertable
-      const hypertableCheck = await pool.query(`
-        SELECT * FROM timescaledb_information.hypertables 
-        WHERE hypertable_name = 'sensores'
-      `);
-      
-      if (hypertableCheck.rows.length > 0) {
-        console.log('✅ sensores table is a TimescaleDB hypertable');
-        console.log('   Chunk interval:', hypertableCheck.rows[0].chunk_interval);
-      } else {
-        console.log('⚠️  sensores table exists but is not a hypertable');
-        console.log('   Run the migration to convert it to a hypertable');
+      try {
+        const hypertableCheck = await pool.query(`
+          SELECT * FROM timescaledb_information.hypertables 
+          WHERE hypertable_name = 'sensores'
+        `);
+        
+        if (hypertableCheck.rows.length > 0) {
+          console.log('✅ sensores table is a TimescaleDB hypertable');
+          console.log('   Chunk interval:', hypertableCheck.rows[0].chunk_interval);
+        } else {
+          console.log('⚠️  sensores table exists but is not a hypertable');
+          console.log('   Run the migration to convert it to a hypertable');
+        }
+      } catch (error) {
+        // If hypertables view doesn't exist, check if table has TimescaleDB structure
+        const tableCheck = await pool.query(`
+          SELECT column_name, data_type, is_nullable 
+          FROM information_schema.columns 
+          WHERE table_name = 'sensores' AND column_name = 'timestamp'
+        `);
+        
+        if (tableCheck.rows.length > 0) {
+          console.log('✅ sensores table exists');
+          console.log('   (Cannot verify hypertable status - TimescaleDB info views not available)');
+        }
       }
       
       // Count records
