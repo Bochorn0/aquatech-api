@@ -5,6 +5,7 @@ import mqtt from 'mqtt';
 import SensorData from '../models/sensorData.model.js';
 import Controller from '../models/controller.model.js';
 import PuntoVenta from '../models/puntoVenta.model.js';
+import PostgresService from './postgres.service.js';
 
 // Configuración MQTT desde variables de entorno
 const MQTT_BROKER = process.env.MQTT_BROKER || '146.190.143.141';
@@ -398,15 +399,58 @@ class MQTTService {
     }
   }
 
-  // Guardar datos de sensores en MongoDB
+  // Guardar datos de sensores en MongoDB y PostgreSQL (dual write)
   async saveSensorData(data) {
     try {
+      // Save to MongoDB (existing functionality)
       const sensorData = new SensorData(data);
-      await sensorData.save();
+      const mongoDoc = await sensorData.save();
+      
+      // Save to PostgreSQL (new functionality - non-blocking)
+      // We don't want PostgreSQL errors to break MongoDB writes
+      this.saveToPostgreSQL(data, mongoDoc._id.toString()).catch(error => {
+        console.error('[MQTT] ⚠️  Error saving to PostgreSQL (non-critical):', error.message);
+        // Don't throw - allow MongoDB write to succeed even if PostgreSQL fails
+      });
+      
       return sensorData;
     } catch (error) {
       console.error('[MQTT] ❌ Error al guardar datos de sensores:', error);
       throw error;
+    }
+  }
+
+  // Guardar datos en PostgreSQL
+  async saveToPostgreSQL(data, mongoId = null) {
+    try {
+      // Extract context from data
+      const context = {
+        codigo_tienda: data.codigo_tienda,
+        equipo_id: data.equipo_id,
+        cliente_id: data.cliente ? data.cliente.toString() : null,
+        owner_id: data.ownerId || null,
+        resource_type: data.controller ? 'controller' : (data.product ? 'product' : null),
+        source: data.source || 'Siemens2050',
+        lat: data.lat || null,
+        long: data.long || null,
+        metadata: {
+          mongo_id: mongoId,
+          ...data.metadata
+        }
+      };
+
+      // Option 1: Save as single record with all sensor values in meta
+      // This is more flexible and stores everything
+      await PostgresService.saveSensorFromMQTT(data, context);
+      
+      // Option 2: Save as multiple records (one per sensor type)
+      // Uncomment if you want separate records for each sensor type
+      // await PostgresService.saveMultipleSensorsFromMQTT(data, context);
+      
+    } catch (error) {
+      // Log error but don't throw - this is a non-critical operation
+      console.error('[MQTT] Error saving to PostgreSQL:', error);
+      throw error; // Re-throw so caller can handle if needed
     }
   }
 
