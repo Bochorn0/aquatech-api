@@ -53,13 +53,8 @@ else
     exit 1
 fi
 
-# Default migration file (use basic version if TimescaleDB not configured)
-# Check if TimescaleDB is available, otherwise use basic version
-if psql -h ${POSTGRES_HOST:-localhost} -p ${POSTGRES_PORT:-5432} -U ${POSTGRES_USER:-tiwater_user} -d ${POSTGRES_DB:-tiwater_timeseries} -c "SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb';" 2>/dev/null | grep -q 1; then
-    DEFAULT_MIGRATION="scripts/migrations/001_create_sensores_table.sql"
-else
-    DEFAULT_MIGRATION="scripts/migrations/001_create_sensores_table_basic.sql"
-fi
+# Default migration file
+DEFAULT_MIGRATION="scripts/migrations/001_create_sensores_table.sql"
 
 MIGRATION_FILE=${1:-$DEFAULT_MIGRATION}
 
@@ -72,8 +67,8 @@ fi
 # Set PostgreSQL connection parameters
 PGHOST=${POSTGRES_HOST:-localhost}
 PGPORT=${POSTGRES_PORT:-5432}
-PGDATABASE=${POSTGRES_DB:-tiwater_timeseries}
-PGUSER=${POSTGRES_USER:-tiwater_user}
+PGDATABASE=${POSTGRES_DB:-TIWater_timeseries}
+PGUSER=${POSTGRES_USER:-TIWater_user}
 
 echo -e "${YELLOW}Running migration: $MIGRATION_FILE${NC}"
 echo -e "Host: $PGHOST"
@@ -94,11 +89,21 @@ if ! command -v psql &> /dev/null; then
 fi
 
 # Run migration
+# Use full path to psql on CentOS (PostgreSQL 15)
+if [ -f /usr/pgsql-15/bin/psql ]; then
+    PSQL_CMD="/usr/pgsql-15/bin/psql"
+elif command -v psql &> /dev/null; then
+    PSQL_CMD="psql"
+else
+    echo -e "${RED}Error: psql command not found${NC}"
+    exit 1
+fi
+
 if [ -n "$POSTGRES_PASSWORD" ]; then
     export PGPASSWORD=$POSTGRES_PASSWORD
-    psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE
+    $PSQL_CMD -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE
 else
-    psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE
+    $PSQL_CMD -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE
 fi
 
 if [ $? -eq 0 ]; then

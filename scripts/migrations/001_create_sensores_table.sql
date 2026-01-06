@@ -6,9 +6,10 @@
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
 -- Create sensores table
--- All fields except id are nullable with defaults as requested
+-- Note: timestamp is NOT NULL (required for TimescaleDB partitioning)
+-- All other fields except id are nullable with defaults as requested
 CREATE TABLE IF NOT EXISTS sensores (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGSERIAL,
     
     -- Basic sensor information
     name VARCHAR(255) DEFAULT NULL,
@@ -16,7 +17,7 @@ CREATE TABLE IF NOT EXISTS sensores (
     type VARCHAR(100) DEFAULT NULL,
     
     -- Timestamps
-    timestamp TIMESTAMPTZ DEFAULT NULL,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- NOT NULL required for TimescaleDB partitioning
     createdAt TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updatedAt TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     
@@ -32,11 +33,15 @@ CREATE TABLE IF NOT EXISTS sensores (
     label VARCHAR(255) DEFAULT NULL,
     lat DECIMAL(10, 8) DEFAULT NULL,  -- Latitude with 8 decimal precision
     long DECIMAL(11, 8) DEFAULT NULL, -- Longitude with 8 decimal precision
-    codigoTienda VARCHAR(100) DEFAULT NULL
+    codigoTienda VARCHAR(100) DEFAULT NULL,
+    
+    -- Primary key must include timestamp for TimescaleDB hypertables
+    PRIMARY KEY (id, timestamp)
 );
 
 -- Convert to hypertable (TimescaleDB automatic partitioning by timestamp)
 -- This enables time-series optimizations
+-- Note: Primary key (id, timestamp) is already defined above
 SELECT create_hypertable('sensores', 'timestamp', if_not_exists => TRUE);
 
 -- Create indexes for common query patterns
