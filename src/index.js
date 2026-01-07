@@ -22,6 +22,7 @@ import reportRoutes from './routes/report.routes.js';  // Use `import` for repor
 import controllerRoutes from './routes/controller.routes.js' // Use `import` for controllerRouters
 import puntoVentaRoutes from './routes/puntoVenta.routes.js' // Use `import` for PuntoVenta
 import sensorDataRoutes from './routes/sensorData.routes.js';  // Use `import` for sensorDataRoutes
+import sensorDataV2Routes from './routes/sensorDataV2.routes.js';  // Use `import` for sensorDataV2Routes (v2.0)
 import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoutes
 import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoutes
 import { authenticate, authorizeRoles } from './middlewares/auth.middleware.js';  // Import the authentication and authorization middleware
@@ -88,6 +89,10 @@ app.use('/api/v1.0/puntoVentas', authenticate, authorizeRoles('admin', 'cliente'
 
 // Example: Protect the `/api/v1.0/sensor-data` route for 'admin' and 'cliente'
 app.use('/api/v1.0/sensor-data', authenticate, authorizeRoles('admin', 'cliente'), sensorDataRoutes);
+
+// v2.0 API routes - PostgreSQL based
+app.use('/api/v2.0/sensors', authenticate, authorizeRoles('admin', 'cliente'), sensorDataV2Routes);
+app.use('/api/v2.0', authenticate, authorizeRoles('admin', 'cliente'), sensorDataV2Routes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/auth', authRoutes);
