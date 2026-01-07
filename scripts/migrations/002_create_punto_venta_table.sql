@@ -100,6 +100,11 @@ BEGIN
     v_code := COALESCE(p_code, p_codigo_tienda);
     v_codigo_tienda := COALESCE(p_codigo_tienda, p_code);
     
+    -- Validate that we have a code (required field)
+    IF v_code IS NULL THEN
+        RAISE EXCEPTION 'code or codigo_tienda is required';
+    END IF;
+    
     -- Try to find existing puntoventa by code or codigo_tienda
     SELECT puntoventa.id INTO v_id
     FROM puntoventa

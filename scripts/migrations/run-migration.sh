@@ -101,15 +101,17 @@ fi
 
 if [ -n "$POSTGRES_PASSWORD" ]; then
     export PGPASSWORD=$POSTGRES_PASSWORD
-    $PSQL_CMD -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE
+    $PSQL_CMD -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE -v ON_ERROR_STOP=1 2>&1
+    MIGRATION_EXIT_CODE=$?
 else
-    $PSQL_CMD -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE
+    $PSQL_CMD -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE -v ON_ERROR_STOP=1 2>&1
+    MIGRATION_EXIT_CODE=$?
 fi
 
-if [ $? -eq 0 ]; then
+if [ $MIGRATION_EXIT_CODE -eq 0 ]; then
     echo -e "\n${GREEN}✅ Migration completed successfully!${NC}"
 else
-    echo -e "\n${RED}❌ Migration failed!${NC}"
+    echo -e "\n${RED}❌ Migration failed with exit code: $MIGRATION_EXIT_CODE${NC}"
     exit 1
 fi
 
