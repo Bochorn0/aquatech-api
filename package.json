@@ -15,7 +15,9 @@
     "setup:postgres:local": "bash scripts/setup-postgres-local.sh",
     "migrate": "bash scripts/migrations/run-migration.sh",
     "migrate:sensores": "bash scripts/migrations/run-migration.sh scripts/migrations/001_create_sensores_table.sql",
-    "migrate:puntoventa": "bash scripts/migrations/run-migration.sh scripts/migrations/002_create_punto_venta_table.sql"
+    "migrate:puntoventa": "bash scripts/migrations/run-migration.sh scripts/migrations/002_create_punto_venta_table.sql",
+    "migrate:puntoventa:minimal": "bash scripts/migrations/run-migration.sh scripts/migrations/002_create_punto_venta_table_minimal.sql",
+    "test:migrate:puntoventa": "bash scripts/test-migrate-puntoventa.sh"
   },
   "dependencies": {
     "@tuya/tuya-connector-nodejs": "^2.1.2",
