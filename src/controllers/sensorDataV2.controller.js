@@ -280,7 +280,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     const productos = punto.productos || [];
     const osmosisProducts = osmosisSystems.map((osmosis, index) => {
       // Find matching product or create new structure
-      const matchingProduct = productos.find((p: any) => p.product_type === 'Osmosis');
+      const matchingProduct = productos.find((p) => p.product_type === 'Osmosis');
       
       return {
         _id: matchingProduct?._id || `osmosis-${index}`,
@@ -294,17 +294,17 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     });
 
     // Combine with existing products
-    const allProductos = [...productos.filter((p: any) => p.product_type !== 'Osmosis'), ...osmosisProducts];
+    const allProductos = [...productos.filter((p) => p.product_type !== 'Osmosis'), ...osmosisProducts];
 
     // Determine if punto is online (check controllers or osmosis systems)
     const now = Date.now();
     const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
     
     const tieneControladorOnline = punto.controladores?.some(
-      (ctrl: any) => ctrl.last_time_active && (now - ctrl.last_time_active * 1000 <= ONLINE_THRESHOLD_MS)
+      (ctrl) => ctrl.last_time_active && (now - ctrl.last_time_active * 1000 <= ONLINE_THRESHOLD_MS)
     );
 
-    const tieneOsmosisOnline = osmosisSystems.some((osmosis: any) => osmosis.online);
+    const tieneOsmosisOnline = osmosisSystems.some((osmosis) => osmosis.online);
 
     const safePunto = {
       ...punto.toObject(),
