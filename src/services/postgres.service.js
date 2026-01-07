@@ -2,6 +2,7 @@
 // Service layer for PostgreSQL operations
 
 import SensoresModel from '../models/postgres/sensores.model.js';
+import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 
 /**
  * PostgreSQL Service
@@ -11,12 +12,44 @@ class PostgresService {
   /**
    * Save sensor data from MQTT message
    * Maps MQTT payload to sensores table structure
+   * Automatically creates or updates puntoVenta if codigo_tienda is provided
    * @param {Object} mqttData - Data received from MQTT
    * @param {Object} context - Additional context (codigo_tienda, equipo_id, etc.)
    * @returns {Promise<Object>} Created sensor record
    */
   static async saveSensorFromMQTT(mqttData, context = {}) {
     try {
+      // Get codigo_tienda from context or mqttData
+      const codigoTienda = context.codigo_tienda || mqttData.codigo_tienda || mqttData.codigoTienda;
+      
+      // Automatically create or get puntoVenta if codigo_tienda is provided
+      if (codigoTienda) {
+        try {
+          await PuntoVentaModel.getOrCreate({
+            code: codigoTienda,
+            codigo_tienda: codigoTienda,
+            name: mqttData.punto_venta_name || context.punto_venta_name || null,
+            owner: context.owner_id || mqttData.owner_id || null,
+            clientId: context.cliente_id || mqttData.cliente_id || null,
+            status: 'active',
+            lat: mqttData.lat || context.lat || null,
+            long: mqttData.long || context.long || mqttData.lon || null,
+            address: mqttData.address || context.address || null,
+            contactId: context.contact_id || mqttData.contact_id || null,
+            meta: {
+              source: 'MQTT',
+              created_from: 'sensor_data',
+              gateway_ip: mqttData.gateway_ip || mqttData.ip || null
+            }
+          });
+          
+          console.log(`[PostgresService] ✅ PuntoVenta ensured for codigo_tienda: ${codigoTienda}`);
+        } catch (error) {
+          // Log error but don't fail sensor data save
+          console.error(`[PostgresService] ⚠️  Error ensuring puntoVenta for ${codigoTienda}:`, error.message);
+        }
+      }
+
       // Map MQTT data to sensores table structure
       // This is a flexible mapping - adjust based on your actual MQTT payload structure
       
@@ -78,12 +111,44 @@ class PostgresService {
   /**
    * Save multiple sensor readings from a single MQTT message
    * Useful when one MQTT message contains multiple sensor values
+   * Automatically creates or updates puntoVenta if codigo_tienda is provided
    * @param {Object} mqttData - Data received from MQTT
    * @param {Object} context - Additional context
    * @returns {Promise<Array>} Array of created sensor records
    */
   static async saveMultipleSensorsFromMQTT(mqttData, context = {}) {
     try {
+      // Get codigo_tienda from context or mqttData
+      const codigoTienda = context.codigo_tienda || mqttData.codigo_tienda || mqttData.codigoTienda;
+      
+      // Automatically create or get puntoVenta if codigo_tienda is provided
+      if (codigoTienda) {
+        try {
+          await PuntoVentaModel.getOrCreate({
+            code: codigoTienda,
+            codigo_tienda: codigoTienda,
+            name: mqttData.punto_venta_name || context.punto_venta_name || null,
+            owner: context.owner_id || mqttData.owner_id || null,
+            clientId: context.cliente_id || mqttData.cliente_id || null,
+            status: 'active',
+            lat: mqttData.lat || context.lat || null,
+            long: mqttData.long || context.long || mqttData.lon || null,
+            address: mqttData.address || context.address || null,
+            contactId: context.contact_id || mqttData.contact_id || null,
+            meta: {
+              source: 'MQTT',
+              created_from: 'sensor_data',
+              gateway_ip: mqttData.gateway_ip || mqttData.ip || null
+            }
+          });
+          
+          console.log(`[PostgresService] ✅ PuntoVenta ensured for codigo_tienda: ${codigoTienda}`);
+        } catch (error) {
+          // Log error but don't fail sensor data save
+          console.error(`[PostgresService] ⚠️  Error ensuring puntoVenta for ${codigoTienda}:`, error.message);
+        }
+      }
+
       const sensors = [];
       const timestamp = mqttData.timestamp 
         ? new Date(mqttData.timestamp * 1000) 

@@ -143,12 +143,29 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     // Import PuntoVenta model (MongoDB)
     const PuntoVenta = (await import('../models/puntoVenta.model.js')).default;
     
-    // Get punto de venta from MongoDB
-    const punto = await PuntoVenta.findById(id)
-      .populate('cliente')
-      .populate('city')
-      .populate('productos')
-      .populate('controladores');
+    // Try to find by _id first, if that fails try by codigo_tienda
+    let punto = null;
+    
+    // Check if id looks like a MongoDB ObjectId (24 hex characters)
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+    
+    if (isObjectId) {
+      // Try to find by MongoDB _id
+      punto = await PuntoVenta.findById(id)
+        .populate('cliente')
+        .populate('city')
+        .populate('productos')
+        .populate('controladores');
+    }
+    
+    // If not found by _id, try by codigo_tienda
+    if (!punto) {
+      punto = await PuntoVenta.findOne({ codigo_tienda: id.toUpperCase() })
+        .populate('cliente')
+        .populate('city')
+        .populate('productos')
+        .populate('controladores');
+    }
 
     if (!punto) {
       return res.status(404).json({

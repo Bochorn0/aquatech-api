@@ -13,7 +13,8 @@
     "test:postgres": "node scripts/test-postgres-connection.js",
     "setup:postgres:local": "bash scripts/setup-postgres-local.sh",
     "migrate": "bash scripts/migrations/run-migration.sh",
-    "migrate:sensores": "bash scripts/migrations/run-migration.sh scripts/migrations/001_create_sensores_table.sql"
+    "migrate:sensores": "bash scripts/migrations/run-migration.sh scripts/migrations/001_create_sensores_table.sql",
+    "migrate:puntoventa": "bash scripts/migrations/run-migration.sh scripts/migrations/002_create_punto_venta_table.sql"
   },
   "dependencies": {
     "@tuya/tuya-connector-nodejs": "^2.1.2",
