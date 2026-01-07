@@ -74,8 +74,9 @@ COMMENT ON COLUMN puntoventa.address IS 'Physical address';
 COMMENT ON COLUMN puntoventa.meta IS 'Additional metadata in JSON format';
 
 -- Grant permissions (adjust user as needed)
-GRANT ALL PRIVILEGES ON TABLE puntoventa TO TIWater_user;
-GRANT USAGE, SELECT ON SEQUENCE puntoventa_id_seq TO TIWater_user;
+-- Use double quotes to preserve case-sensitive username
+GRANT ALL PRIVILEGES ON TABLE puntoventa TO "TIWater_user";
+GRANT USAGE, SELECT ON SEQUENCE puntoventa_id_seq TO "TIWater_user";
 
 -- Display success message
 DO $$
