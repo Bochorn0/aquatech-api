@@ -65,7 +65,7 @@ class PuntoVentaModel {
     if (!code) return null;
 
     const result = await query(
-      `SELECT * FROM puntoVenta 
+      `SELECT * FROM puntoventa 
        WHERE code = $1 OR codigo_tienda = $1 
        LIMIT 1`,
       [code.toUpperCase()]
@@ -85,7 +85,7 @@ class PuntoVentaModel {
    */
   static async findById(id) {
     const result = await query(
-      'SELECT * FROM puntoVenta WHERE id = $1 LIMIT 1',
+      'SELECT * FROM puntoventa WHERE id = $1 LIMIT 1',
       [id]
     );
 
@@ -123,7 +123,7 @@ class PuntoVentaModel {
     }
 
     const insertQuery = `
-      INSERT INTO puntoVenta (
+      INSERT INTO puntoventa (
         name, code, codigo_tienda, owner, clientId, status,
         lat, long, address, contactId, meta
       ) VALUES (
@@ -178,7 +178,7 @@ class PuntoVentaModel {
     } = data;
 
     const updateQuery = `
-      UPDATE puntoVenta
+      UPDATE puntoventa
       SET 
         name = COALESCE($1, name),
         owner = COALESCE($2, owner),
@@ -247,8 +247,8 @@ class PuntoVentaModel {
       paramIndex++;
     }
 
-    const selectQuery = `
-      SELECT * FROM puntoVenta
+      const selectQuery = `
+      SELECT * FROM puntoventa
       WHERE ${whereClause}
       ORDER BY createdAt DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}

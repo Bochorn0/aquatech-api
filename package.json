@@ -11,6 +11,7 @@
     "test:mqtt": "node test-mqtt.js",
     "test:mqtt:publish": "node test-mqtt-publisher.js",
     "test:postgres": "node scripts/test-postgres-connection.js",
+    "test:tables": "node scripts/test-postgres-tables.js",
     "setup:postgres:local": "bash scripts/setup-postgres-local.sh",
     "migrate": "bash scripts/migrations/run-migration.sh",
     "migrate:sensores": "bash scripts/migrations/run-migration.sh scripts/migrations/001_create_sensores_table.sql",
