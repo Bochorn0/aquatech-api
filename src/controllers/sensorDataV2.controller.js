@@ -167,19 +167,62 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         .populate('controladores');
     }
 
+    // If not found in MongoDB, try PostgreSQL
+    let codigoTienda = null;
+    let puntoFromPG = null;
+    
     if (!punto) {
+      // Try to find in PostgreSQL by code/codigo_tienda
+      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+      puntoFromPG = await PuntoVentaModel.findByCode(id);
+      
+      if (puntoFromPG) {
+        codigoTienda = (puntoFromPG.code || puntoFromPG.codigo_tienda || id).toUpperCase();
+        // Create minimal punto object from PostgreSQL data
+        punto = {
+          _id: `pg-${puntoFromPG.id}`,
+          id: puntoFromPG.id,
+          name: puntoFromPG.name || `Punto de Venta ${codigoTienda}`,
+          codigo_tienda: codigoTienda,
+          cliente: null,
+          city: null,
+          productos: [],
+          controladores: [],
+          online: false,
+          toObject: function() {
+            return {
+              _id: this._id,
+              id: this.id,
+              name: this.name,
+              codigo_tienda: this.codigo_tienda,
+              cliente: this.cliente,
+              city: this.city,
+              productos: this.productos,
+              controladores: this.controladores,
+              online: this.online,
+              // Add PostgreSQL fields
+              owner: puntoFromPG.owner,
+              clientId: puntoFromPG.clientId,
+              status: puntoFromPG.status,
+              lat: puntoFromPG.lat,
+              long: puntoFromPG.long,
+              address: puntoFromPG.address,
+              contactId: puntoFromPG.contactId,
+              createdAt: puntoFromPG.createdAt,
+              updatedAt: puntoFromPG.updatedAt,
+              meta: puntoFromPG.meta
+            };
+          }
+        };
+      }
+    } else {
+      codigoTienda = punto.codigo_tienda?.toUpperCase();
+    }
+
+    if (!punto || !codigoTienda) {
       return res.status(404).json({
         success: false,
         message: 'Punto de venta no encontrado'
-      });
-    }
-
-    const codigoTienda = punto.codigo_tienda?.toUpperCase();
-
-    if (!codigoTienda) {
-      return res.status(400).json({
-        success: false,
-        message: 'Punto de venta no tiene codigo_tienda configurado'
       });
     }
 
