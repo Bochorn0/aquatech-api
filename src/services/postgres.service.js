@@ -155,14 +155,24 @@ class PostgresService {
         : (mqttData.timestamp ? new Date(mqttData.timestamp) : new Date());
 
       // Extract individual sensor values and create separate records
+      // Incluir todos los tipos de sensores del formato tiwater
       const sensorMappings = [
         { type: 'flujo_produccion', value: mqttData.flujo_produccion, name: 'Flujo Producción' },
         { type: 'flujo_rechazo', value: mqttData.flujo_rechazo, name: 'Flujo Rechazo' },
+        { type: 'flujo_recuperacion', value: mqttData.flujo_recuperacion, name: 'Flujo Recuperación' },
         { type: 'tds', value: mqttData.tds, name: 'TDS' },
-        { type: 'electronivel_purificada', value: mqttData.electronivel_purificada, name: 'Nivel Purificada' },
+        { type: 'electronivel_purificada', value: mqttData.electronivel_purificada || mqttData.nivel_purificada, name: 'Nivel Purificada' },
         { type: 'electronivel_recuperada', value: mqttData.electronivel_recuperada, name: 'Nivel Recuperada' },
+        { type: 'nivel_purificada', value: mqttData.nivel_purificada, name: 'Nivel Purificada (absoluto)' },
+        { type: 'nivel_cruda', value: mqttData.nivel_cruda, name: 'Nivel Cruda' },
+        { type: 'caudal_cruda', value: mqttData.caudal_cruda, name: 'Caudal Cruda' },
+        { type: 'caudal_cruda_lmin', value: mqttData.caudal_cruda_lmin, name: 'Caudal Cruda (L/min)' },
+        { type: 'acumulado_cruda', value: mqttData.acumulado_cruda, name: 'Acumulado Cruda' },
         { type: 'presion_in', value: mqttData.presion_in || mqttData.pressure_in, name: 'Presión Entrada' },
         { type: 'presion_out', value: mqttData.presion_out || mqttData.pressure_out, name: 'Presión Salida' },
+        { type: 'presion_co2', value: mqttData.presion_co2, name: 'Presión CO2' },
+        { type: 'eficiencia', value: mqttData.eficiencia, name: 'Eficiencia' },
+        { type: 'vida', value: mqttData.vida, name: 'Vida' },
         { type: 'water_level', value: mqttData.water_level, name: 'Nivel Agua' }
       ];
 

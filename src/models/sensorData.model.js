@@ -85,11 +85,27 @@ const SensorDataSchema = new mongoose.Schema({
     min: 0,
     max: 1000  // PSI o bar - Ajustar según rango del sensor
   },
+  presion_co2: {
+    type: Number,
+    min: 0,
+    max: 2000  // PSI o bar
+  },
+  
+  // Eficiencia y vida
+  eficiencia: {
+    type: Number,
+    min: 0,
+    max: 100  // Porcentaje
+  },
+  vida: {
+    type: Number,
+    min: 0
+  },
   
   // Metadatos
   source: { 
     type: String, 
-    enum: ['Siemens2050', 'LoRa', 'WiFi', 'Test'],
+    enum: ['Siemens2050', 'LoRa', 'WiFi', 'Test', 'tiwater'],
     default: 'Siemens2050'
   },
   gateway_ip: { 

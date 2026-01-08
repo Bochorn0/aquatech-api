@@ -2,20 +2,72 @@
 // Servicio MQTT para consumir mensajes de Mosquitto
 
 import mqtt from 'mqtt';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import SensorData from '../models/sensorData.model.js';
 import Controller from '../models/controller.model.js';
 import PuntoVenta from '../models/puntoVenta.model.js';
 import PostgresService from './postgres.service.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Configuración MQTT desde variables de entorno
 const MQTT_BROKER = process.env.MQTT_BROKER || '146.190.143.141';
-const MQTT_PORT = process.env.MQTT_PORT || 1883;
+const MQTT_PORT = parseInt(process.env.MQTT_PORT) || 1883;
 const MQTT_CLIENT_ID = process.env.MQTT_CLIENT_ID || 'aquatech-api-consumer';
+const MQTT_USE_TLS = process.env.MQTT_USE_TLS === 'true' || MQTT_PORT === 8883;
+const MQTT_USERNAME = process.env.MQTT_USERNAME || null;
+const MQTT_PASSWORD = process.env.MQTT_PASSWORD || null;
+
+// Certificado CA para TLS - Prioridad:
+// 1. Variable de entorno MQTT_CA_CERT (recomendado)
+// 2. Archivo en MQTT_CA_CERT_PATH
+// 3. Certificado embebido (fallback, no recomendado para producción)
+const MQTT_CA_CERT = process.env.MQTT_CA_CERT || null;
+const MQTT_CA_CERT_PATH = process.env.MQTT_CA_CERT_PATH || null;
+
+// Certificado CA embebido (solo como fallback si no se configura en .env)
+const MQTT_CA_CERT_EMBEDDED = `-----BEGIN CERTIFICATE-----
+MIIECTCCAvGgAwIBAgIUaeT7mWBE0krpOQdDiG/akjnNe9MwDQYJKoZIhvcNAQEL
+BQAwgZMxCzAJBgNVBAYTAk1YMQ8wDQYDVQQIDAZTb25vcmExEzARBgNVBAcMCkhl
+cm1vc2lsbG8xETAPBgNVBAoMCEFxdWF0ZWNoMQswCQYDVQQLDAJUSTETMBEGA1UE
+AwwKQXF1YXRlY2hUSTEpMCcGCSqGSIb3DQEJARYaYXF1YXRlY2guaXQuMjAyNUBn
+bWFpbC5jb20wHhcNMjUxMjI2MTQwMzE4WhcNMzUxMjI0MTQwMzE4WjCBkzELMAkG
+A1UEBhMCTVgxDzANBgNVBAgMBlNvbm9yYTETMBEGA1UEBwwKSGVybW9zaWxsbzER
+MA8GA1UECgwIQXF1YXRlY2gxCzAJBgNVBAsMAlRJMRMwEQYDVQQDDApBcXVhdGVj
+aFRJMSkwJwYJKoZIhvcNAQkBFhphcXVhdGVjaC5pdC4yMDI1QGdtYWlsLmNvbTCC
+ASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKY2bVSij845H6cMaX3CHHdu
+zN/EAa5bYHCt8Y5ACphCzLmS5BwBCG0MTgKBLckYaH3qdzjEvMt+jeZ37N2f/Kmh
+DDj1LXeSzXAG/tKeNt/dp2FgsF2mblCRaYZxwyBpZjaa/pv30kahNmeiU1euLoBi
+BaKOKgyXbSvU7AJ3trT09ZDWUIzicoEw7zr4zPe4eL/0A7yE03JSNNrsb06QJjcz
+JIJUeg15GlzIi2hWmYYg/rX11znYq94CUNEf6wbbwZmh7oaEYwO/ru9nq0JaCzDs
+lqpKEkSo4VedfamD2zE7v8ncD+SSWzR/gSI+dJejAxsJ3HCVCeUzA1IOsVqkZG0C
+AwEAAaNTMFEwHQYDVR0OBBYEFMJCox/DWSVVUDcl0+AOZyxGkMy8MB8GA1UdIwQY
+MBaAFMJCox/DWSVVUDcl0+AOZyxGkMy8MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZI
+hvcNAQELBQADggEBAJ2q5IZdQSg1lLG2nKu9/HY2QUVf2lsi2lD+x9bA1DX6rw5+
+s8Fz+ytZKrsDEciVcYgs9BhEVmP8AnZPcaE9pimJXqSBK8tehh/ZJtUZv2Vvp5g/
+K6EvShFcvHqXsXQW8nhPvESRaE7bucSCONNS8Cuy/BDQ+ffE6USWzeVY4YwYcJ4g
+C0l3buWSVNfbwL5HHTupUze06pn9zZgJbfcFk+WlwNwIizK3DPg39bom/0HT8+Fz
+BYZgMEvHi/6B83pecj+MoAVPhpwl8549NE92Sszv8OIKpR59WOuC+a4NiVktCctS
+U0YBXM/WsHxY/PyQl3qShJMZT3Q65aQAnC2Wocg=
+-----END CERTIFICATE-----`;
+
+// Configuración de logging
+const MQTT_LOG_DIR = process.env.MQTT_LOG_DIR || path.join(__dirname, '../../logs');
+const MQTT_LOG_FILE = path.join(MQTT_LOG_DIR, 'mqtt_messages.log');
+
+// Asegurar que el directorio de logs existe
+if (!fs.existsSync(MQTT_LOG_DIR)) {
+  fs.mkdirSync(MQTT_LOG_DIR, { recursive: true });
+}
 
 // Topics a los que nos suscribimos
 // Estructura: aquatech/{codigo_tienda}/{equipo_id}/data
 // Usando wildcards (+) para recibir mensajes de cualquier tienda/equipo
 const TOPICS = {
+  TIWATER_DATA: 'tiwater/+/data',              // Nuevo formato: tiwater/CODIGO_TIENDA_001/data
   TIENDA_EQUIPO_DATA: 'aquatech/+/+/data',      // Datos de sensores: aquatech/{codigo_tienda}/{equipo_id}/data
   TIENDA_EQUIPO_STATUS: 'aquatech/+/+/status',  // Estado: aquatech/{codigo_tienda}/{equipo_id}/status
   // Mantener compatibilidad con topics antiguos
@@ -32,18 +84,90 @@ class MQTTService {
     this.messageHandlers = new Map();
   }
 
+  // Escribir mensaje MQTT a archivo de log
+  logMessageToFile(topic, message) {
+    try {
+      const timestamp = new Date().toISOString();
+      const logEntry = `${timestamp} | ${topic} | ${message}\n`;
+      
+      // Append al archivo de log (no bloqueante)
+      fs.appendFile(MQTT_LOG_FILE, logEntry, (err) => {
+        if (err) {
+          console.error('[MQTT] ❌ Error escribiendo a log file:', err.message);
+        }
+      });
+    } catch (error) {
+      console.error('[MQTT] ❌ Error en logMessageToFile:', error.message);
+    }
+  }
+
   // Conectar al broker MQTT
   connect() {
-    const mqttUrl = `mqtt://${MQTT_BROKER}:${MQTT_PORT}`;
+    // Determinar si usar TLS basado en puerto o configuración explícita
+    const useTLS = MQTT_USE_TLS;
+    const protocol = useTLS ? 'mqtts' : 'mqtt';
+    const mqttUrl = `${protocol}://${MQTT_BROKER}:${MQTT_PORT}`;
     
-    console.log(`[MQTT] Conectando a ${mqttUrl}...`);
+    console.log(`[MQTT] Conectando a ${mqttUrl}${useTLS ? ' (TLS)' : ''}...`);
 
-    this.client = mqtt.connect(mqttUrl, {
+    // Configuración base de conexión
+    const connectOptions = {
       clientId: MQTT_CLIENT_ID,
       clean: true,
       reconnectPeriod: 5000, // Reintentar cada 5 segundos
       connectTimeout: 10000, // Timeout de 10 segundos
-    });
+    };
+
+    // Agregar autenticación si está configurada
+    if (MQTT_USERNAME && MQTT_PASSWORD) {
+      connectOptions.username = MQTT_USERNAME;
+      connectOptions.password = MQTT_PASSWORD;
+      console.log(`[MQTT] Usando autenticación: ${MQTT_USERNAME}`);
+    }
+
+    // Configurar TLS si es necesario
+    if (useTLS) {
+      let caCert = null;
+      let certSource = '';
+
+      // Prioridad 1: Variable de entorno MQTT_CA_CERT (recomendado)
+      if (MQTT_CA_CERT) {
+        caCert = MQTT_CA_CERT;
+        certSource = 'variable de entorno (MQTT_CA_CERT)';
+        console.log(`[MQTT] ✅ Certificado CA cargado desde variable de entorno`);
+      }
+      // Prioridad 2: Archivo en MQTT_CA_CERT_PATH
+      else if (MQTT_CA_CERT_PATH && fs.existsSync(MQTT_CA_CERT_PATH)) {
+        try {
+          caCert = fs.readFileSync(MQTT_CA_CERT_PATH);
+          certSource = `archivo (${MQTT_CA_CERT_PATH})`;
+          console.log(`[MQTT] ✅ Certificado CA cargado desde archivo: ${MQTT_CA_CERT_PATH}`);
+        } catch (error) {
+          console.warn(`[MQTT] ⚠️  No se pudo leer certificado desde archivo:`, error.message);
+        }
+      }
+      // Prioridad 3: Certificado embebido (fallback, no recomendado para producción)
+      if (!caCert) {
+        caCert = MQTT_CA_CERT_EMBEDDED;
+        certSource = 'embebido (fallback)';
+        console.warn(`[MQTT] ⚠️  Usando certificado CA embebido. Se recomienda configurar MQTT_CA_CERT en .env para producción`);
+      }
+
+      if (!caCert) {
+        throw new Error('No se pudo cargar el certificado CA. Configura MQTT_CA_CERT o MQTT_CA_CERT_PATH en .env');
+      }
+
+      connectOptions.ca = caCert;
+      
+      // Opciones adicionales de TLS
+      connectOptions.rejectUnauthorized = process.env.MQTT_REJECT_UNAUTHORIZED !== 'false'; // Por defecto true (verificar certificado)
+      
+      if (process.env.MQTT_REJECT_UNAUTHORIZED === 'false') {
+        console.warn(`[MQTT] ⚠️  ADVERTENCIA: Verificación de certificado deshabilitada (rejectUnauthorized=false)`);
+      }
+    }
+
+    this.client = mqtt.connect(mqttUrl, connectOptions);
 
     // Evento: Conexión exitosa
     this.client.on('connect', () => {
@@ -97,11 +221,18 @@ class MQTTService {
     try {
       console.log(`[MQTT] 📨 Mensaje recibido en ${topic}:`, message);
 
+      // Guardar mensaje en archivo de log
+      this.logMessageToFile(topic, message);
+
       // Parsear topic: aquatech/{codigo_tienda}/{equipo_id}/data o /status
       const topicParts = topic.split('/');
       
       // Detectar tipo de topic usando patrones
-      if (topicParts.length === 4 && topicParts[0] === 'aquatech' && topicParts[3] === 'data') {
+      if (topicParts.length === 3 && topicParts[0] === 'tiwater' && topicParts[2] === 'data') {
+        // Nuevo formato: tiwater/CODIGO_TIENDA_001/data
+        const codigo_tienda = topicParts[1];
+        this.handleTiwaterData(codigo_tienda, message);
+      } else if (topicParts.length === 4 && topicParts[0] === 'aquatech' && topicParts[3] === 'data') {
         // Nuevo formato: aquatech/{codigo_tienda}/{equipo_id}/data
         const codigo_tienda = topicParts[1];
         const equipo_id = topicParts[2];
@@ -268,6 +399,81 @@ class MQTTService {
     }
   }
 
+  // Manejar datos de tiwater (nuevo formato: tiwater/CODIGO_TIENDA_001/data)
+  async handleTiwaterData(codigo_tienda, message) {
+    try {
+      const data = JSON.parse(message);
+      console.log(`[MQTT] 📊 Datos de tiwater/${codigo_tienda}:`, JSON.stringify(data, null, 2));
+      
+      // Mapear campos del nuevo formato a estructura estándar
+      const mappedData = this.mapTiwaterDataToStandard(data);
+      
+      // Buscar el punto de venta por código_tienda
+      let puntoVenta = null;
+      if (codigo_tienda) {
+        puntoVenta = await PuntoVenta.findOne({ codigo_tienda: codigo_tienda.toUpperCase() });
+        
+        if (!puntoVenta) {
+          console.warn(`[MQTT] ⚠️  Punto de venta no encontrado para codigo_tienda: ${codigo_tienda}`);
+        }
+      }
+      
+      // Preparar datos para guardar en MongoDB
+      const sensorDataPayload = {
+        codigo_tienda: codigo_tienda ? codigo_tienda.toUpperCase() : null,
+        punto_venta: puntoVenta?._id,
+        cliente: puntoVenta?.cliente,
+        
+        // Sensores mapeados
+        ...mappedData,
+        
+        // Metadatos
+        source: 'tiwater',
+        timestamp: new Date(),
+        metadata: {
+          original_payload: data,
+          topic_format: 'tiwater'
+        }
+      };
+      
+      // Guardar datos en MongoDB y PostgreSQL
+      await this.saveSensorData(sensorDataPayload);
+      console.log(`[MQTT] ✅ Datos guardados para tiwater/${codigo_tienda}`);
+      
+    } catch (error) {
+      console.error(`[MQTT] ❌ Error al procesar datos de tiwater/${codigo_tienda}:`, error);
+      console.error('[MQTT] Mensaje recibido:', message);
+    }
+  }
+
+  // Mapear datos de formato tiwater a estructura estándar
+  mapTiwaterDataToStandard(data) {
+    return {
+      // Mapear campos con espacios a formato estándar
+      flujo_produccion: data['CAUDAL PURIFICADA'] || data['caudal_purificada'] || null,
+      flujo_rechazo: data['CAUDAL RECHAZO'] || data['caudal_rechazo'] || null,
+      flujo_recuperacion: data['CAUDAL RECUPERACION'] || data['caudal_recuperacion'] || null,
+      nivel_purificada: data['NIVEL PURIFICADA'] || data['PORCENTAJE NIVEL PURIFICADA'] || data['nivel_purificada'] || null,
+      nivel_cruda: data['NIVEL CRUDA'] || data['PORCENTAJE NIVEL CRUDA'] || data['nivel_cruda'] || null,
+      caudal_cruda: data['CAUDAL CRUDA'] || data['caudal_cruda'] || null,
+      caudal_cruda_lmin: data['CAUDAL CRUDA L/min'] || data['caudal_cruda_l_min'] || null,
+      acumulado_cruda: data['ACUMULADO CRUDA'] || data['acumulado_cruda'] || null,
+      presion_co2: data['PRESION CO2'] || data['presion_co2'] || null,
+      eficiencia: data['EFICIENCIA'] || data['eficiencia'] || null,
+      vida: data['vida'] || data['VIDA'] || null,
+      
+      // Mantener compatibilidad con campos existentes
+      electronivel_purificada: data['NIVEL PURIFICADA'] || data['PORCENTAJE NIVEL PURIFICADA'] || data['electronivel_purificada'] || null,
+      electronivel_recuperada: data['CAUDAL RECUPERACION'] || data['electronivel_recuperada'] || null,
+      
+      // Almacenar todos los campos originales en metadata para referencia
+      metadata: {
+        ...data,
+        mapped_at: new Date().toISOString()
+      }
+    };
+  }
+
   // Manejar datos de tienda/equipo (nuevo formato principal)
   async handleTiendaEquipoData(codigo_tienda, equipo_id, message) {
     try {
@@ -408,14 +614,45 @@ class MQTTService {
       
       // Save to PostgreSQL (new functionality - non-blocking)
       // We don't want PostgreSQL errors to break MongoDB writes
-      this.saveToPostgreSQL(data, mongoDoc._id.toString()).catch(error => {
-        console.error('[MQTT] ⚠️  Error saving to PostgreSQL (non-critical):', error.message);
-        // Don't throw - allow MongoDB write to succeed even if PostgreSQL fails
-      });
+      // Para formato tiwater, guardamos múltiples sensores (uno por tipo)
+      if (data.source === 'tiwater' || data.metadata?.topic_format === 'tiwater') {
+        this.saveMultipleSensorsToPostgreSQL(data, mongoDoc._id.toString()).catch(error => {
+          console.error('[MQTT] ⚠️  Error saving multiple sensors to PostgreSQL (non-critical):', error.message);
+        });
+      } else {
+        this.saveToPostgreSQL(data, mongoDoc._id.toString()).catch(error => {
+          console.error('[MQTT] ⚠️  Error saving to PostgreSQL (non-critical):', error.message);
+        });
+      }
       
       return sensorData;
     } catch (error) {
       console.error('[MQTT] ❌ Error al guardar datos de sensores:', error);
+      throw error;
+    }
+  }
+
+  // Guardar múltiples sensores en PostgreSQL (uno por tipo de sensor)
+  async saveMultipleSensorsToPostgreSQL(data, mongoId = null) {
+    try {
+      const context = {
+        codigo_tienda: data.codigo_tienda,
+        equipo_id: data.equipo_id,
+        cliente_id: data.cliente ? data.cliente.toString() : null,
+        owner_id: data.ownerId || null,
+        resource_type: data.controller ? 'controller' : (data.product ? 'product' : 'equipo'),
+        source: data.source || 'tiwater',
+        metadata: {
+          mongo_id: mongoId,
+          ...data.metadata
+        }
+      };
+
+      // Guardar múltiples sensores (uno por tipo)
+      await PostgresService.saveMultipleSensorsFromMQTT(data, context);
+      
+    } catch (error) {
+      console.error('[MQTT] Error saving multiple sensors to PostgreSQL:', error);
       throw error;
     }
   }
@@ -490,7 +727,10 @@ class MQTTService {
     return {
       connected: this.isConnected,
       broker: `${MQTT_BROKER}:${MQTT_PORT}`,
-      clientId: MQTT_CLIENT_ID
+      clientId: MQTT_CLIENT_ID,
+      tls: MQTT_USE_TLS,
+      protocol: MQTT_USE_TLS ? 'mqtts' : 'mqtt',
+      authenticated: !!(MQTT_USERNAME && MQTT_PASSWORD)
     };
   }
 }

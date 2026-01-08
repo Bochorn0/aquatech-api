@@ -29,28 +29,45 @@ class PuntoVentaModel {
       meta
     } = data;
 
-    // Use the database function to get or create
-    const result = await query(
-      `SELECT * FROM get_or_create_punto_venta(
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-      )`,
-      [
-        code || null,
-        codigo_tienda || null,
-        name || null,
-        owner || null,
-        clientId || null,
-        status || null,
-        lat !== undefined ? parseFloat(lat) : null,
-        long !== undefined ? parseFloat(long) : null,
-        address || null,
-        contactId || null,
-        meta ? JSON.stringify(meta) : null
-      ]
-    );
+    // Try to use database function if it exists, otherwise fall back to manual get/create
+    try {
+      const result = await query(
+        `SELECT * FROM get_or_create_punto_venta(
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+        )`,
+        [
+          code || null,
+          codigo_tienda || null,
+          name || null,
+          owner || null,
+          clientId || null,
+          status || null,
+          lat !== undefined ? parseFloat(lat) : null,
+          long !== undefined ? parseFloat(long) : null,
+          address || null,
+          contactId || null,
+          meta ? JSON.stringify(meta) : null
+        ]
+      );
 
-    if (result.rows && result.rows.length > 0) {
-      return this.parseRow(result.rows[0]);
+      if (result.rows && result.rows.length > 0) {
+        return this.parseRow(result.rows[0]);
+      }
+    } catch (error) {
+      // If function doesn't exist, fall back to manual get/create
+      if (error.code === '42883' || error.message.includes('does not exist')) {
+        console.warn('[PuntoVentaModel] Function get_or_create_punto_venta not found, using manual get/create');
+        
+        // Try to find existing
+        const existing = await this.findByCode(code || codigo_tienda);
+        if (existing) {
+          return existing;
+        }
+        
+        // Create new
+        return await this.create(data);
+      }
+      throw error;
     }
 
     return null;
