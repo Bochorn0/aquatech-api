@@ -422,8 +422,34 @@ class MQTTService {
       const data = JSON.parse(message);
       console.log(`[MQTT] 📊 Datos de tiwater/${codigo_tienda}:`, JSON.stringify(data, null, 2));
       
+      // Debug: Verificar corrientes en el mensaje original
+      if (data.ch1 !== undefined || data.ch2 !== undefined || data.ch3 !== undefined || data.ch4 !== undefined || data.total_corriente !== undefined) {
+        console.log(`[MQTT] ⚡ Corrientes en mensaje original:`, {
+          ch1: data.ch1,
+          ch2: data.ch2,
+          ch3: data.ch3,
+          ch4: data.ch4,
+          total_corriente: data.total_corriente
+        });
+      } else {
+        console.log(`[MQTT] ⚠️ No se encontraron corrientes en el mensaje original`);
+      }
+      
       // Mapear campos del nuevo formato a estructura estándar
       const mappedData = this.mapTiwaterDataToStandard(data);
+      
+      // Debug: Verificar corrientes después del mapeo
+      if (mappedData.corriente_ch1 !== undefined || mappedData.corriente_ch2 !== undefined || mappedData.corriente_ch3 !== undefined || mappedData.corriente_ch4 !== undefined || mappedData.corriente_total !== undefined) {
+        console.log(`[MQTT] ⚡ Corrientes después de mapTiwaterDataToStandard:`, {
+          corriente_ch1: mappedData.corriente_ch1,
+          corriente_ch2: mappedData.corriente_ch2,
+          corriente_ch3: mappedData.corriente_ch3,
+          corriente_ch4: mappedData.corriente_ch4,
+          corriente_total: mappedData.corriente_total
+        });
+      } else {
+        console.log(`[MQTT] ⚠️ No se encontraron corrientes después del mapeo`);
+      }
       
       // Buscar el punto de venta por código_tienda (solo para referencia, no es crítico)
       let puntoVenta = null;
