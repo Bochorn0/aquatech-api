@@ -353,8 +353,154 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       };
     });
 
-    // Combine with existing products
-    const allProductos = [...productos.filter((p) => p.product_type !== 'Osmosis'), ...osmosisProducts];
+    // Get nivel products from PostgreSQL (resourceType = 'nivel')
+    const nivelProducts = [];
+    const distinctNivelesQuery = `
+      SELECT DISTINCT resourceid
+      FROM sensores
+      WHERE codigotienda = $1 
+        AND resourcetype = 'nivel'
+        AND resourceid IS NOT NULL
+      ORDER BY resourceid
+    `;
+
+    const nivelesResult = await query(distinctNivelesQuery, [codigoTienda]);
+    const nivelResourceIds = nivelesResult.rows.map(row => row.resourceid);
+
+    // Get nivel data for each system with historical data
+    for (const resourceId of nivelResourceIds) {
+      try {
+        // Get latest sensor reading
+        const latestNivelQuery = `
+          SELECT DISTINCT ON (name) 
+            name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda
+          FROM sensores
+          WHERE codigotienda = $1 
+            AND resourcetype = 'nivel'
+            AND resourceid = $2
+            AND name = 'liquid_level_percent'
+          ORDER BY name, timestamp DESC
+          LIMIT 1
+        `;
+
+        const latestResult = await query(latestNivelQuery, [codigoTienda, resourceId]);
+        const latestSensor = latestResult.rows[0];
+
+        if (!latestSensor) continue;
+
+        // Get historical data for the last 24 hours (grouped by hour)
+        const historicoQuery = `
+          SELECT 
+            DATE_TRUNC('hour', timestamp) AS hora,
+            AVG(value) AS liquid_level_percent_promedio,
+            COUNT(*) AS total_logs
+          FROM sensores
+          WHERE codigotienda = $1 
+            AND resourcetype = 'nivel'
+            AND resourceid = $2
+            AND name = 'liquid_level_percent'
+            AND timestamp >= NOW() - INTERVAL '24 hours'
+          GROUP BY DATE_TRUNC('hour', timestamp)
+          ORDER BY hora ASC
+        `;
+
+        const historicoResult = await query(historicoQuery, [codigoTienda, resourceId]);
+        const hoursWithData = historicoResult.rows.map(row => ({
+          hora: new Date(row.hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+          total_logs: parseInt(row.total_logs),
+          estadisticas: {
+            liquid_level_percent_promedio: parseFloat(row.liquid_level_percent_promedio) || 0
+          }
+        }));
+
+        const nivelData = {
+          _id: `nivel-${resourceId}`,
+          id: resourceId,
+          name: `Nivel ${resourceId}`,
+          product_type: 'Nivel',
+          status: [{
+            code: 'liquid_level_percent',
+            value: parseFloat(latestSensor.value) || 0,
+            label: 'Nivel',
+            unit: '%',
+            timestamp: latestSensor.timestamp
+          }],
+          online: true,
+          historico: {
+            product: `Nivel ${resourceId}`,
+            date: new Date().toISOString().split('T')[0],
+            total_logs: hoursWithData.reduce((sum, h) => sum + h.total_logs, 0),
+            hours_with_data: hoursWithData
+          }
+        };
+
+        nivelProducts.push(nivelData);
+      } catch (error) {
+        console.error(`[SensorDataV2] Error getting nivel ${resourceId}:`, error);
+      }
+    }
+
+    // Get metricas (agua cruda y recuperación)
+    const metricaProducts = [];
+    const distinctMetricasQuery = `
+      SELECT DISTINCT resourceid
+      FROM sensores
+      WHERE codigotienda = $1 
+        AND resourcetype = 'metrica'
+        AND resourceid IS NOT NULL
+      ORDER BY resourceid
+    `;
+
+    const metricasResult = await query(distinctMetricasQuery, [codigoTienda]);
+    const metricaResourceIds = metricasResult.rows.map(row => row.resourceid);
+
+    for (const resourceId of metricaResourceIds) {
+      try {
+        const latestMetricaQuery = `
+          SELECT DISTINCT ON (name) 
+            name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
+          FROM sensores
+          WHERE codigotienda = $1 
+            AND resourcetype = 'metrica'
+            AND resourceid = $2
+            AND name = 'liquid_level_percent'
+          ORDER BY name, timestamp DESC
+          LIMIT 1
+        `;
+
+        const latestResult = await query(latestMetricaQuery, [codigoTienda, resourceId]);
+        const latestSensor = latestResult.rows[0];
+
+        if (!latestSensor) continue;
+
+        const metricaData = {
+          _id: `metrica-${resourceId}`,
+          id: resourceId,
+          name: latestSensor.label || `Métrica ${resourceId}`,
+          product_type: 'Metrica',
+          status: [{
+            code: 'liquid_level_percent',
+            value: parseFloat(latestSensor.value) || 0,
+            label: latestSensor.label || 'Nivel',
+            unit: '%',
+            timestamp: latestSensor.timestamp
+          }],
+          online: true
+        };
+
+        metricaProducts.push(metricaData);
+      } catch (error) {
+        console.error(`[SensorDataV2] Error getting metrica ${resourceId}:`, error);
+      }
+    }
+
+    // Combine all products
+    const allProductos = [
+      ...productos.filter((p) => p.product_type !== 'Osmosis' && p.product_type !== 'Nivel' && p.product_type !== 'Metrica'),
+      ...osmosisProducts,
+      ...nivelProducts,
+      ...metricaProducts
+    ];
 
     // Determine if punto is online (check controllers or osmosis systems)
     const now = Date.now();
