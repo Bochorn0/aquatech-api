@@ -54,6 +54,11 @@ const SensorDataSchema = new mongoose.Schema({
     min: 0,
     max: 1000  // L/min - Ajustar según rango del sensor
   },
+  flujo_recuperacion: {
+    type: Number,
+    min: 0,
+    max: 1000  // L/min
+  },
   
   // TDS (Total Dissolved Solids)
   tds: { 
@@ -62,16 +67,42 @@ const SensorDataSchema = new mongoose.Schema({
     max: 2000  // ppm - Ajustar según rango del sensor
   },
   
-  // Niveles electrónicos
+  // Niveles electrónicos (porcentajes 0-100)
   electronivel_purificada: { 
     type: Number,
     min: 0,
-    max: 100  // Porcentaje o nivel según sensor
+    max: 100  // Porcentaje (0-100)
   },
   electronivel_recuperada: { 
     type: Number,
     min: 0,
-    max: 100  // Porcentaje o nivel según sensor
+    max: 100  // Porcentaje (0-100)
+  },
+  
+  // Niveles absolutos (valores pueden ser mayores a 100)
+  nivel_purificada: {
+    type: Number,
+    min: 0,
+    max: 10000  // Nivel absoluto (aumentado para soportar valores reales)
+  },
+  nivel_cruda: {
+    type: Number,
+    min: 0,
+    max: 10000  // Nivel absoluto (aumentado para soportar valores reales)
+  },
+  caudal_cruda: {
+    type: Number,
+    min: 0,
+    max: 1000  // L/min
+  },
+  caudal_cruda_lmin: {
+    type: Number,
+    min: 0,
+    max: 10000  // L/min (valores más altos)
+  },
+  acumulado_cruda: {
+    type: Number,
+    min: 0
   },
   
   // Presiones

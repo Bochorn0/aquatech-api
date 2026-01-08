@@ -470,18 +470,21 @@ class MQTTService {
       flujo_produccion: data['CAUDAL PURIFICADA'] || data['caudal_purificada'] || null,
       flujo_rechazo: data['CAUDAL RECHAZO'] || data['caudal_rechazo'] || null,
       flujo_recuperacion: data['CAUDAL RECUPERACION'] || data['caudal_recuperacion'] || null,
-      nivel_purificada: data['NIVEL PURIFICADA'] || data['PORCENTAJE NIVEL PURIFICADA'] || data['nivel_purificada'] || null,
-      nivel_cruda: data['NIVEL CRUDA'] || data['PORCENTAJE NIVEL CRUDA'] || data['nivel_cruda'] || null,
+      
+      // Niveles absolutos (valores pueden ser > 100)
+      nivel_purificada: data['NIVEL PURIFICADA'] || data['nivel_purificada'] || null,
+      nivel_cruda: data['NIVEL CRUDA'] || data['nivel_cruda'] || null,
+      
+      // Porcentajes (valores 0-100)
+      electronivel_purificada: data['PORCENTAJE NIVEL PURIFICADA'] || data['porcentaje_nivel_purificada'] || null,
+      electronivel_recuperada: data['PORCENTAJE NIVEL CRUDA'] || data['porcentaje_nivel_cruda'] || null,
+      
       caudal_cruda: data['CAUDAL CRUDA'] || data['caudal_cruda'] || null,
       caudal_cruda_lmin: data['CAUDAL CRUDA L/min'] || data['caudal_cruda_l_min'] || null,
       acumulado_cruda: data['ACUMULADO CRUDA'] || data['acumulado_cruda'] || null,
       presion_co2: data['PRESION CO2'] || data['presion_co2'] || null,
       eficiencia: data['EFICIENCIA'] || data['eficiencia'] || null,
       vida: data['vida'] || data['VIDA'] || null,
-      
-      // Mantener compatibilidad con campos existentes
-      electronivel_purificada: data['NIVEL PURIFICADA'] || data['PORCENTAJE NIVEL PURIFICADA'] || data['electronivel_purificada'] || null,
-      electronivel_recuperada: data['CAUDAL RECUPERACION'] || data['electronivel_recuperada'] || null,
       
       // Almacenar todos los campos originales en metadata para referencia
       metadata: {
