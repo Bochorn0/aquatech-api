@@ -226,29 +226,46 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       });
     }
 
-    // Get osmosis systems from PostgreSQL
+    // Get osmosis systems from PostgreSQL (including tiwater systems)
     const osmosisSystems = [];
 
-    // Query to get distinct osmosis systems (by resourceId)
+    // Query to get distinct osmosis/tiwater systems (by resourceId)
+    // Include both 'osmosis' and 'tiwater' resource types
+    // For tiwater, resourceId might be NULL, so we'll treat all tiwater sensors as one system
     const distinctSystemsQuery = `
-      SELECT DISTINCT resourceid, resourceid
+      SELECT DISTINCT 
+        COALESCE(resourceid, 'tiwater-system') as resourceid,
+        resourcetype
       FROM sensores
       WHERE codigotienda = $1 
-        AND resourcetype = 'osmosis'
-        AND resourceid IS NOT NULL
-      ORDER BY resourceid
+        AND (resourcetype = 'osmosis' OR resourcetype = 'tiwater')
+      ORDER BY resourcetype, resourceid
     `;
 
     const systemsResult = await query(distinctSystemsQuery, [codigoTienda]);
-    const resourceIds = systemsResult.rows.map(row => row.resourceid);
+    const systemRows = systemsResult.rows || [];
+    
+    // If no systems found but we have tiwater data, create a default system entry
+    if (systemRows.length === 0) {
+      const hasTiwaterData = await query(
+        `SELECT COUNT(*) as count FROM sensores WHERE codigotienda = $1 AND resourcetype = 'tiwater'`,
+        [codigoTienda]
+      );
+      if (hasTiwaterData.rows[0]?.count > 0) {
+        systemRows.push({ resourceid: 'tiwater-system', resourcetype: 'tiwater' });
+      }
+    }
 
-    // Get osmosis data for each system
-    for (const resourceId of resourceIds) {
+    // Get osmosis/tiwater data for each system
+    for (const row of systemRows) {
+      const resourceId = row.resourceid;
+      const resourceType = row.resourcetype || 'osmosis';
+      
       try {
         // Build filters
         const filters = {
           codigoTienda: codigoTienda,
-          resourceType: 'osmosis',
+          resourceType: resourceType,
           resourceId: resourceId
         };
 
@@ -267,26 +284,45 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         console.log(`[SensorDataV2] Available sensors for ${filters.codigoTienda}/${filters.resourceType}/${resourceId}:`, checkResult.rows);
 
         // Get latest sensor readings for this system
-        const latestSensorsQuery = `
-          SELECT DISTINCT ON (name) 
-            name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
-          FROM sensores
-          WHERE codigotienda = $1 
-            AND resourcetype = $2
-            AND resourceid = $3
-          ORDER BY name, timestamp DESC
-        `;
+        // Handle NULL resourceId for tiwater systems
+        let latestSensorsQuery;
+        let queryParams;
+        
+        if (resourceId === 'tiwater-system' && resourceType === 'tiwater') {
+          // For tiwater systems without resourceId, search for NULL resourceId
+          latestSensorsQuery = `
+            SELECT DISTINCT ON (name) 
+              name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
+            FROM sensores
+            WHERE codigotienda = $1 
+              AND resourcetype = $2
+              AND (resourceid IS NULL OR resourceid = 'tiwater-system')
+            ORDER BY name, timestamp DESC
+          `;
+          queryParams = [filters.codigoTienda, filters.resourceType];
+        } else {
+          latestSensorsQuery = `
+            SELECT DISTINCT ON (name) 
+              name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
+            FROM sensores
+            WHERE codigotienda = $1 
+              AND resourcetype = $2
+              AND resourceid = $3
+            ORDER BY name, timestamp DESC
+          `;
+          queryParams = [filters.codigoTienda, filters.resourceType, resourceId];
+        }
 
-        const result = await query(latestSensorsQuery, [filters.codigoTienda, filters.resourceType, resourceId]);
+        const result = await query(latestSensorsQuery, queryParams);
         const sensors = result.rows || [];
 
         console.log(`[SensorDataV2] Found ${sensors.length} sensors for osmosis system ${resourceId} in ${filters.codigoTienda}`);
         console.log(`[SensorDataV2] Sensor names:`, sensors.map(s => s.name));
 
-        // Map to osmosis format
+        // Map to osmosis format (works for both osmosis and tiwater)
         const osmosisData = {
-          resourceId: resourceId,
-          resourceType: 'osmosis',
+          resourceId: resourceId || 'tiwater-system',
+          resourceType: resourceType,
           status: [],
           online: false,
           lastUpdate: null
@@ -297,6 +333,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           let code = '';
           let label = sensor.label || sensor.name;
           
+          // Map sensor names to status codes (supporting both osmosis and tiwater formats)
           switch (sensor.name) {
             case 'flujo_produccion':
               code = 'flowrate_speed_1';
@@ -305,6 +342,10 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
             case 'flujo_rechazo':
               code = 'flowrate_speed_2';
               label = 'Flujo Rechazo';
+              break;
+            case 'flujo_recuperacion':
+              code = 'flowrate_recuperacion';
+              label = 'Flujo Recuperación';
               break;
             case 'tds':
               code = 'tds_out';
@@ -318,13 +359,67 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
               code = 'level_recuperada';
               label = 'Nivel Recuperada';
               break;
+            case 'nivel_purificada':
+              code = 'nivel_purificada_absoluto';
+              label = 'Nivel Purificada (absoluto)';
+              break;
+            case 'nivel_cruda':
+              code = 'nivel_cruda_absoluto';
+              label = 'Nivel Cruda (absoluto)';
+              break;
+            case 'caudal_cruda':
+              code = 'caudal_cruda';
+              label = 'Caudal Cruda';
+              break;
+            case 'caudal_cruda_lmin':
+              code = 'caudal_cruda_lmin';
+              label = 'Caudal Cruda (L/min)';
+              break;
+            case 'acumulado_cruda':
+              code = 'acumulado_cruda';
+              label = 'Acumulado Cruda';
+              break;
             case 'presion_in':
+            case 'pressure_in':
               code = 'pressure_in';
               label = 'Presión Entrada';
               break;
             case 'presion_out':
+            case 'pressure_out':
               code = 'pressure_out';
               label = 'Presión Salida';
+              break;
+            case 'presion_co2':
+              code = 'presion_co2';
+              label = 'Presión CO2';
+              break;
+            case 'eficiencia':
+              code = 'eficiencia';
+              label = 'Eficiencia';
+              break;
+            case 'vida':
+              code = 'vida';
+              label = 'Vida del Sistema';
+              break;
+            case 'corriente_ch1':
+              code = 'corriente_ch1';
+              label = 'Corriente Canal 1';
+              break;
+            case 'corriente_ch2':
+              code = 'corriente_ch2';
+              label = 'Corriente Canal 2';
+              break;
+            case 'corriente_ch3':
+              code = 'corriente_ch3';
+              label = 'Corriente Canal 3';
+              break;
+            case 'corriente_ch4':
+              code = 'corriente_ch4';
+              label = 'Corriente Canal 4';
+              break;
+            case 'corriente_total':
+              code = 'corriente_total';
+              label = 'Corriente Total';
               break;
             default:
               code = sensor.name;
@@ -353,18 +448,24 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       }
     }
 
-    // If no osmosis systems found, still return punto data
-    // Map osmosis systems to products format
+    // If no osmosis/tiwater systems found, still return punto data
+    // Map osmosis/tiwater systems to products format
     const productos = punto.productos || [];
     const osmosisProducts = osmosisSystems.map((osmosis, index) => {
       // Find matching product or create new structure
-      const matchingProduct = productos.find((p) => p.product_type === 'Osmosis');
+      const matchingProduct = productos.find((p) => p.product_type === 'Osmosis' || p.product_type === 'TIWater');
+      
+      // Determine product type based on resourceType
+      const productType = osmosis.resourceType === 'tiwater' ? 'TIWater' : 'Osmosis';
+      const defaultName = osmosis.resourceType === 'tiwater' 
+        ? `Sistema TIWater ${index + 1}` 
+        : `Sistema Osmosis ${index + 1}`;
       
       return {
-        _id: matchingProduct?._id || `osmosis-${index}`,
-        id: osmosis.resourceId || `osmosis-${index}`,
-        name: matchingProduct?.name || `Sistema Osmosis ${index + 1}`,
-        product_type: 'Osmosis',
+        _id: matchingProduct?._id || `${productType.toLowerCase()}-${index}`,
+        id: osmosis.resourceId || `${productType.toLowerCase()}-${index}`,
+        name: matchingProduct?.name || defaultName,
+        product_type: productType,
         status: osmosis.status || [],
         online: osmosis.online || false,
         lastUpdate: osmosis.lastUpdate
