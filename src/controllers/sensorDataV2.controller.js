@@ -626,17 +626,207 @@ export const getSensorTimeSeries = async (req, res) => {
 };
 
 /**
+ * Get latest tiwater sensor data for a punto de venta
+ * Returns all sensor readings from the most recent MQTT message
+ */
+export const getTiwaterSensorData = async (req, res) => {
+  try {
+    const { codigoTienda } = req.query;
+
+    if (!codigoTienda) {
+      return res.status(400).json({
+        success: false,
+        message: 'codigoTienda is required'
+      });
+    }
+
+    // Get latest timestamp for this codigo_tienda
+    const latestTimestampQuery = `
+      SELECT MAX(timestamp) as latest_timestamp
+      FROM sensores
+      WHERE codigotienda = $1
+        AND resourcetype = 'tiwater'
+    `;
+
+    const timestampResult = await query(latestTimestampQuery, [codigoTienda.toUpperCase()]);
+    const latestTimestamp = timestampResult.rows[0]?.latest_timestamp;
+
+    if (!latestTimestamp) {
+      return res.json({
+        success: true,
+        data: null,
+        message: 'No sensor data found for this punto de venta'
+      });
+    }
+
+    // Get all sensor readings from the latest timestamp
+    const sensorsQuery = `
+      SELECT 
+        name, value, type, timestamp, meta, label
+      FROM sensores
+      WHERE codigotienda = $1
+        AND resourcetype = 'tiwater'
+        AND timestamp = $2
+      ORDER BY name
+    `;
+
+    const sensorsResult = await query(sensorsQuery, [codigoTienda.toUpperCase(), latestTimestamp]);
+    const sensors = sensorsResult.rows || [];
+
+    // Organize data by sensor type
+    const sensorData = {
+      codigoTienda: codigoTienda.toUpperCase(),
+      timestamp: latestTimestamp,
+      online: true, // Consider online if we have recent data
+      // Caudales
+      caudales: {
+        purificada: null,
+        recuperacion: null,
+        rechazo: null,
+        cruda: null,
+        cruda_lmin: null
+      },
+      // Niveles
+      niveles: {
+        purificada_absoluto: null,
+        purificada_porcentaje: null,
+        cruda_absoluto: null,
+        cruda_porcentaje: null
+      },
+      // Acumulados
+      acumulados: {
+        cruda: null
+      },
+      // Presiones
+      presiones: {
+        co2: null
+      },
+      // Sistema
+      sistema: {
+        eficiencia: null,
+        vida: null
+      },
+      // Corrientes
+      corrientes: {
+        ch1: null,
+        ch2: null,
+        ch3: null,
+        ch4: null,
+        total: null
+      },
+      // Raw data for reference
+      raw: {}
+    };
+
+    // Map sensor values
+    sensors.forEach(sensor => {
+      const value = parseFloat(sensor.value);
+      sensorData.raw[sensor.name] = value;
+
+      switch (sensor.name) {
+        case 'flujo_produccion':
+          sensorData.caudales.purificada = value;
+          break;
+        case 'flujo_recuperacion':
+          sensorData.caudales.recuperacion = value;
+          break;
+        case 'flujo_rechazo':
+          sensorData.caudales.rechazo = value;
+          break;
+        case 'caudal_cruda':
+          sensorData.caudales.cruda = value;
+          break;
+        case 'caudal_cruda_lmin':
+          sensorData.caudales.cruda_lmin = value;
+          break;
+        case 'nivel_purificada':
+          sensorData.niveles.purificada_absoluto = value;
+          break;
+        case 'electronivel_purificada':
+          sensorData.niveles.purificada_porcentaje = value;
+          break;
+        case 'nivel_cruda':
+          sensorData.niveles.cruda_absoluto = value;
+          break;
+        case 'electronivel_recuperada':
+          sensorData.niveles.cruda_porcentaje = value;
+          break;
+        case 'acumulado_cruda':
+          sensorData.acumulados.cruda = value;
+          break;
+        case 'presion_co2':
+          sensorData.presiones.co2 = value;
+          break;
+        case 'eficiencia':
+          sensorData.sistema.eficiencia = value;
+          break;
+        case 'vida':
+          sensorData.sistema.vida = value;
+          break;
+        case 'corriente_ch1':
+          sensorData.corrientes.ch1 = value;
+          break;
+        case 'corriente_ch2':
+          sensorData.corrientes.ch2 = value;
+          break;
+        case 'corriente_ch3':
+          sensorData.corrientes.ch3 = value;
+          break;
+        case 'corriente_ch4':
+          sensorData.corrientes.ch4 = value;
+          break;
+        case 'corriente_total':
+          sensorData.corrientes.total = value;
+          break;
+      }
+    });
+
+    // Check if data is recent (within 5 minutes)
+    const now = new Date();
+    const dataTime = new Date(latestTimestamp);
+    sensorData.online = (now - dataTime) < 5 * 60 * 1000;
+
+    res.json({
+      success: true,
+      data: sensorData
+    });
+
+  } catch (error) {
+    console.error('[SensorDataV2] Error getting tiwater sensor data:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting tiwater sensor data',
+      error: error.message
+    });
+  }
+};
+
+/**
  * Helper function to get unit for sensor
  */
 function getUnitForSensor(sensorName) {
   const units = {
     'flujo_produccion': 'L/min',
     'flujo_rechazo': 'L/min',
+    'flujo_recuperacion': 'L/min',
     'tds': 'ppm',
     'electronivel_purificada': '%',
     'electronivel_recuperada': '%',
+    'nivel_purificada': 'mm',
+    'nivel_cruda': 'mm',
+    'caudal_cruda': 'L/min',
+    'caudal_cruda_lmin': 'L/min',
+    'acumulado_cruda': 'L',
+    'presion_co2': 'PSI',
     'presion_in': 'PSI',
-    'presion_out': 'PSI'
+    'presion_out': 'PSI',
+    'eficiencia': '%',
+    'vida': 'días',
+    'corriente_ch1': 'A',
+    'corriente_ch2': 'A',
+    'corriente_ch3': 'A',
+    'corriente_ch4': 'A',
+    'corriente_total': 'A'
   };
   return units[sensorName] || '';
 }

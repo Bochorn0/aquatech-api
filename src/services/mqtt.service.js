@@ -662,12 +662,18 @@ class MQTTService {
   // Guardar múltiples sensores en PostgreSQL (uno por tipo de sensor)
   async saveMultipleSensorsToPostgreSQL(data, mongoId = null) {
     try {
+      // Determinar resource_type: si es tiwater, usar 'tiwater', sino usar la lógica normal
+      const isTiwater = data.source === 'tiwater' || data.metadata?.topic_format === 'tiwater';
+      const resourceType = isTiwater 
+        ? 'tiwater' 
+        : (data.controller ? 'controller' : (data.product ? 'product' : 'equipo'));
+      
       const context = {
         codigo_tienda: data.codigo_tienda,
         equipo_id: data.equipo_id,
         cliente_id: data.cliente ? data.cliente.toString() : null,
         owner_id: data.ownerId || null,
-        resource_type: data.controller ? 'controller' : (data.product ? 'product' : 'equipo'),
+        resource_type: resourceType,
         source: data.source || 'tiwater',
         metadata: {
           mongo_id: mongoId,

@@ -70,41 +70,60 @@ BEGIN
     END IF;
     
     -- If not found, create new record
-    -- Note: Use lowercase column names as PostgreSQL stores unquoted identifiers in lowercase
-    INSERT INTO puntoventa (
-        name, code, codigo_tienda, owner, clientid, status,
-        lat, long, address, contactid, meta
-    ) VALUES (
-        p_name,
-        v_code,
-        COALESCE(p_codigo_tienda, v_code),
-        p_owner,
-        p_clientId,
-        COALESCE(p_status, 'active'),
-        p_lat,
-        p_long,
-        p_address,
-        p_contactId,
-        p_meta
-    )
-    RETURNING * INTO v_result;
+    -- Handle race conditions where another process might create the record concurrently
+    BEGIN
+        INSERT INTO puntoventa (
+            name, code, codigo_tienda, owner, clientid, status,
+            lat, long, address, contactid, meta
+        ) VALUES (
+            p_name,
+            v_code,
+            COALESCE(p_codigo_tienda, v_code),
+            p_owner,
+            p_clientId,
+            COALESCE(p_status, 'active'),
+            p_lat,
+            p_long,
+            p_address,
+            p_contactId,
+            p_meta
+        )
+        RETURNING * INTO v_result;
+    EXCEPTION
+        WHEN unique_violation THEN
+            -- Another process created it concurrently, fetch it
+            SELECT * INTO v_result
+            FROM puntoventa p
+            WHERE p.code = v_code OR p.codigo_tienda = v_code
+            LIMIT 1;
+    END;
     
-    -- Return created record
-    RETURN QUERY SELECT 
-        v_result.id,
-        v_result.name,
-        v_result.code,
-        v_result.codigo_tienda,
-        v_result.createdat,
-        v_result.updatedat,
-        v_result.owner,
-        v_result.clientid,
-        v_result.status,
-        v_result.lat,
-        v_result.long,
-        v_result.address,
-        v_result.contactid,
-        v_result.meta;
+    -- If we still don't have a result (shouldn't happen, but safety check)
+    IF v_result IS NULL THEN
+        SELECT * INTO v_result
+        FROM puntoventa p
+        WHERE p.code = v_code OR p.codigo_tienda = v_code
+        LIMIT 1;
+    END IF;
+    
+    -- Return created or found record
+    IF v_result IS NOT NULL THEN
+        RETURN QUERY SELECT 
+            v_result.id,
+            v_result.name,
+            v_result.code,
+            v_result.codigo_tienda,
+            v_result.createdat,
+            v_result.updatedat,
+            v_result.owner,
+            v_result.clientid,
+            v_result.status,
+            v_result.lat,
+            v_result.long,
+            v_result.address,
+            v_result.contactid,
+            v_result.meta;
+    END IF;
 END;
 $$ LANGUAGE plpgsql;
 

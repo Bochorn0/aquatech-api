@@ -5,7 +5,8 @@ import express from 'express';
 import {
   getOsmosisSystemByPuntoVenta,
   getPuntoVentaDetalleV2,
-  getSensorTimeSeries
+  getSensorTimeSeries,
+  getTiwaterSensorData
 } from '../controllers/sensorDataV2.controller.js';
 
 const router = express.Router();
@@ -32,6 +33,14 @@ router.get('/puntoVentas/:id/detalle', getPuntoVentaDetalleV2);
  * @query   codigoTienda, sensorName, resourceId, startDate, endDate, interval
  */
 router.get('/timeseries', getSensorTimeSeries);
+
+/**
+ * @route   GET /api/v2.0/sensors/tiwater
+ * @desc    Get latest tiwater sensor data for a punto de venta
+ * @access  Private
+ * @query   codigoTienda (required)
+ */
+router.get('/tiwater', getTiwaterSensorData);
 
 export default router;
 

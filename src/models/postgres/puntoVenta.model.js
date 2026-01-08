@@ -29,7 +29,17 @@ class PuntoVentaModel {
       meta
     } = data;
 
-    // Try to use database function if it exists, otherwise fall back to manual get/create
+    // First, try to find existing record
+    const searchCode = code || codigo_tienda;
+    if (searchCode) {
+      const existing = await this.findByCode(searchCode);
+      if (existing) {
+        console.log(`[PuntoVentaModel] ✅ PuntoVenta encontrado (ID: ${existing.id}) para código: ${searchCode}`);
+        return existing;
+      }
+    }
+
+    // Try to use database function if it exists, otherwise fall back to manual create
     try {
       const result = await query(
         `SELECT * FROM get_or_create_punto_venta(
@@ -51,26 +61,33 @@ class PuntoVentaModel {
       );
 
       if (result.rows && result.rows.length > 0) {
-        return this.parseRow(result.rows[0]);
+        const puntoVenta = this.parseRow(result.rows[0]);
+        console.log(`[PuntoVentaModel] ✅ PuntoVenta obtenido/creado por función SQL (ID: ${puntoVenta.id}) para código: ${searchCode}`);
+        return puntoVenta;
       }
     } catch (error) {
-      // If function doesn't exist, fall back to manual get/create
+      // If function doesn't exist, fall back to manual create
       if (error.code === '42883' || error.message.includes('does not exist')) {
         console.warn('[PuntoVentaModel] Function get_or_create_punto_venta not found, using manual get/create');
-        
-        // Try to find existing
-        const existing = await this.findByCode(code || codigo_tienda);
-        if (existing) {
-          return existing;
+      } else if (error.code === '23505') {
+        // Unique constraint violation - record was created by another process
+        // Just fetch the existing record
+        console.log(`[PuntoVentaModel] ⚠️  Clave duplicada detectada (concurrencia), obteniendo registro existente para código: ${searchCode}`);
+        if (searchCode) {
+          const existing = await this.findByCode(searchCode);
+          if (existing) {
+            console.log(`[PuntoVentaModel] ✅ PuntoVenta encontrado después de error de concurrencia (ID: ${existing.id})`);
+            return existing;
+          }
         }
-        
-        // Create new
-        return await this.create(data);
+      } else {
+        // For other errors, try manual create as fallback
+        console.warn('[PuntoVentaModel] Error calling get_or_create_punto_venta, using manual create:', error.message);
       }
-      throw error;
     }
 
-    return null;
+    // Fallback: manual create (which also checks for existing)
+    return await this.create(data);
   }
 
   /**
@@ -133,9 +150,11 @@ class PuntoVentaModel {
       meta
     } = data;
 
-    // Check if already exists
-    const existing = await this.findByCode(code || codigo_tienda);
+    // Check if already exists (double-check before insert)
+    const searchCode = code || codigo_tienda;
+    const existing = await this.findByCode(searchCode);
     if (existing) {
+      console.log(`[PuntoVentaModel] ✅ PuntoVenta ya existe (ID: ${existing.id}), retornando existente para código: ${searchCode}`);
       return existing;
     }
 
@@ -164,13 +183,20 @@ class PuntoVentaModel {
 
     try {
       const result = await query(insertQuery, values);
-      return this.parseRow(result.rows[0]);
+      const created = this.parseRow(result.rows[0]);
+      console.log(`[PuntoVentaModel] ✅ PuntoVenta creado exitosamente (ID: ${created.id}) para código: ${searchCode}`);
+      return created;
     } catch (error) {
       // If duplicate key error, try to get existing record
       if (error.code === '23505') { // unique_violation
-        return await this.findByCode(code || codigo_tienda);
+        console.log(`[PuntoVentaModel] ⚠️  Error de clave duplicada al crear, obteniendo registro existente para código: ${searchCode}`);
+        const existing = await this.findByCode(searchCode);
+        if (existing) {
+          console.log(`[PuntoVentaModel] ✅ PuntoVenta encontrado después de error de clave duplicada (ID: ${existing.id})`);
+          return existing;
+        }
       }
-      console.error('[PuntoVentaModel] Error creating puntoVenta:', error);
+      console.error('[PuntoVentaModel] ❌ Error creating puntoVenta:', error);
       throw error;
     }
   }
