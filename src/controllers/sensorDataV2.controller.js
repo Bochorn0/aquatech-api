@@ -334,6 +334,21 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
 
         console.log(`[SensorDataV2] Found ${sensors.length} sensors for osmosis system ${resourceId} in ${filters.codigoTienda}`);
         console.log(`[SensorDataV2] Sensor names:`, sensors.map(s => s.name));
+        console.log(`[SensorDataV2] Sensor types:`, sensors.map(s => s.type));
+        console.log(`[SensorDataV2] All sensor details:`, sensors.map(s => ({ name: s.name, type: s.type, value: s.value })));
+        
+        // Check specifically for current sensors
+        const currentSensors = sensors.filter(s => 
+          s.name?.toLowerCase().includes('corriente') || 
+          s.type?.toLowerCase().includes('corriente') ||
+          s.name === 'ch1' || s.name === 'ch2' || s.name === 'ch3' || s.name === 'ch4' ||
+          s.type === 'ch1' || s.type === 'ch2' || s.type === 'ch3' || s.type === 'ch4'
+        );
+        if (currentSensors.length > 0) {
+          console.log(`[SensorDataV2] ⚡ Found ${currentSensors.length} current sensors:`, currentSensors.map(s => ({ name: s.name, type: s.type, value: s.value })));
+        } else {
+          console.log(`[SensorDataV2] ⚠️ No current sensors found in database for ${filters.codigoTienda}`);
+        }
 
         // Map to osmosis format (works for both osmosis and tiwater)
         const osmosisData = {
@@ -345,7 +360,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         };
 
         sensors.forEach(sensor => {
-          console.log(`[SensorDataV2] Processing sensor: ${sensor.name} = ${sensor.value}`);
+          console.log(`[SensorDataV2] Processing sensor: name="${sensor.name}", type="${sensor.type}", value=${sensor.value}`);
           let code = '';
           let label = sensor.label || sensor.name;
           
@@ -354,6 +369,13 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           // sensor.type is the type code (e.g., "corriente_ch1")
           const sensorName = sensor.name || sensor.type || '';
           const sensorType = sensor.type || '';
+          
+          // Debug: Log specifically for current sensors
+          if (sensorName.toLowerCase().includes('corriente') || sensorType.toLowerCase().includes('corriente') || 
+              sensorName === 'ch1' || sensorName === 'ch2' || sensorName === 'ch3' || sensorName === 'ch4' ||
+              sensorType === 'ch1' || sensorType === 'ch2' || sensorType === 'ch3' || sensorType === 'ch4') {
+            console.log(`[SensorDataV2] ⚡ Processing current sensor: name="${sensorName}", type="${sensorType}"`);
+          }
           
           // Try to match by name (label) first, then by type
           switch (sensorName) {
@@ -528,6 +550,11 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           } else {
             timestamp = new Date().toISOString();
             validTimestamp = false;
+          }
+
+          // Debug: Log if this is a current sensor
+          if (code.includes('corriente') || code.includes('ch1') || code.includes('ch2') || code.includes('ch3') || code.includes('ch4')) {
+            console.log(`[SensorDataV2] ⚡ Adding current sensor to status: code="${code}", label="${label}", value=${sensor.value}`);
           }
 
           osmosisData.status.push({
