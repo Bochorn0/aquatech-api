@@ -253,9 +253,23 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         };
 
         // Get latest sensor readings for this system
+        // First, let's check what sensors exist
+        const checkSensorsQuery = `
+          SELECT DISTINCT name, COUNT(*) as count
+          FROM sensores
+          WHERE codigotienda = $1 
+            AND resourcetype = $2
+            AND resourceid = $3
+          GROUP BY name
+        `;
+        
+        const checkResult = await query(checkSensorsQuery, [filters.codigoTienda, filters.resourceType, resourceId]);
+        console.log(`[SensorDataV2] Available sensors for ${filters.codigoTienda}/${filters.resourceType}/${resourceId}:`, checkResult.rows);
+
+        // Get latest sensor readings for this system
         const latestSensorsQuery = `
           SELECT DISTINCT ON (name) 
-            name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda
+            name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
           FROM sensores
           WHERE codigotienda = $1 
             AND resourcetype = $2
@@ -265,6 +279,9 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
 
         const result = await query(latestSensorsQuery, [filters.codigoTienda, filters.resourceType, resourceId]);
         const sensors = result.rows || [];
+
+        console.log(`[SensorDataV2] Found ${sensors.length} sensors for osmosis system ${resourceId} in ${filters.codigoTienda}`);
+        console.log(`[SensorDataV2] Sensor names:`, sensors.map(s => s.name));
 
         // Map to osmosis format
         const osmosisData = {
@@ -276,6 +293,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         };
 
         sensors.forEach(sensor => {
+          console.log(`[SensorDataV2] Processing sensor: ${sensor.name} = ${sensor.value}`);
           let code = '';
           let label = sensor.label || sensor.name;
           
