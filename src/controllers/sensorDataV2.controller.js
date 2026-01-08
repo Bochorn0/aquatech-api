@@ -271,16 +271,32 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
 
         // Get latest sensor readings for this system
         // First, let's check what sensors exist
-        const checkSensorsQuery = `
-          SELECT DISTINCT name, COUNT(*) as count
-          FROM sensores
-          WHERE codigotienda = $1 
-            AND resourcetype = $2
-            AND resourceid = $3
-          GROUP BY name
-        `;
+        let checkSensorsQuery;
+        let checkParams;
         
-        const checkResult = await query(checkSensorsQuery, [filters.codigoTienda, filters.resourceType, resourceId]);
+        if (resourceId === 'tiwater-system' && resourceType === 'tiwater') {
+          checkSensorsQuery = `
+            SELECT DISTINCT name, COUNT(*) as count
+            FROM sensores
+            WHERE codigotienda = $1 
+              AND resourcetype = $2
+              AND (resourceid IS NULL OR resourceid = 'tiwater-system')
+            GROUP BY name
+          `;
+          checkParams = [filters.codigoTienda, filters.resourceType];
+        } else {
+          checkSensorsQuery = `
+            SELECT DISTINCT name, COUNT(*) as count
+            FROM sensores
+            WHERE codigotienda = $1 
+              AND resourcetype = $2
+              AND resourceid = $3
+            GROUP BY name
+          `;
+          checkParams = [filters.codigoTienda, filters.resourceType, resourceId];
+        }
+        
+        const checkResult = await query(checkSensorsQuery, checkParams);
         console.log(`[SensorDataV2] Available sensors for ${filters.codigoTienda}/${filters.resourceType}/${resourceId}:`, checkResult.rows);
 
         // Get latest sensor readings for this system
