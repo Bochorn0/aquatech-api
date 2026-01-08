@@ -133,6 +133,28 @@ const SensorDataSchema = new mongoose.Schema({
     min: 0
   },
   
+  // Corriente (nuevos campos)
+  corriente_ch1: {
+    type: Number,
+    min: 0
+  },
+  corriente_ch2: {
+    type: Number,
+    min: 0
+  },
+  corriente_ch3: {
+    type: Number,
+    min: 0
+  },
+  corriente_ch4: {
+    type: Number,
+    min: 0
+  },
+  corriente_total: {
+    type: Number,
+    min: 0
+  },
+  
   // Metadatos
   source: { 
     type: String, 

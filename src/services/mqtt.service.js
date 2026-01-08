@@ -486,6 +486,13 @@ class MQTTService {
       eficiencia: data['EFICIENCIA'] || data['eficiencia'] || null,
       vida: data['vida'] || data['VIDA'] || null,
       
+      // Campos de corriente
+      corriente_ch1: data['ch1'] || data['ch1'] || null,
+      corriente_ch2: data['ch2'] || data['ch2'] || null,
+      corriente_ch3: data['ch3'] || data['ch3'] || null,
+      corriente_ch4: data['ch4'] || data['ch4'] || null,
+      corriente_total: data['total_corriente'] || data['total_corriente'] || null,
+      
       // Almacenar todos los campos originales en metadata para referencia
       metadata: {
         ...data,
