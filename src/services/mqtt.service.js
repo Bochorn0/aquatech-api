@@ -425,13 +425,13 @@ class MQTTService {
       // Mapear campos del nuevo formato a estructura estándar
       const mappedData = this.mapTiwaterDataToStandard(data);
       
-      // Buscar el punto de venta por código_tienda
+      // Buscar el punto de venta por código_tienda (solo para referencia, no es crítico)
       let puntoVenta = null;
       if (codigo_tienda) {
         puntoVenta = await PuntoVenta.findOne({ codigo_tienda: codigo_tienda.toUpperCase() });
         
         if (!puntoVenta) {
-          console.warn(`[MQTT] ⚠️  Punto de venta no encontrado para codigo_tienda: ${codigo_tienda}`);
+          console.log(`[MQTT] ℹ️  Punto de venta no encontrado en MongoDB para codigo_tienda: ${codigo_tienda} (se creará automáticamente en PostgreSQL)`);
         }
       }
       

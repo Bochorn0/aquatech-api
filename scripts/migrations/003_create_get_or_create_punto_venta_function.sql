@@ -2,7 +2,11 @@
 -- This function allows atomic get-or-create operations for puntoVenta
 -- Usage: psql -U TIWater_user -d TIWater_timeseries -f scripts/migrations/003_create_get_or_create_punto_venta_function.sql
 
+-- Drop function if exists to avoid errors
+DROP FUNCTION IF EXISTS get_or_create_punto_venta(VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, DECIMAL, DECIMAL, TEXT, VARCHAR, JSONB);
+
 -- Create function to get or create puntoVenta
+-- Note: PostgreSQL converts unquoted identifiers to lowercase, so clientId becomes clientid
 CREATE OR REPLACE FUNCTION get_or_create_punto_venta(
     p_code VARCHAR(100),
     p_codigo_tienda VARCHAR(100),
@@ -21,15 +25,15 @@ RETURNS TABLE (
     name VARCHAR(255),
     code VARCHAR(100),
     codigo_tienda VARCHAR(100),
-    createdAt TIMESTAMPTZ,
-    updatedAt TIMESTAMPTZ,
+    createdat TIMESTAMPTZ,
+    updatedat TIMESTAMPTZ,
     owner VARCHAR(255),
-    clientId VARCHAR(255),
+    clientid VARCHAR(255),
     status VARCHAR(50),
     lat DECIMAL(10, 8),
     long DECIMAL(11, 8),
     address TEXT,
-    contactId VARCHAR(255),
+    contactid VARCHAR(255),
     meta JSONB
 ) AS $$
 DECLARE
@@ -41,8 +45,8 @@ BEGIN
     
     -- Try to find existing record
     SELECT * INTO v_result
-    FROM puntoventa
-    WHERE code = v_code OR codigo_tienda = v_code
+    FROM puntoventa p
+    WHERE p.code = v_code OR p.codigo_tienda = v_code
     LIMIT 1;
     
     -- If found, return it
@@ -66,9 +70,10 @@ BEGIN
     END IF;
     
     -- If not found, create new record
+    -- Note: Use lowercase column names as PostgreSQL stores unquoted identifiers in lowercase
     INSERT INTO puntoventa (
-        name, code, codigo_tienda, owner, clientId, status,
-        lat, long, address, contactId, meta
+        name, code, codigo_tienda, owner, clientid, status,
+        lat, long, address, contactid, meta
     ) VALUES (
         p_name,
         v_code,

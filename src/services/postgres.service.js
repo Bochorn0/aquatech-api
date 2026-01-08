@@ -25,10 +25,13 @@ class PostgresService {
       // Automatically create or get puntoVenta if codigo_tienda is provided
       if (codigoTienda) {
         try {
-          await PuntoVentaModel.getOrCreate({
+          // Generar nombre por defecto si no se proporciona
+          const defaultName = mqttData.punto_venta_name || context.punto_venta_name || `Punto de Venta ${codigoTienda}`;
+          
+          const puntoVenta = await PuntoVentaModel.getOrCreate({
             code: codigoTienda,
             codigo_tienda: codigoTienda,
-            name: mqttData.punto_venta_name || context.punto_venta_name || null,
+            name: defaultName,
             owner: context.owner_id || mqttData.owner_id || null,
             clientId: context.cliente_id || mqttData.cliente_id || null,
             status: 'active',
@@ -39,11 +42,17 @@ class PostgresService {
             meta: {
               source: 'MQTT',
               created_from: 'sensor_data',
-              gateway_ip: mqttData.gateway_ip || mqttData.ip || null
+              created_at: new Date().toISOString(),
+              gateway_ip: mqttData.gateway_ip || mqttData.ip || null,
+              auto_created: true
             }
           });
           
-          console.log(`[PostgresService] ✅ PuntoVenta ensured for codigo_tienda: ${codigoTienda}`);
+          if (puntoVenta) {
+            console.log(`[PostgresService] ✅ PuntoVenta ${puntoVenta.id ? 'creado' : 'encontrado'} para codigo_tienda: ${codigoTienda} (ID: ${puntoVenta.id})`);
+          } else {
+            console.log(`[PostgresService] ✅ PuntoVenta procesado para codigo_tienda: ${codigoTienda}`);
+          }
         } catch (error) {
           // Log error but don't fail sensor data save
           console.error(`[PostgresService] ⚠️  Error ensuring puntoVenta for ${codigoTienda}:`, error.message);
@@ -124,10 +133,13 @@ class PostgresService {
       // Automatically create or get puntoVenta if codigo_tienda is provided
       if (codigoTienda) {
         try {
-          await PuntoVentaModel.getOrCreate({
+          // Generar nombre por defecto si no se proporciona
+          const defaultName = mqttData.punto_venta_name || context.punto_venta_name || `Punto de Venta ${codigoTienda}`;
+          
+          const puntoVenta = await PuntoVentaModel.getOrCreate({
             code: codigoTienda,
             codigo_tienda: codigoTienda,
-            name: mqttData.punto_venta_name || context.punto_venta_name || null,
+            name: defaultName,
             owner: context.owner_id || mqttData.owner_id || null,
             clientId: context.cliente_id || mqttData.cliente_id || null,
             status: 'active',
@@ -138,11 +150,17 @@ class PostgresService {
             meta: {
               source: 'MQTT',
               created_from: 'sensor_data',
-              gateway_ip: mqttData.gateway_ip || mqttData.ip || null
+              created_at: new Date().toISOString(),
+              gateway_ip: mqttData.gateway_ip || mqttData.ip || null,
+              auto_created: true
             }
           });
           
-          console.log(`[PostgresService] ✅ PuntoVenta ensured for codigo_tienda: ${codigoTienda}`);
+          if (puntoVenta) {
+            console.log(`[PostgresService] ✅ PuntoVenta ${puntoVenta.id ? 'creado' : 'encontrado'} para codigo_tienda: ${codigoTienda} (ID: ${puntoVenta.id})`);
+          } else {
+            console.log(`[PostgresService] ✅ PuntoVenta procesado para codigo_tienda: ${codigoTienda}`);
+          }
         } catch (error) {
           // Log error but don't fail sensor data save
           console.error(`[PostgresService] ⚠️  Error ensuring puntoVenta for ${codigoTienda}:`, error.message);
