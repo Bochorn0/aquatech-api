@@ -444,6 +444,13 @@ class MQTTService {
         // Sensores mapeados
         ...mappedData,
         
+        // Mapear corrientes también con los nombres que espera postgres.service.js
+        ch1: mappedData.corriente_ch1,
+        ch2: mappedData.corriente_ch2,
+        ch3: mappedData.corriente_ch3,
+        ch4: mappedData.corriente_ch4,
+        total_corriente: mappedData.corriente_total,
+        
         // Metadatos
         source: 'tiwater',
         timestamp: new Date(),
@@ -452,6 +459,24 @@ class MQTTService {
           topic_format: 'tiwater'
         }
       };
+      
+      // Debug: Log de corrientes mapeadas
+      if (mappedData.corriente_ch1 || mappedData.corriente_ch2 || mappedData.corriente_ch3 || mappedData.corriente_ch4 || mappedData.corriente_total) {
+        console.log(`[MQTT] ⚡ Corrientes mapeadas para tiwater/${codigo_tienda}:`, {
+          ch1: mappedData.corriente_ch1,
+          ch2: mappedData.corriente_ch2,
+          ch3: mappedData.corriente_ch3,
+          ch4: mappedData.corriente_ch4,
+          total: mappedData.corriente_total
+        });
+        console.log(`[MQTT] ⚡ Corrientes en payload:`, {
+          ch1: sensorDataPayload.ch1,
+          ch2: sensorDataPayload.ch2,
+          ch3: sensorDataPayload.ch3,
+          ch4: sensorDataPayload.ch4,
+          total_corriente: sensorDataPayload.total_corriente
+        });
+      }
       
       // Guardar datos en MongoDB y PostgreSQL
       await this.saveSensorData(sensorDataPayload);

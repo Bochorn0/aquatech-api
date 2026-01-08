@@ -192,16 +192,20 @@ class PostgresService {
         { type: 'eficiencia', value: mqttData.eficiencia, name: 'Eficiencia' },
         { type: 'vida', value: mqttData.vida, name: 'Vida' },
         { type: 'water_level', value: mqttData.water_level, name: 'Nivel Agua' },
-        // Nuevos campos de corriente
-        { type: 'corriente_ch1', value: mqttData.ch1, name: 'Corriente Canal 1' },
-        { type: 'corriente_ch2', value: mqttData.ch2, name: 'Corriente Canal 2' },
-        { type: 'corriente_ch3', value: mqttData.ch3, name: 'Corriente Canal 3' },
-        { type: 'corriente_ch4', value: mqttData.ch4, name: 'Corriente Canal 4' },
-        { type: 'corriente_total', value: mqttData.total_corriente, name: 'Corriente Total' }
+        // Nuevos campos de corriente (verificar tanto ch1 como corriente_ch1)
+        { type: 'corriente_ch1', value: mqttData.ch1 || mqttData.corriente_ch1, name: 'Corriente Canal 1' },
+        { type: 'corriente_ch2', value: mqttData.ch2 || mqttData.corriente_ch2, name: 'Corriente Canal 2' },
+        { type: 'corriente_ch3', value: mqttData.ch3 || mqttData.corriente_ch3, name: 'Corriente Canal 3' },
+        { type: 'corriente_ch4', value: mqttData.ch4 || mqttData.corriente_ch4, name: 'Corriente Canal 4' },
+        { type: 'corriente_total', value: mqttData.total_corriente || mqttData.corriente_total, name: 'Corriente Total' }
       ];
 
       for (const mapping of sensorMappings) {
         if (mapping.value !== undefined && mapping.value !== null) {
+          // Debug: Log específico para corrientes
+          if (mapping.type.includes('corriente')) {
+            console.log(`[PostgresService] ⚡ Guardando corriente: type="${mapping.type}", name="${mapping.name}", value=${mapping.value}`);
+          }
           const sensorData = {
             name: mapping.name,
             type: mapping.type,
