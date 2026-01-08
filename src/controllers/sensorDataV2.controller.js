@@ -350,107 +350,204 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           let label = sensor.label || sensor.name;
           
           // Map sensor names to status codes (supporting both osmosis and tiwater formats)
-          switch (sensor.name) {
+          // Note: sensor.name is the label stored in DB (e.g., "Corriente Canal 1")
+          // sensor.type is the type code (e.g., "corriente_ch1")
+          const sensorName = sensor.name || sensor.type || '';
+          const sensorType = sensor.type || '';
+          
+          // Try to match by name (label) first, then by type
+          switch (sensorName) {
+            case 'Flujo Producción':
             case 'flujo_produccion':
               code = 'flowrate_speed_1';
               label = 'Flujo Producción';
               break;
+            case 'Flujo Rechazo':
             case 'flujo_rechazo':
               code = 'flowrate_speed_2';
               label = 'Flujo Rechazo';
               break;
+            case 'Flujo Recuperación':
             case 'flujo_recuperacion':
               code = 'flowrate_recuperacion';
               label = 'Flujo Recuperación';
               break;
+            case 'TDS':
             case 'tds':
               code = 'tds_out';
               label = 'TDS';
               break;
+            case 'Nivel Purificada':
             case 'electronivel_purificada':
               code = 'level_purificada';
               label = 'Nivel Purificada';
               break;
+            case 'Nivel Recuperada':
             case 'electronivel_recuperada':
               code = 'level_recuperada';
               label = 'Nivel Recuperada';
               break;
+            case 'Nivel Purificada (absoluto)':
             case 'nivel_purificada':
               code = 'nivel_purificada_absoluto';
               label = 'Nivel Purificada (absoluto)';
               break;
+            case 'Nivel Cruda':
             case 'nivel_cruda':
               code = 'nivel_cruda_absoluto';
               label = 'Nivel Cruda (absoluto)';
               break;
+            case 'Caudal Cruda':
             case 'caudal_cruda':
               code = 'caudal_cruda';
               label = 'Caudal Cruda';
               break;
+            case 'Caudal Cruda (L/min)':
             case 'caudal_cruda_lmin':
               code = 'caudal_cruda_lmin';
               label = 'Caudal Cruda (L/min)';
               break;
+            case 'Acumulado Cruda':
             case 'acumulado_cruda':
               code = 'acumulado_cruda';
               label = 'Acumulado Cruda';
               break;
+            case 'Presión Entrada':
             case 'presion_in':
             case 'pressure_in':
               code = 'pressure_in';
               label = 'Presión Entrada';
               break;
+            case 'Presión Salida':
             case 'presion_out':
             case 'pressure_out':
               code = 'pressure_out';
               label = 'Presión Salida';
               break;
+            case 'Presión CO2':
             case 'presion_co2':
               code = 'presion_co2';
               label = 'Presión CO2';
               break;
+            case 'Eficiencia':
             case 'eficiencia':
               code = 'eficiencia';
               label = 'Eficiencia';
               break;
+            case 'Vida':
+            case 'Vida del Sistema':
             case 'vida':
               code = 'vida';
               label = 'Vida del Sistema';
               break;
+            case 'Corriente Canal 1':
             case 'corriente_ch1':
               code = 'corriente_ch1';
               label = 'Corriente Canal 1';
               break;
+            case 'Corriente Canal 2':
             case 'corriente_ch2':
               code = 'corriente_ch2';
               label = 'Corriente Canal 2';
               break;
+            case 'Corriente Canal 3':
             case 'corriente_ch3':
               code = 'corriente_ch3';
               label = 'Corriente Canal 3';
               break;
+            case 'Corriente Canal 4':
             case 'corriente_ch4':
               code = 'corriente_ch4';
               label = 'Corriente Canal 4';
               break;
+            case 'Corriente Total':
             case 'corriente_total':
               code = 'corriente_total';
               label = 'Corriente Total';
               break;
             default:
-              code = sensor.name;
+              // Try to match by type if name didn't match
+              switch (sensorType) {
+                case 'flujo_produccion':
+                  code = 'flowrate_speed_1';
+                  label = 'Flujo Producción';
+                  break;
+                case 'flujo_rechazo':
+                  code = 'flowrate_speed_2';
+                  label = 'Flujo Rechazo';
+                  break;
+                case 'flujo_recuperacion':
+                  code = 'flowrate_recuperacion';
+                  label = 'Flujo Recuperación';
+                  break;
+                case 'corriente_ch1':
+                  code = 'corriente_ch1';
+                  label = 'Corriente Canal 1';
+                  break;
+                case 'corriente_ch2':
+                  code = 'corriente_ch2';
+                  label = 'Corriente Canal 2';
+                  break;
+                case 'corriente_ch3':
+                  code = 'corriente_ch3';
+                  label = 'Corriente Canal 3';
+                  break;
+                case 'corriente_ch4':
+                  code = 'corriente_ch4';
+                  label = 'Corriente Canal 4';
+                  break;
+                case 'corriente_total':
+                  code = 'corriente_total';
+                  label = 'Corriente Total';
+                  break;
+                default:
+                  code = sensorName || sensorType || 'unknown';
+              }
+          }
+
+          // Get unit based on the mapped code/name
+          const unit = sensor.meta?.unit || getUnitForSensor(code) || getUnitForSensor(sensorName) || getUnitForSensor(sensorType);
+          
+          // Fix timestamp if it's invalid (check for weird years)
+          let timestamp = sensor.timestamp;
+          let validTimestamp = true;
+          if (timestamp) {
+            try {
+              const date = new Date(timestamp);
+              // If year is way off (like 57992), use current time instead
+              if (isNaN(date.getTime()) || date.getFullYear() > 3000 || date.getFullYear() < 2000) {
+                console.warn(`[SensorDataV2] Invalid timestamp detected: ${timestamp}, using current time`);
+                timestamp = new Date().toISOString();
+                validTimestamp = false;
+              }
+            } catch (e) {
+              console.warn(`[SensorDataV2] Error parsing timestamp: ${timestamp}, using current time`);
+              timestamp = new Date().toISOString();
+              validTimestamp = false;
+            }
+          } else {
+            timestamp = new Date().toISOString();
+            validTimestamp = false;
           }
 
           osmosisData.status.push({
             code,
             value: parseFloat(sensor.value) || 0,
             label,
-            unit: sensor.meta?.unit || getUnitForSensor(sensor.name),
-            timestamp: sensor.timestamp
+            unit: unit,
+            timestamp: timestamp
           });
 
-          if (!osmosisData.lastUpdate || new Date(sensor.timestamp) > new Date(osmosisData.lastUpdate)) {
-            osmosisData.lastUpdate = sensor.timestamp;
+          // Update lastUpdate only if timestamp is valid
+          if (validTimestamp && timestamp) {
+            try {
+              const sensorDate = new Date(timestamp);
+              if (!osmosisData.lastUpdate || sensorDate > new Date(osmosisData.lastUpdate)) {
+                osmosisData.lastUpdate = timestamp;
+              }
+            } catch (e) {
+              // Ignore timestamp comparison errors
+            }
           }
         });
 
@@ -922,29 +1019,78 @@ export const getTiwaterSensorData = async (req, res) => {
  * Helper function to get unit for sensor
  */
 function getUnitForSensor(sensorName) {
+  if (!sensorName) return '';
+  
   const units = {
+    // Flujos
     'flujo_produccion': 'L/min',
+    'flowrate_speed_1': 'L/min',
     'flujo_rechazo': 'L/min',
+    'flowrate_speed_2': 'L/min',
     'flujo_recuperacion': 'L/min',
+    'flowrate_recuperacion': 'L/min',
+    // TDS
     'tds': 'ppm',
+    'tds_out': 'ppm',
+    // Niveles (porcentajes)
     'electronivel_purificada': '%',
+    'level_purificada': '%',
     'electronivel_recuperada': '%',
+    'level_recuperada': '%',
+    // Niveles (absolutos)
     'nivel_purificada': 'mm',
+    'nivel_purificada_absoluto': 'mm',
     'nivel_cruda': 'mm',
+    'nivel_cruda_absoluto': 'mm',
+    // Caudales
     'caudal_cruda': 'L/min',
     'caudal_cruda_lmin': 'L/min',
+    'Caudal Cruda': 'L/min',
+    'Caudal Cruda (L/min)': 'L/min',
+    // Acumulados
     'acumulado_cruda': 'L',
+    'Acumulado Cruda': 'L',
+    // Presiones
     'presion_co2': 'PSI',
+    'Presión CO2': 'PSI',
     'presion_in': 'PSI',
+    'pressure_in': 'PSI',
+    'Presión Entrada': 'PSI',
     'presion_out': 'PSI',
+    'pressure_out': 'PSI',
+    'Presión Salida': 'PSI',
+    // Sistema
     'eficiencia': '%',
+    'Eficiencia': '%',
     'vida': 'días',
+    'Vida': 'días',
+    'Vida del Sistema': 'días',
+    // Corrientes
     'corriente_ch1': 'A',
+    'Corriente Canal 1': 'A',
     'corriente_ch2': 'A',
+    'Corriente Canal 2': 'A',
     'corriente_ch3': 'A',
+    'Corriente Canal 3': 'A',
     'corriente_ch4': 'A',
-    'corriente_total': 'A'
+    'Corriente Canal 4': 'A',
+    'corriente_total': 'A',
+    'Corriente Total': 'A'
   };
-  return units[sensorName] || '';
+  
+  // Try exact match first
+  if (units[sensorName]) {
+    return units[sensorName];
+  }
+  
+  // Try case-insensitive match
+  const lowerName = sensorName.toLowerCase();
+  for (const [key, value] of Object.entries(units)) {
+    if (key.toLowerCase() === lowerName) {
+      return value;
+    }
+  }
+  
+  return '';
 }
 
