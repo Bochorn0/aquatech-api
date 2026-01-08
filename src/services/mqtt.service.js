@@ -5,6 +5,7 @@ import mqtt from 'mqtt';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import tls from 'tls';
 import SensorData from '../models/sensorData.model.js';
 import Controller from '../models/controller.model.js';
 import PuntoVenta from '../models/puntoVenta.model.js';
@@ -162,8 +163,24 @@ class MQTTService {
       // Opciones adicionales de TLS
       connectOptions.rejectUnauthorized = process.env.MQTT_REJECT_UNAUTHORIZED !== 'false'; // Por defecto true (verificar certificado)
       
+      // Personalizar verificación del hostname para aceptar IP en CN
+      // Esto es necesario cuando el certificado tiene el IP en CN pero no en altnames
+      // El certificado tiene CN='146.190.143.141' pero Node.js requiere que esté en altnames
+      // Solución: Si el CN del certificado coincide con el IP al que nos conectamos, aceptarlo
+      connectOptions.checkServerIdentity = (servername, cert) => {
+        // Si nos conectamos por IP y el certificado tiene ese IP en CN, aceptarlo
+        if (servername === MQTT_BROKER && cert.subject && cert.subject.CN === MQTT_BROKER) {
+          return undefined; // Aceptar la conexión (undefined = sin error)
+        }
+        
+        // Para otros casos, usar la verificación estándar de Node.js
+        return tls.checkServerIdentity(servername, cert);
+      };
+      
       if (process.env.MQTT_REJECT_UNAUTHORIZED === 'false') {
         console.warn(`[MQTT] ⚠️  ADVERTENCIA: Verificación de certificado deshabilitada (rejectUnauthorized=false)`);
+      } else {
+        console.log(`[MQTT] Verificación de hostname personalizada: acepta IP en CN del certificado`);
       }
     }
 
