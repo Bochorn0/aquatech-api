@@ -1113,14 +1113,14 @@ async function handleOsmosisProduct(product, data) {
     
     const existingStatus = product.status.find(st => st.code === code);
     const currentValue = existingStatus ? Number(existingStatus.value) || defaultValue : defaultValue;
-    const newValue = currentValue + Number(valueToAdd);
+    const newValue = Math.round((currentValue + Number(valueToAdd)) * 100) / 100; // Redondear a 2 decimales
     
     if (existingStatus) {
       existingStatus.value = newValue;
-      console.log(`➕ [Osmosis] ${code} incrementado: ${currentValue.toFixed(4)} + ${valueToAdd.toFixed(4)} = ${newValue.toFixed(4)}`);
+      console.log(`➕ [Osmosis] ${code} incrementado: ${currentValue.toFixed(2)} + ${Number(valueToAdd).toFixed(4)} = ${newValue.toFixed(2)}`);
     } else {
       product.status.push({ code, value: newValue });
-      console.log(`➕ [Osmosis] ${code} creado con valor: ${newValue.toFixed(4)}`);
+      console.log(`➕ [Osmosis] ${code} creado con valor: ${newValue.toFixed(2)}`);
     }
   };
 
