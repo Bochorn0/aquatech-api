@@ -1093,40 +1093,45 @@ async function handleOsmosisProduct(product, data) {
     tds
   } = data;
 
-  // Asegurar existencia de status necesarios
-  const ensureStatus = (code, defaultValue = 0) => {
-    let s = product.status.find(st => st.code === code);
-    if (!s) {
-      s = { code, value: defaultValue };
-      product.status.push(s);
-      console.log(`➕ [Osmosis] Se agregó status faltante: ${code}`);
+  // Función helper para actualizar o crear status
+  const updateStatus = (code, value) => {
+    if (value == null) return; // No actualizar si el valor es null o undefined
+    
+    const existingStatus = product.status.find(st => st.code === code);
+    if (existingStatus) {
+      existingStatus.value = Number(value);
+      console.log(`🔄 [Osmosis] ${code} actualizado: ${value}`);
+    } else {
+      product.status.push({ code, value: Number(value) });
+      console.log(`➕ [Osmosis] ${code} agregado: ${value}`);
     }
-    return s;
   };
 
-  const flujoProd = ensureStatus('flujo_produccion', 0);
-  const flujoRech = ensureStatus('flujo_rechazo', 0);
-  const presionDif = ensureStatus('pressure_difference', 0);
-  const relayState = ensureStatus('relay_state', false);
-  const tempStatus = ensureStatus('temperature', 0);
-
   // Actualizar valores directamente (reemplazar, no sumar)
+  // Usar los códigos correctos que existen en el producto
   if (flujo_prod != null) {
-    flujoProd.value = Number(flujo_prod);
-    console.log(`🔄 [Osmosis] flujo_produccion actualizado: ${flujo_prod}`);
+    updateStatus('flowrate_speed_1', flujo_prod);
   }
   
   if (flujo_rech != null) {
-    flujoRech.value = Number(flujo_rech);
-    console.log(`🔄 [Osmosis] flujo_rechazo actualizado: ${flujo_rech}`);
+    updateStatus('flowrate_speed_2', flujo_rech);
   }
 
-  presionDif.value = pressure_difference_psi ?? 0;
-  relayState.value = relay_state ?? false;
-  
+  if (tds != null) {
+    updateStatus('tds_out', tds);
+  }
+
   if (temperature != null) {
-    tempStatus.value = Number(temperature);
-    console.log(`🔄 [Osmosis] temperature actualizado: ${temperature}`);
+    updateStatus('temperature', temperature);
+  }
+
+  // Actualizar otros status si existen
+  if (pressure_difference_psi != null) {
+    updateStatus('pressure_difference', pressure_difference_psi);
+  }
+
+  if (relay_state != null) {
+    updateStatus('relay_state', relay_state);
   }
 
   const currentRelay = relay_state;
@@ -1151,6 +1156,9 @@ async function handleOsmosisProduct(product, data) {
     // Eliminar start_time tras finalizar ciclo
     product.status = product.status.filter(s => s.code !== 'start_time');
   }
+
+  // Marcar el campo status como modificado para asegurar que se guarde
+  product.markModified('status');
 
   await product.save();
   console.log('💾 [Osmosis] Datos de osmosis actualizados correctamente');
