@@ -1110,9 +1110,24 @@ async function handleOsmosisProduct(product, data) {
   const relayState = ensureStatus('relay_state', false);
   const tempStatus = ensureStatus('temperature', 0);
 
+  // Actualizar valores directamente (reemplazar, no sumar)
+  if (flujo_prod != null) {
+    flujoProd.value = Number(flujo_prod);
+    console.log(`🔄 [Osmosis] flujo_produccion actualizado: ${flujo_prod}`);
+  }
+  
+  if (flujo_rech != null) {
+    flujoRech.value = Number(flujo_rech);
+    console.log(`🔄 [Osmosis] flujo_rechazo actualizado: ${flujo_rech}`);
+  }
+
   presionDif.value = pressure_difference_psi ?? 0;
   relayState.value = relay_state ?? false;
-  tempStatus.value = temperature ?? 0;
+  
+  if (temperature != null) {
+    tempStatus.value = Number(temperature);
+    console.log(`🔄 [Osmosis] temperature actualizado: ${temperature}`);
+  }
 
   const currentRelay = relay_state;
   const startTime = product.status.find(s => s.code === 'start_time');
@@ -1127,11 +1142,10 @@ async function handleOsmosisProduct(product, data) {
     const litrosProd = (pressure_valve1_psi / 100) * (elapsed / 1000);
     const litrosRech = (pressure_valve2_psi / 100) * (elapsed / 1000);
 
-    flujoProd.value += litrosProd;
-    flujoRech.value += litrosRech;
-
+    // Nota: Los flujos ahora se actualizan directamente arriba, pero mantenemos esta lógica
+    // por si acaso se necesita más adelante para acumulación de volúmenes
     console.log(
-      `💧 [Osmosis] Flujo producción +${litrosProd.toFixed(2)} L | Flujo rechazo +${litrosRech.toFixed(2)} L`
+      `💧 [Osmosis] Volumen producción: ${litrosProd.toFixed(2)} L | Volumen rechazo: ${litrosRech.toFixed(2)} L`
     );
 
     // Eliminar start_time tras finalizar ciclo
