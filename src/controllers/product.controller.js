@@ -1087,7 +1087,10 @@ async function handleOsmosisProduct(product, data) {
     pressure_difference_psi,
     relay_state,
     temperature,
-    timestamp
+    timestamp,
+    flujo_prod,
+    flujo_rech,
+    tds
   } = data;
 
   // Asegurar existencia de status necesarios
@@ -1137,6 +1140,58 @@ async function handleOsmosisProduct(product, data) {
 
   await product.save();
   console.log('💾 [Osmosis] Datos de osmosis actualizados correctamente');
+
+  // Guardar log en ProductLog si hay datos relevantes
+  if (flujo_prod != null || flujo_rech != null || tds != null || temperature != null) {
+    try {
+      // Convertir timestamp a Date
+      let logDate = new Date();
+      if (timestamp) {
+        const timestampNum = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
+        // Si el timestamp parece ser en milisegundos (más de 13 dígitos) o si es muy grande, usarlo directamente
+        // Si es pequeño, podría ser relativo, usar Date.now()
+        if (!isNaN(timestampNum) && timestampNum > 1000000000000) {
+          logDate = new Date(timestampNum);
+        } else if (!isNaN(timestampNum) && timestampNum > 0) {
+          // Asumir que es un timestamp relativo en milisegundos desde algún inicio
+          // Por ahora usar Date.now() para logs en tiempo real
+          logDate = new Date();
+        }
+      }
+
+      const logData = {
+        producto: product._id,
+        product_id: product.id || product._id.toString(),
+        flujo_produccion: flujo_prod != null ? Number(flujo_prod) : null,
+        flujo_rechazo: flujo_rech != null ? Number(flujo_rech) : null,
+        tds: tds != null ? Number(tds) : null,
+        temperature: temperature != null ? Number(temperature) : null,
+        date: logDate,
+        source: 'esp32',
+      };
+
+      // Verificar si ya existe un log similar (evitar duplicados basado en fecha y product_id)
+      const existingLog = await ProductLog.findOne({
+        product_id: logData.product_id,
+        date: {
+          $gte: new Date(logDate.getTime() - 1000), // 1 segundo antes
+          $lte: new Date(logDate.getTime() + 1000), // 1 segundo después
+        },
+      });
+
+      if (!existingLog) {
+        const newLog = new ProductLog(logData);
+        await newLog.save();
+        console.log(`📝 [Osmosis] Log guardado en ProductLog - TDS: ${tds}, Flujo Prod: ${flujo_prod}, Flujo Rech: ${flujo_rech}`);
+      } else {
+        console.log(`⏭️ [Osmosis] Log duplicado omitido para fecha ${logDate.toISOString()}`);
+      }
+    } catch (logError) {
+      console.error('❌ [Osmosis] Error guardando log en ProductLog:', logError.message);
+      // No lanzar el error para no interrumpir el flujo principal
+    }
+  }
+
   return { success: true, message: 'Datos de osmosis actualizados', product };
 }
 
@@ -1317,6 +1372,10 @@ export const componentInput = async (req, res) => {
       timestamp,
       voltage_in,
       voltage_out,
+      // Para Osmosis: flujos y TDS
+      flujo_prod,
+      flujo_rech,
+      tds,
     };
 
     let result;
