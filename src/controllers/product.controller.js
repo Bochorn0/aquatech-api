@@ -1107,14 +1107,39 @@ async function handleOsmosisProduct(product, data) {
     }
   };
 
+  // Función helper para sumar a un status existente
+  const addToStatus = (code, valueToAdd, defaultValue = 0) => {
+    if (valueToAdd == null || valueToAdd === 0) return; // No sumar si el valor es null, undefined o 0
+    
+    const existingStatus = product.status.find(st => st.code === code);
+    const currentValue = existingStatus ? Number(existingStatus.value) || defaultValue : defaultValue;
+    const newValue = currentValue + Number(valueToAdd);
+    
+    if (existingStatus) {
+      existingStatus.value = newValue;
+      console.log(`➕ [Osmosis] ${code} incrementado: ${currentValue.toFixed(4)} + ${valueToAdd.toFixed(4)} = ${newValue.toFixed(4)}`);
+    } else {
+      product.status.push({ code, value: newValue });
+      console.log(`➕ [Osmosis] ${code} creado con valor: ${newValue.toFixed(4)}`);
+    }
+  };
+
   // Actualizar valores directamente (reemplazar, no sumar)
   // Usar los códigos correctos que existen en el producto
   if (flujo_prod != null) {
     updateStatus('flowrate_speed_1', flujo_prod);
+    
+    // Acumular en flowrate_total_1: dividir flujo_prod/60 (L/min a L por segundo/intervalo)
+    const litrosPorIntervalo = Number(flujo_prod) / 60;
+    addToStatus('flowrate_total_1', litrosPorIntervalo, 0);
   }
   
   if (flujo_rech != null) {
     updateStatus('flowrate_speed_2', flujo_rech);
+    
+    // Acumular en flowrate_total_2: dividir flujo_rech/60 (L/min a L por segundo/intervalo)
+    const litrosPorIntervalo = Number(flujo_rech) / 60;
+    addToStatus('flowrate_total_2', litrosPorIntervalo, 0);
   }
 
   if (tds != null) {
