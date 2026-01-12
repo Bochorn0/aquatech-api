@@ -1265,7 +1265,7 @@ async function handleLevelProduct(product, data) {
 
 export const componentInput = async (req, res) => {
   try {
-    // console.log('📥 [componentInput] Body recibido:', req.body);
+     console.log('📥 [componentInput] Body recibido:', req.body);
 
     const {
       productId = '',
