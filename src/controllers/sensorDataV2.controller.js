@@ -17,12 +17,44 @@ import { query } from '../config/postgres.config.js';
  */
 export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', daysBack = 30, resourceType = 'nivel') {
   try {
+    // Determinar el tipo de recurso primero
+    const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
+    
     // Calcular fecha de inicio (días hacia atrás desde hoy)
+    // Usar el último registro disponible como referencia si no hay datos del día actual
     const endDate = new Date();
     endDate.setHours(23, 59, 59, 999);
     const startDate = new Date(endDate);
     startDate.setDate(startDate.getDate() - daysBack);
     startDate.setHours(0, 0, 0, 0);
+    
+    // Primero verificar si hay datos disponibles
+    const checkQuery = isTiwater 
+      ? `SELECT COUNT(*) as count, MIN(timestamp) as min_ts, MAX(timestamp) as max_ts FROM sensores WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = 'tiwater-system') AND name = $2`
+      : `SELECT COUNT(*) as count, MIN(timestamp) as min_ts, MAX(timestamp) as max_ts FROM sensores WHERE codigotienda = $1 AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
+    
+    const checkParams = isTiwater ? [codigoTienda, sensorName] : [codigoTienda, resourceId, sensorName];
+    const checkResult = await query(checkQuery, checkParams);
+    
+    if (checkResult.rows.length === 0 || parseInt(checkResult.rows[0].count) === 0) {
+      console.log(`[generateNivelHistoricoDiarioV2] No hay registros disponibles para ${codigoTienda}/${resourceId}/${sensorName}`);
+      return null;
+    }
+    
+    const minTimestamp = checkResult.rows[0].min_ts ? new Date(checkResult.rows[0].min_ts) : null;
+    const maxTimestamp = checkResult.rows[0].max_ts ? new Date(checkResult.rows[0].max_ts) : null;
+    
+    console.log(`[generateNivelHistoricoDiarioV2] Datos disponibles: ${checkResult.rows[0].count} registros desde ${minTimestamp?.toISOString()} hasta ${maxTimestamp?.toISOString()}`);
+    
+    // Ajustar fechas si el último registro es más antiguo que el rango solicitado
+    if (maxTimestamp && maxTimestamp < endDate) {
+      endDate.setTime(maxTimestamp.getTime());
+      endDate.setHours(23, 59, 59, 999);
+      startDate.setTime(endDate.getTime());
+      startDate.setDate(startDate.getDate() - daysBack);
+      startDate.setHours(0, 0, 0, 0);
+      console.log(`[generateNivelHistoricoDiarioV2] Ajustando rango de fechas basado en último registro disponible`);
+    }
 
     // Determinar el tipo de recurso y condiciones de búsqueda
     const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
@@ -113,7 +145,16 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
       queryParams = [codigoTienda, resourceId, sensorName, startDate, endDate];
     }
 
+    console.log(`[generateNivelHistoricoDiarioV2] Ejecutando consulta para ${codigoTienda}/${resourceId}/${sensorName}:`, {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      resourceType: isTiwater ? 'tiwater' : 'nivel',
+      queryParams
+    });
+
     const historicoResult = await query(historicoQuery, queryParams);
+    
+    console.log(`[generateNivelHistoricoDiarioV2] Resultado de consulta: ${historicoResult.rows.length} filas encontradas`);
     
     const daysWithData = historicoResult.rows.map(row => ({
       fecha: new Date(row.dia).toISOString().split('T')[0], // Formato YYYY-MM-DD
@@ -124,6 +165,8 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
     }));
 
     const totalLogs = daysWithData.reduce((sum, d) => sum + d.total_logs, 0);
+
+    console.log(`[generateNivelHistoricoDiarioV2] Histórico diario generado: ${daysWithData.length} días, ${totalLogs} registros totales`);
 
     return {
       product: `Nivel ${resourceId}`,
@@ -152,15 +195,38 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
  */
 export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', date = null, resourceType = 'nivel') {
   try {
-    // Usar fecha proporcionada o día actual
-    const targetDate = date || new Date();
+    // Determinar el tipo de recurso y condiciones de búsqueda primero
+    const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
+    
+    // Primero verificar si hay datos disponibles y obtener el último registro
+    const checkQuery = isTiwater 
+      ? `SELECT COUNT(*) as count, MAX(timestamp) as max_ts FROM sensores WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = 'tiwater-system') AND name = $2`
+      : `SELECT COUNT(*) as count, MAX(timestamp) as max_ts FROM sensores WHERE codigotienda = $1 AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
+    
+    const checkParams = isTiwater ? [codigoTienda, sensorName] : [codigoTienda, resourceId, sensorName];
+    const checkResult = await query(checkQuery, checkParams);
+    
+    if (checkResult.rows.length === 0 || parseInt(checkResult.rows[0].count) === 0) {
+      console.log(`[generateNivelHistoricoV2] No hay registros disponibles para ${codigoTienda}/${resourceId}/${sensorName}`);
+      return null;
+    }
+    
+    const maxTimestamp = checkResult.rows[0].max_ts ? new Date(checkResult.rows[0].max_ts) : null;
+    
+    // Usar fecha proporcionada, día actual, o el día del último registro disponible
+    let targetDate = date || new Date();
+    if (maxTimestamp && !date) {
+      // Si no se proporciona fecha, usar el día del último registro disponible
+      targetDate = new Date(maxTimestamp);
+    }
+    
     const today = new Date(targetDate);
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-
-    // Determinar el tipo de recurso y condiciones de búsqueda
-    const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
+    
+    console.log(`[generateNivelHistoricoV2] Usando rango de fechas: ${today.toISOString()} a ${tomorrow.toISOString()} (último registro: ${maxTimestamp?.toISOString()})`);
+    
     let historicoQuery;
     let queryParams;
     
@@ -248,7 +314,16 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
       queryParams = [codigoTienda, resourceId, sensorName, today, tomorrow];
     }
 
+    console.log(`[generateNivelHistoricoV2] Ejecutando consulta para ${codigoTienda}/${resourceId}/${sensorName}:`, {
+      today: today.toISOString(),
+      tomorrow: tomorrow.toISOString(),
+      resourceType: isTiwater ? 'tiwater' : 'nivel',
+      queryParams
+    });
+
     const historicoResult = await query(historicoQuery, queryParams);
+    
+    console.log(`[generateNivelHistoricoV2] Resultado de consulta: ${historicoResult.rows.length} filas encontradas`);
     
     const hoursWithData = historicoResult.rows.map(row => ({
       hora: new Date(row.hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
@@ -259,6 +334,8 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     }));
 
     const totalLogs = hoursWithData.reduce((sum, h) => sum + h.total_logs, 0);
+
+    console.log(`[generateNivelHistoricoV2] Histórico por hora generado: ${hoursWithData.length} horas, ${totalLogs} registros totales`);
 
     return {
       product: `Nivel ${resourceId}`,
