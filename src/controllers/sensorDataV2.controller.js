@@ -12,9 +12,10 @@ import { query } from '../config/postgres.config.js';
  * @param {string} resourceId - ID del recurso (producto)
  * @param {string} sensorName - Nombre del sensor (default: 'liquid_level_percent')
  * @param {number} daysBack - Número de días hacia atrás desde hoy (default: 30)
+ * @param {string} resourceType - Tipo de recurso: 'nivel' o 'tiwater' (default: 'nivel')
  * @returns {Promise<Object|null>} Objeto con el histórico diario o null si hay error
  */
-export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', daysBack = 30) {
+export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', daysBack = 30, resourceType = 'nivel') {
   try {
     // Calcular fecha de inicio (días hacia atrás desde hoy)
     const endDate = new Date();
@@ -23,48 +24,96 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
     startDate.setDate(startDate.getDate() - daysBack);
     startDate.setHours(0, 0, 0, 0);
 
-    // Consulta SQL para obtener el último valor de cada día
-    // Se agrupan los registros acumulados por día y se toma el último valor registrado
-    const historicoQuery = `
-      WITH daily_data AS (
-        SELECT 
-          DATE_TRUNC('day', timestamp) AS dia,
-          value,
-          timestamp,
-          ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', timestamp) ORDER BY timestamp DESC) AS rn
-        FROM sensores
-        WHERE codigotienda = $1 
-          AND resourcetype = 'nivel'
-          AND resourceid = $2
-          AND name = $3
-          AND timestamp >= $4
-          AND timestamp <= $5
-      ),
-      daily_stats AS (
+    // Determinar el tipo de recurso y condiciones de búsqueda
+    const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
+    let historicoQuery;
+    let queryParams;
+    
+    if (isTiwater) {
+      // Para TIWater, buscar en resourcetype = 'tiwater' con resourceId NULL o 'tiwater-system'
+      historicoQuery = `
+        WITH daily_data AS (
+          SELECT 
+            DATE_TRUNC('day', timestamp) AS dia,
+            value,
+            timestamp,
+            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', timestamp) ORDER BY timestamp DESC) AS rn
+          FROM sensores
+          WHERE codigotienda = $1 
+            AND resourcetype = 'tiwater'
+            AND (resourceid IS NULL OR resourceid = 'tiwater-system')
+            AND name = $2
+            AND timestamp >= $3
+            AND timestamp <= $4
+        ),
+        daily_stats AS (
+          SELECT 
+            dia,
+            value AS liquid_level_percent_promedio,
+            (SELECT COUNT(*) 
+             FROM sensores 
+             WHERE codigotienda = $1 
+               AND resourcetype = 'tiwater'
+               AND (resourceid IS NULL OR resourceid = 'tiwater-system')
+               AND name = $2
+               AND DATE_TRUNC('day', timestamp) = daily_data.dia
+               AND timestamp >= $3
+               AND timestamp <= $4) AS total_logs
+          FROM daily_data
+          WHERE rn = 1
+        )
         SELECT 
           dia,
-          value AS liquid_level_percent_promedio,
-          (SELECT COUNT(*) 
-           FROM sensores 
-           WHERE codigotienda = $1 
-             AND resourcetype = 'nivel'
-             AND resourceid = $2
-             AND name = $3
-             AND DATE_TRUNC('day', timestamp) = daily_data.dia
-             AND timestamp >= $4
-             AND timestamp <= $5) AS total_logs
-        FROM daily_data
-        WHERE rn = 1
-      )
-      SELECT 
-        dia,
-        liquid_level_percent_promedio,
-        total_logs
-      FROM daily_stats
-      ORDER BY dia ASC
-    `;
+          liquid_level_percent_promedio,
+          total_logs
+        FROM daily_stats
+        ORDER BY dia ASC
+      `;
+      queryParams = [codigoTienda, sensorName, startDate, endDate];
+    } else {
+      // Para Nivel, buscar en resourcetype = 'nivel' con resourceId específico
+      historicoQuery = `
+        WITH daily_data AS (
+          SELECT 
+            DATE_TRUNC('day', timestamp) AS dia,
+            value,
+            timestamp,
+            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', timestamp) ORDER BY timestamp DESC) AS rn
+          FROM sensores
+          WHERE codigotienda = $1 
+            AND resourcetype = 'nivel'
+            AND resourceid = $2
+            AND name = $3
+            AND timestamp >= $4
+            AND timestamp <= $5
+        ),
+        daily_stats AS (
+          SELECT 
+            dia,
+            value AS liquid_level_percent_promedio,
+            (SELECT COUNT(*) 
+             FROM sensores 
+             WHERE codigotienda = $1 
+               AND resourcetype = 'nivel'
+               AND resourceid = $2
+               AND name = $3
+               AND DATE_TRUNC('day', timestamp) = daily_data.dia
+               AND timestamp >= $4
+               AND timestamp <= $5) AS total_logs
+          FROM daily_data
+          WHERE rn = 1
+        )
+        SELECT 
+          dia,
+          liquid_level_percent_promedio,
+          total_logs
+        FROM daily_stats
+        ORDER BY dia ASC
+      `;
+      queryParams = [codigoTienda, resourceId, sensorName, startDate, endDate];
+    }
 
-    const historicoResult = await query(historicoQuery, [codigoTienda, resourceId, sensorName, startDate, endDate]);
+    const historicoResult = await query(historicoQuery, queryParams);
     
     const daysWithData = historicoResult.rows.map(row => ({
       fecha: new Date(row.dia).toISOString().split('T')[0], // Formato YYYY-MM-DD
@@ -98,9 +147,10 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
  * @param {string} resourceId - ID del recurso (producto)
  * @param {string} sensorName - Nombre del sensor (default: 'liquid_level_percent')
  * @param {Date} date - Fecha para generar el histórico (default: hoy)
+ * @param {string} resourceType - Tipo de recurso: 'nivel' o 'tiwater' (default: 'nivel')
  * @returns {Promise<Object|null>} Objeto con el histórico o null si hay error
  */
-export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', date = null) {
+export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', date = null, resourceType = 'nivel') {
   try {
     // Usar fecha proporcionada o día actual
     const targetDate = date || new Date();
@@ -109,48 +159,96 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Consulta SQL para obtener el último valor de cada hora del día
-    // Se agrupan los registros acumulados por hora y se toma el último valor registrado
-    const historicoQuery = `
-      WITH hourly_data AS (
-        SELECT 
-          DATE_TRUNC('hour', timestamp) AS hora,
-          value,
-          timestamp,
-          ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', timestamp) ORDER BY timestamp DESC) AS rn
-        FROM sensores
-        WHERE codigotienda = $1 
-          AND resourcetype = 'nivel'
-          AND resourceid = $2
-          AND name = $3
-          AND timestamp >= $4
-          AND timestamp < $5
-      ),
-      hourly_stats AS (
+    // Determinar el tipo de recurso y condiciones de búsqueda
+    const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
+    let historicoQuery;
+    let queryParams;
+    
+    if (isTiwater) {
+      // Para TIWater, buscar en resourcetype = 'tiwater' con resourceId NULL o 'tiwater-system'
+      historicoQuery = `
+        WITH hourly_data AS (
+          SELECT 
+            DATE_TRUNC('hour', timestamp) AS hora,
+            value,
+            timestamp,
+            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', timestamp) ORDER BY timestamp DESC) AS rn
+          FROM sensores
+          WHERE codigotienda = $1 
+            AND resourcetype = 'tiwater'
+            AND (resourceid IS NULL OR resourceid = 'tiwater-system')
+            AND name = $2
+            AND timestamp >= $3
+            AND timestamp < $4
+        ),
+        hourly_stats AS (
+          SELECT 
+            hora,
+            value AS liquid_level_percent_promedio,
+            (SELECT COUNT(*) 
+             FROM sensores 
+             WHERE codigotienda = $1 
+               AND resourcetype = 'tiwater'
+               AND (resourceid IS NULL OR resourceid = 'tiwater-system')
+               AND name = $2
+               AND DATE_TRUNC('hour', timestamp) = hourly_data.hora
+               AND timestamp >= $3
+               AND timestamp < $4) AS total_logs
+          FROM hourly_data
+          WHERE rn = 1
+        )
         SELECT 
           hora,
-          value AS liquid_level_percent_promedio,
-          (SELECT COUNT(*) 
-           FROM sensores 
-           WHERE codigotienda = $1 
-             AND resourcetype = 'nivel'
-             AND resourceid = $2
-             AND name = $3
-             AND DATE_TRUNC('hour', timestamp) = hourly_data.hora
-             AND timestamp >= $4
-             AND timestamp < $5) AS total_logs
-        FROM hourly_data
-        WHERE rn = 1
-      )
-      SELECT 
-        hora,
-        liquid_level_percent_promedio,
-        total_logs
-      FROM hourly_stats
-      ORDER BY hora ASC
-    `;
+          liquid_level_percent_promedio,
+          total_logs
+        FROM hourly_stats
+        ORDER BY hora ASC
+      `;
+      queryParams = [codigoTienda, sensorName, today, tomorrow];
+    } else {
+      // Para Nivel, buscar en resourcetype = 'nivel' con resourceId específico
+      historicoQuery = `
+        WITH hourly_data AS (
+          SELECT 
+            DATE_TRUNC('hour', timestamp) AS hora,
+            value,
+            timestamp,
+            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', timestamp) ORDER BY timestamp DESC) AS rn
+          FROM sensores
+          WHERE codigotienda = $1 
+            AND resourcetype = 'nivel'
+            AND resourceid = $2
+            AND name = $3
+            AND timestamp >= $4
+            AND timestamp < $5
+        ),
+        hourly_stats AS (
+          SELECT 
+            hora,
+            value AS liquid_level_percent_promedio,
+            (SELECT COUNT(*) 
+             FROM sensores 
+             WHERE codigotienda = $1 
+               AND resourcetype = 'nivel'
+               AND resourceid = $2
+               AND name = $3
+               AND DATE_TRUNC('hour', timestamp) = hourly_data.hora
+               AND timestamp >= $4
+               AND timestamp < $5) AS total_logs
+          FROM hourly_data
+          WHERE rn = 1
+        )
+        SELECT 
+          hora,
+          liquid_level_percent_promedio,
+          total_logs
+        FROM hourly_stats
+        ORDER BY hora ASC
+      `;
+      queryParams = [codigoTienda, resourceId, sensorName, today, tomorrow];
+    }
 
-    const historicoResult = await query(historicoQuery, [codigoTienda, resourceId, sensorName, today, tomorrow]);
+    const historicoResult = await query(historicoQuery, queryParams);
     
     const hoursWithData = historicoResult.rows.map(row => ({
       hora: new Date(row.hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
@@ -762,7 +860,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     // If no osmosis/tiwater systems found, still return punto data
     // Map osmosis/tiwater systems to products format
     const productos = punto.productos || [];
-    const osmosisProducts = osmosisSystems.map((osmosis, index) => {
+    const osmosisProducts = await Promise.all(osmosisSystems.map(async (osmosis, index) => {
       // Find matching product or create new structure
       const matchingProduct = productos.find((p) => p.product_type === 'Osmosis' || p.product_type === 'TIWater');
       
@@ -772,6 +870,48 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         ? `Sistema TIWater ${index + 1}` 
         : `Sistema Osmosis ${index + 1}`;
       
+      // Para productos TIWater, agregar histórico de niveles si tienen datos de nivel
+      let historicoHora = null;
+      let historicoDiario = null;
+      
+      if (productType === 'TIWater' && osmosis.resourceId) {
+        // Verificar si tiene datos de nivel (Nivel Purificada o Nivel Recuperada)
+        const nivelCodes = osmosis.status?.map(s => s.code) || [];
+        const hasNivelPurificada = osmosis.status?.some(s => s.code === 'level_purificada' || s.code === 'electronivel_purificada');
+        const hasNivelRecuperada = osmosis.status?.some(s => s.code === 'level_recuperada' || s.code === 'electronivel_recuperada');
+        
+        console.log(`[SensorDataV2] Verificando histórico para TIWater ${osmosis.resourceId}:`, {
+          hasNivelPurificada,
+          hasNivelRecuperada,
+          nivelCodes: nivelCodes.filter(c => c.includes('nivel') || c.includes('level')),
+          statusCount: osmosis.status?.length || 0
+        });
+        
+        if (hasNivelPurificada || hasNivelRecuperada) {
+          // Generar histórico para "Nivel Purificada" si existe, sino usar "Nivel Recuperada"
+          const sensorName = hasNivelPurificada ? 'Nivel Purificada' : 'Nivel Recuperada';
+          
+          console.log(`[SensorDataV2] Generando histórico para TIWater ${osmosis.resourceId} con sensor: ${sensorName}`);
+          
+          try {
+            [historicoHora, historicoDiario] = await Promise.all([
+              generateNivelHistoricoV2(codigoTienda, osmosis.resourceId, sensorName, null, 'tiwater'),
+              generateNivelHistoricoDiarioV2(codigoTienda, osmosis.resourceId, sensorName, 30, 'tiwater')
+            ]);
+            
+            if (historicoHora || historicoDiario) {
+              console.log(`📊 [SensorDataV2] Histórico agregado para producto TIWater ${osmosis.resourceId} (${sensorName}): ${historicoHora?.hours_with_data?.length || 0} horas, ${historicoDiario?.days_with_data?.length || 0} días`);
+            } else {
+              console.warn(`⚠️ [SensorDataV2] No se generó histórico para TIWater ${osmosis.resourceId} (${sensorName}) - ambos históricos son null`);
+            }
+          } catch (error) {
+            console.error(`[SensorDataV2] Error generando histórico para TIWater ${osmosis.resourceId}:`, error);
+          }
+        } else {
+          console.log(`[SensorDataV2] TIWater ${osmosis.resourceId} no tiene datos de nivel para generar histórico`);
+        }
+      }
+      
       return {
         _id: matchingProduct?._id || `${productType.toLowerCase()}-${index}`,
         id: osmosis.resourceId || `${productType.toLowerCase()}-${index}`,
@@ -779,9 +919,11 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         product_type: productType,
         status: osmosis.status || [],
         online: osmosis.online || false,
-        lastUpdate: osmosis.lastUpdate
+        lastUpdate: osmosis.lastUpdate,
+        historico: historicoHora || null,
+        historico_diario: historicoDiario || null
       };
-    });
+    }));
 
     // Get nivel products from PostgreSQL (resourceType = 'nivel')
     const nivelProducts = [];
