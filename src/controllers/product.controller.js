@@ -1129,17 +1129,61 @@ async function handleOsmosisProduct(product, data) {
   if (flujo_prod != null) {
     updateStatus('flowrate_speed_1', flujo_prod);
     
-    // Acumular en flowrate_total_1: dividir flujo_prod/60 (L/min a L por segundo/intervalo)
-    const litrosPorIntervalo = Number(flujo_prod) / 60;
-    addToStatus('flowrate_total_1', litrosPorIntervalo, 0);
+    // Acumular en flowrate_total_1 usando el timestamp para calcular el tiempo real transcurrido
+    if (timestamp != null) {
+      const timestampNum = typeof timestamp === 'string' ? parseInt(timestamp, 10) : Number(timestamp);
+      const lastTimestampStatus = product.status.find(s => s.code === 'last_flow_timestamp');
+      const lastTimestamp = lastTimestampStatus ? (typeof lastTimestampStatus.value === 'string' ? parseInt(lastTimestampStatus.value, 10) : Number(lastTimestampStatus.value)) : null;
+      
+      if (lastTimestamp != null && !isNaN(lastTimestamp) && !isNaN(timestampNum) && timestampNum > lastTimestamp) {
+        // Calcular tiempo transcurrido en milisegundos
+        const deltaTimeMs = timestampNum - lastTimestamp;
+        // Calcular litros acumulados: flujo_prod (L/min) * tiempo (ms) / 60000 (ms por minuto)
+        const litrosPorIntervalo = (Number(flujo_prod) * deltaTimeMs) / 60000;
+        addToStatus('flowrate_total_1', litrosPorIntervalo, 0);
+        console.log(`⏱️ [Osmosis] Tiempo transcurrido: ${deltaTimeMs}ms, Litros acumulados: ${litrosPorIntervalo.toFixed(4)} L`);
+      } else if (lastTimestamp == null) {
+        // Primera vez, usar un valor conservador (asumir 1 segundo si no hay timestamp previo)
+        const litrosPorIntervalo = Number(flujo_prod) / 60;
+        addToStatus('flowrate_total_1', litrosPorIntervalo, 0);
+        console.log(`⏱️ [Osmosis] Primera llamada, usando 1 segundo por defecto`);
+      }
+      
+      // Actualizar el último timestamp
+      updateStatus('last_flow_timestamp', timestampNum);
+    } else {
+      // Si no hay timestamp, usar el método anterior (asumir 1 segundo)
+      const litrosPorIntervalo = Number(flujo_prod) / 60;
+      addToStatus('flowrate_total_1', litrosPorIntervalo, 0);
+    }
   }
   
   if (flujo_rech != null) {
     updateStatus('flowrate_speed_2', flujo_rech);
     
-    // Acumular en flowrate_total_2: dividir flujo_rech/60 (L/min a L por segundo/intervalo)
-    const litrosPorIntervalo = Number(flujo_rech) / 60;
-    addToStatus('flowrate_total_2', litrosPorIntervalo, 0);
+    // Acumular en flowrate_total_2 usando el timestamp para calcular el tiempo real transcurrido
+    if (timestamp != null) {
+      const timestampNum = typeof timestamp === 'string' ? parseInt(timestamp, 10) : Number(timestamp);
+      const lastTimestampStatus = product.status.find(s => s.code === 'last_flow_timestamp');
+      const lastTimestamp = lastTimestampStatus ? (typeof lastTimestampStatus.value === 'string' ? parseInt(lastTimestampStatus.value, 10) : Number(lastTimestampStatus.value)) : null;
+      
+      if (lastTimestamp != null && !isNaN(lastTimestamp) && !isNaN(timestampNum) && timestampNum > lastTimestamp) {
+        // Calcular tiempo transcurrido en milisegundos
+        const deltaTimeMs = timestampNum - lastTimestamp;
+        // Calcular litros acumulados: flujo_rech (L/min) * tiempo (ms) / 60000 (ms por minuto)
+        const litrosPorIntervalo = (Number(flujo_rech) * deltaTimeMs) / 60000;
+        addToStatus('flowrate_total_2', litrosPorIntervalo, 0);
+        console.log(`⏱️ [Osmosis] Tiempo transcurrido: ${deltaTimeMs}ms, Litros rechazo acumulados: ${litrosPorIntervalo.toFixed(4)} L`);
+      } else if (lastTimestamp == null) {
+        // Primera vez, usar un valor conservador (asumir 1 segundo si no hay timestamp previo)
+        const litrosPorIntervalo = Number(flujo_rech) / 60;
+        addToStatus('flowrate_total_2', litrosPorIntervalo, 0);
+      }
+    } else {
+      // Si no hay timestamp, usar el método anterior (asumir 1 segundo)
+      const litrosPorIntervalo = Number(flujo_rech) / 60;
+      addToStatus('flowrate_total_2', litrosPorIntervalo, 0);
+    }
   }
 
   if (tds != null) {
