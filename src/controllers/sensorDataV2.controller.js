@@ -5,6 +5,177 @@ import SensoresModel from '../models/postgres/sensores.model.js';
 import { query } from '../config/postgres.config.js';
 
 /**
+ * Genera el histórico diario de un producto tipo Nivel basándose en registros acumulados
+ * Agrupa por día y toma el último valor registrado de cada día
+ * 
+ * @param {string} codigoTienda - Código de la tienda
+ * @param {string} resourceId - ID del recurso (producto)
+ * @param {string} sensorName - Nombre del sensor (default: 'liquid_level_percent')
+ * @param {number} daysBack - Número de días hacia atrás desde hoy (default: 30)
+ * @returns {Promise<Object|null>} Objeto con el histórico diario o null si hay error
+ */
+export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', daysBack = 30) {
+  try {
+    // Calcular fecha de inicio (días hacia atrás desde hoy)
+    const endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - daysBack);
+    startDate.setHours(0, 0, 0, 0);
+
+    // Consulta SQL para obtener el último valor de cada día
+    // Se agrupan los registros acumulados por día y se toma el último valor registrado
+    const historicoQuery = `
+      WITH daily_data AS (
+        SELECT 
+          DATE_TRUNC('day', timestamp) AS dia,
+          value,
+          timestamp,
+          ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', timestamp) ORDER BY timestamp DESC) AS rn
+        FROM sensores
+        WHERE codigotienda = $1 
+          AND resourcetype = 'nivel'
+          AND resourceid = $2
+          AND name = $3
+          AND timestamp >= $4
+          AND timestamp <= $5
+      ),
+      daily_stats AS (
+        SELECT 
+          dia,
+          value AS liquid_level_percent_promedio,
+          (SELECT COUNT(*) 
+           FROM sensores 
+           WHERE codigotienda = $1 
+             AND resourcetype = 'nivel'
+             AND resourceid = $2
+             AND name = $3
+             AND DATE_TRUNC('day', timestamp) = daily_data.dia
+             AND timestamp >= $4
+             AND timestamp <= $5) AS total_logs
+        FROM daily_data
+        WHERE rn = 1
+      )
+      SELECT 
+        dia,
+        liquid_level_percent_promedio,
+        total_logs
+      FROM daily_stats
+      ORDER BY dia ASC
+    `;
+
+    const historicoResult = await query(historicoQuery, [codigoTienda, resourceId, sensorName, startDate, endDate]);
+    
+    const daysWithData = historicoResult.rows.map(row => ({
+      fecha: new Date(row.dia).toISOString().split('T')[0], // Formato YYYY-MM-DD
+      total_logs: parseInt(row.total_logs) || 0,
+      estadisticas: {
+        liquid_level_percent_promedio: parseFloat(row.liquid_level_percent_promedio) || 0
+      }
+    }));
+
+    const totalLogs = daysWithData.reduce((sum, d) => sum + d.total_logs, 0);
+
+    return {
+      product: `Nivel ${resourceId}`,
+      start_date: startDate.toISOString().split('T')[0],
+      end_date: endDate.toISOString().split('T')[0],
+      total_logs: totalLogs,
+      days_with_data: daysWithData
+    };
+
+  } catch (error) {
+    console.error(`[generateNivelHistoricoDiarioV2] Error generando histórico diario para ${codigoTienda}/${resourceId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Genera el histórico de un producto tipo Nivel basándose en registros acumulados del día actual
+ * Agrupa por hora y toma el último valor registrado de cada hora
+ * 
+ * @param {string} codigoTienda - Código de la tienda
+ * @param {string} resourceId - ID del recurso (producto)
+ * @param {string} sensorName - Nombre del sensor (default: 'liquid_level_percent')
+ * @param {Date} date - Fecha para generar el histórico (default: hoy)
+ * @returns {Promise<Object|null>} Objeto con el histórico o null si hay error
+ */
+export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', date = null) {
+  try {
+    // Usar fecha proporcionada o día actual
+    const targetDate = date || new Date();
+    const today = new Date(targetDate);
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Consulta SQL para obtener el último valor de cada hora del día
+    // Se agrupan los registros acumulados por hora y se toma el último valor registrado
+    const historicoQuery = `
+      WITH hourly_data AS (
+        SELECT 
+          DATE_TRUNC('hour', timestamp) AS hora,
+          value,
+          timestamp,
+          ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', timestamp) ORDER BY timestamp DESC) AS rn
+        FROM sensores
+        WHERE codigotienda = $1 
+          AND resourcetype = 'nivel'
+          AND resourceid = $2
+          AND name = $3
+          AND timestamp >= $4
+          AND timestamp < $5
+      ),
+      hourly_stats AS (
+        SELECT 
+          hora,
+          value AS liquid_level_percent_promedio,
+          (SELECT COUNT(*) 
+           FROM sensores 
+           WHERE codigotienda = $1 
+             AND resourcetype = 'nivel'
+             AND resourceid = $2
+             AND name = $3
+             AND DATE_TRUNC('hour', timestamp) = hourly_data.hora
+             AND timestamp >= $4
+             AND timestamp < $5) AS total_logs
+        FROM hourly_data
+        WHERE rn = 1
+      )
+      SELECT 
+        hora,
+        liquid_level_percent_promedio,
+        total_logs
+      FROM hourly_stats
+      ORDER BY hora ASC
+    `;
+
+    const historicoResult = await query(historicoQuery, [codigoTienda, resourceId, sensorName, today, tomorrow]);
+    
+    const hoursWithData = historicoResult.rows.map(row => ({
+      hora: new Date(row.hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+      total_logs: parseInt(row.total_logs) || 0,
+      estadisticas: {
+        liquid_level_percent_promedio: parseFloat(row.liquid_level_percent_promedio) || 0
+      }
+    }));
+
+    const totalLogs = hoursWithData.reduce((sum, h) => sum + h.total_logs, 0);
+
+    return {
+      product: `Nivel ${resourceId}`,
+      date: today.toISOString().split('T')[0],
+      total_logs: totalLogs,
+      hours_with_data: hoursWithData
+    };
+
+  } catch (error) {
+    console.error(`[generateNivelHistoricoV2] Error generando histórico para ${codigoTienda}/${resourceId}:`, error);
+    return null;
+  }
+}
+
+/**
  * Get osmosis system data for a punto de venta
  * Maps PostgreSQL sensor data to osmosis system format (similar to v1.0)
  */
@@ -647,30 +818,11 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
 
         if (!latestSensor) continue;
 
-        // Get historical data for the last 24 hours (grouped by hour)
-        const historicoQuery = `
-          SELECT 
-            DATE_TRUNC('hour', timestamp) AS hora,
-            AVG(value) AS liquid_level_percent_promedio,
-            COUNT(*) AS total_logs
-          FROM sensores
-          WHERE codigotienda = $1 
-            AND resourcetype = 'nivel'
-            AND resourceid = $2
-            AND name = 'liquid_level_percent'
-            AND timestamp >= NOW() - INTERVAL '24 hours'
-          GROUP BY DATE_TRUNC('hour', timestamp)
-          ORDER BY hora ASC
-        `;
-
-        const historicoResult = await query(historicoQuery, [codigoTienda, resourceId]);
-        const hoursWithData = historicoResult.rows.map(row => ({
-          hora: new Date(row.hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
-          total_logs: parseInt(row.total_logs),
-          estadisticas: {
-            liquid_level_percent_promedio: parseFloat(row.liquid_level_percent_promedio) || 0
-          }
-        }));
+        // Generar histórico por hora (día actual) y histórico diario (últimos días)
+        const [historicoHora, historicoDiario] = await Promise.all([
+          generateNivelHistoricoV2(codigoTienda, resourceId, 'liquid_level_percent'),
+          generateNivelHistoricoDiarioV2(codigoTienda, resourceId, 'liquid_level_percent', 30)
+        ]);
 
         const nivelData = {
           _id: `nivel-${resourceId}`,
@@ -685,13 +837,19 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
             timestamp: latestSensor.timestamp
           }],
           online: true,
-          historico: {
-            product: `Nivel ${resourceId}`,
-            date: new Date().toISOString().split('T')[0],
-            total_logs: hoursWithData.reduce((sum, h) => sum + h.total_logs, 0),
-            hours_with_data: hoursWithData
-          }
+          historico: historicoHora || null,
+          historico_diario: historicoDiario || null // Histórico agrupado por día
         };
+
+        if (historicoHora) {
+          console.log(`📊 [SensorDataV2] Histórico por hora agregado para producto Nivel ${resourceId}: ${historicoHora.hours_with_data.length} horas con datos de ${historicoHora.total_logs} registros acumulados`);
+        }
+        if (historicoDiario) {
+          console.log(`📊 [SensorDataV2] Histórico diario agregado para producto Nivel ${resourceId}: ${historicoDiario.days_with_data.length} días con datos de ${historicoDiario.total_logs} registros acumulados`);
+        }
+        if (!historicoHora && !historicoDiario) {
+          console.warn(`⚠️ [SensorDataV2] No se pudo generar histórico para producto Nivel ${resourceId}`);
+        }
 
         nivelProducts.push(nivelData);
       } catch (error) {
