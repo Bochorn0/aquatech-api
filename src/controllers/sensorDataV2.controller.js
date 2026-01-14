@@ -56,8 +56,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
       console.log(`[generateNivelHistoricoDiarioV2] Ajustando rango de fechas basado en último registro disponible`);
     }
 
-    // Determinar el tipo de recurso y condiciones de búsqueda
-    const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
+    // Construir la consulta SQL para obtener el histórico diario
     let historicoQuery;
     let queryParams;
     
