@@ -28,10 +28,10 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
     startDate.setDate(startDate.getDate() - daysBack);
     startDate.setHours(0, 0, 0, 0);
     
-    // Primero verificar si hay datos disponibles
+    // Primero obtener el último registro basado en createdat (no timestamp)
     const checkQuery = isTiwater 
-      ? `SELECT COUNT(*) as count, MIN(timestamp) as min_ts, MAX(timestamp) as max_ts FROM sensores WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = 'tiwater-system') AND name = $2`
-      : `SELECT COUNT(*) as count, MIN(timestamp) as min_ts, MAX(timestamp) as max_ts FROM sensores WHERE codigotienda = $1 AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
+      ? `SELECT COUNT(*) as count, MIN(createdat) as min_created, MAX(createdat) as max_created FROM sensores WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = 'tiwater-system') AND name = $2`
+      : `SELECT COUNT(*) as count, MIN(createdat) as min_created, MAX(createdat) as max_created FROM sensores WHERE codigotienda = $1 AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
     
     const checkParams = isTiwater ? [codigoTienda, sensorName] : [codigoTienda, resourceId, sensorName];
     const checkResult = await query(checkQuery, checkParams);
@@ -41,19 +41,19 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
       return null;
     }
     
-    const minTimestamp = checkResult.rows[0].min_ts ? new Date(checkResult.rows[0].min_ts) : null;
-    const maxTimestamp = checkResult.rows[0].max_ts ? new Date(checkResult.rows[0].max_ts) : null;
+    const minCreated = checkResult.rows[0].min_created ? new Date(checkResult.rows[0].min_created) : null;
+    const maxCreated = checkResult.rows[0].max_created ? new Date(checkResult.rows[0].max_created) : null;
     
-    console.log(`[generateNivelHistoricoDiarioV2] Datos disponibles: ${checkResult.rows[0].count} registros desde ${minTimestamp?.toISOString()} hasta ${maxTimestamp?.toISOString()}`);
+    console.log(`[generateNivelHistoricoDiarioV2] Datos disponibles: ${checkResult.rows[0].count} registros desde ${minCreated?.toISOString()} hasta ${maxCreated?.toISOString()}`);
     
-    // Ajustar fechas si el último registro es más antiguo que el rango solicitado
-    if (maxTimestamp && maxTimestamp < endDate) {
-      endDate.setTime(maxTimestamp.getTime());
+    // Usar la fecha del último registro (createdat) como referencia
+    if (maxCreated) {
+      endDate.setTime(maxCreated.getTime());
       endDate.setHours(23, 59, 59, 999);
       startDate.setTime(endDate.getTime());
       startDate.setDate(startDate.getDate() - daysBack);
       startDate.setHours(0, 0, 0, 0);
-      console.log(`[generateNivelHistoricoDiarioV2] Ajustando rango de fechas basado en último registro disponible`);
+      console.log(`[generateNivelHistoricoDiarioV2] Usando fecha del último registro (createdat): ${maxCreated.toISOString()}`);
     }
 
     // Construir la consulta SQL para obtener el histórico diario
@@ -62,20 +62,21 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
     
     if (isTiwater) {
       // Para TIWater, buscar en resourcetype = 'tiwater' con resourceId NULL o 'tiwater-system'
+      // Usar createdat en lugar de timestamp para agrupar
       historicoQuery = `
         WITH daily_data AS (
           SELECT 
-            DATE_TRUNC('day', timestamp) AS dia,
+            DATE_TRUNC('day', createdat) AS dia,
             value,
-            timestamp,
-            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', timestamp) ORDER BY timestamp DESC) AS rn
+            createdat,
+            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', createdat) ORDER BY createdat DESC) AS rn
           FROM sensores
           WHERE codigotienda = $1 
             AND resourcetype = 'tiwater'
             AND (resourceid IS NULL OR resourceid = 'tiwater-system')
             AND name = $2
-            AND timestamp >= $3
-            AND timestamp <= $4
+            AND createdat >= $3
+            AND createdat <= $4
         ),
         daily_stats AS (
           SELECT 
@@ -87,9 +88,9 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
                AND resourcetype = 'tiwater'
                AND (resourceid IS NULL OR resourceid = 'tiwater-system')
                AND name = $2
-               AND DATE_TRUNC('day', timestamp) = daily_data.dia
-               AND timestamp >= $3
-               AND timestamp <= $4) AS total_logs
+               AND DATE_TRUNC('day', createdat) = daily_data.dia
+               AND createdat >= $3
+               AND createdat <= $4) AS total_logs
           FROM daily_data
           WHERE rn = 1
         )
@@ -103,20 +104,21 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
       queryParams = [codigoTienda, sensorName, startDate, endDate];
     } else {
       // Para Nivel, buscar en resourcetype = 'nivel' con resourceId específico
+      // Usar createdat en lugar de timestamp para agrupar
       historicoQuery = `
         WITH daily_data AS (
           SELECT 
-            DATE_TRUNC('day', timestamp) AS dia,
+            DATE_TRUNC('day', createdat) AS dia,
             value,
-            timestamp,
-            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', timestamp) ORDER BY timestamp DESC) AS rn
+            createdat,
+            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', createdat) ORDER BY createdat DESC) AS rn
           FROM sensores
           WHERE codigotienda = $1 
             AND resourcetype = 'nivel'
             AND resourceid = $2
             AND name = $3
-            AND timestamp >= $4
-            AND timestamp <= $5
+            AND createdat >= $4
+            AND createdat <= $5
         ),
         daily_stats AS (
           SELECT 
@@ -128,9 +130,9 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
                AND resourcetype = 'nivel'
                AND resourceid = $2
                AND name = $3
-               AND DATE_TRUNC('day', timestamp) = daily_data.dia
-               AND timestamp >= $4
-               AND timestamp <= $5) AS total_logs
+               AND DATE_TRUNC('day', createdat) = daily_data.dia
+               AND createdat >= $4
+               AND createdat <= $5) AS total_logs
           FROM daily_data
           WHERE rn = 1
         )
@@ -197,10 +199,10 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     // Determinar el tipo de recurso y condiciones de búsqueda primero
     const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
     
-    // Primero verificar si hay datos disponibles y obtener el último registro
+    // Primero obtener el último registro basado en createdat (no timestamp)
     const checkQuery = isTiwater 
-      ? `SELECT COUNT(*) as count, MAX(timestamp) as max_ts FROM sensores WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = 'tiwater-system') AND name = $2`
-      : `SELECT COUNT(*) as count, MAX(timestamp) as max_ts FROM sensores WHERE codigotienda = $1 AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
+      ? `SELECT COUNT(*) as count, MAX(createdat) as max_created FROM sensores WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = 'tiwater-system') AND name = $2`
+      : `SELECT COUNT(*) as count, MAX(createdat) as max_created FROM sensores WHERE codigotienda = $1 AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
     
     const checkParams = isTiwater ? [codigoTienda, sensorName] : [codigoTienda, resourceId, sensorName];
     const checkResult = await query(checkQuery, checkParams);
@@ -210,13 +212,15 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
       return null;
     }
     
-    const maxTimestamp = checkResult.rows[0].max_ts ? new Date(checkResult.rows[0].max_ts) : null;
+    const maxCreated = checkResult.rows[0].max_created ? new Date(checkResult.rows[0].max_created) : null;
     
-    // Usar fecha proporcionada, día actual, o el día del último registro disponible
-    let targetDate = date || new Date();
-    if (maxTimestamp && !date) {
+    // Usar la fecha del último registro (createdat) como referencia
+    let targetDate = date;
+    if (!targetDate && maxCreated) {
       // Si no se proporciona fecha, usar el día del último registro disponible
-      targetDate = new Date(maxTimestamp);
+      targetDate = new Date(maxCreated);
+    } else if (!targetDate) {
+      targetDate = new Date();
     }
     
     const today = new Date(targetDate);
@@ -224,27 +228,28 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
     
-    console.log(`[generateNivelHistoricoV2] Usando rango de fechas: ${today.toISOString()} a ${tomorrow.toISOString()} (último registro: ${maxTimestamp?.toISOString()})`);
+    console.log(`[generateNivelHistoricoV2] Usando rango de fechas: ${today.toISOString()} a ${tomorrow.toISOString()} (último registro createdat: ${maxCreated?.toISOString()})`);
     
     let historicoQuery;
     let queryParams;
     
     if (isTiwater) {
       // Para TIWater, buscar en resourcetype = 'tiwater' con resourceId NULL o 'tiwater-system'
+      // Usar createdat en lugar de timestamp para agrupar
       historicoQuery = `
         WITH hourly_data AS (
           SELECT 
-            DATE_TRUNC('hour', timestamp) AS hora,
+            DATE_TRUNC('hour', createdat) AS hora,
             value,
-            timestamp,
-            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', timestamp) ORDER BY timestamp DESC) AS rn
+            createdat,
+            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', createdat) ORDER BY createdat DESC) AS rn
           FROM sensores
           WHERE codigotienda = $1 
             AND resourcetype = 'tiwater'
             AND (resourceid IS NULL OR resourceid = 'tiwater-system')
             AND name = $2
-            AND timestamp >= $3
-            AND timestamp < $4
+            AND createdat >= $3
+            AND createdat < $4
         ),
         hourly_stats AS (
           SELECT 
@@ -256,9 +261,9 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
                AND resourcetype = 'tiwater'
                AND (resourceid IS NULL OR resourceid = 'tiwater-system')
                AND name = $2
-               AND DATE_TRUNC('hour', timestamp) = hourly_data.hora
-               AND timestamp >= $3
-               AND timestamp < $4) AS total_logs
+               AND DATE_TRUNC('hour', createdat) = hourly_data.hora
+               AND createdat >= $3
+               AND createdat < $4) AS total_logs
           FROM hourly_data
           WHERE rn = 1
         )
@@ -272,20 +277,21 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
       queryParams = [codigoTienda, sensorName, today, tomorrow];
     } else {
       // Para Nivel, buscar en resourcetype = 'nivel' con resourceId específico
+      // Usar createdat en lugar de timestamp para agrupar
       historicoQuery = `
         WITH hourly_data AS (
           SELECT 
-            DATE_TRUNC('hour', timestamp) AS hora,
+            DATE_TRUNC('hour', createdat) AS hora,
             value,
-            timestamp,
-            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', timestamp) ORDER BY timestamp DESC) AS rn
+            createdat,
+            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', createdat) ORDER BY createdat DESC) AS rn
           FROM sensores
           WHERE codigotienda = $1 
             AND resourcetype = 'nivel'
             AND resourceid = $2
             AND name = $3
-            AND timestamp >= $4
-            AND timestamp < $5
+            AND createdat >= $4
+            AND createdat < $5
         ),
         hourly_stats AS (
           SELECT 
@@ -297,9 +303,9 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
                AND resourcetype = 'nivel'
                AND resourceid = $2
                AND name = $3
-               AND DATE_TRUNC('hour', timestamp) = hourly_data.hora
-               AND timestamp >= $4
-               AND timestamp < $5) AS total_logs
+               AND DATE_TRUNC('hour', createdat) = hourly_data.hora
+               AND createdat >= $4
+               AND createdat < $5) AS total_logs
           FROM hourly_data
           WHERE rn = 1
         )
