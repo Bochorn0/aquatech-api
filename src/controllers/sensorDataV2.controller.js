@@ -933,6 +933,47 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         const lastUpdate = osmosisData.lastUpdate ? new Date(osmosisData.lastUpdate) : null;
         osmosisData.online = lastUpdate && (now - lastUpdate < 5 * 60 * 1000);
 
+        // Para productos TIWater, agregar histórico de niveles si tienen datos de nivel
+        if (resourceType === 'tiwater' && resourceId) {
+          // Verificar si tiene datos de nivel (Nivel Purificada o Nivel Recuperada)
+          const nivelCodes = osmosisData.status?.map(s => s.code) || [];
+          const hasNivelPurificada = osmosisData.status?.some(s => s.code === 'level_purificada' || s.code === 'electronivel_purificada');
+          const hasNivelRecuperada = osmosisData.status?.some(s => s.code === 'level_recuperada' || s.code === 'electronivel_recuperada');
+          
+          console.log(`[SensorDataV2] Verificando histórico para TIWater ${resourceId} en osmosisSystems:`, {
+            hasNivelPurificada,
+            hasNivelRecuperada,
+            nivelCodes: nivelCodes.filter(c => c.includes('nivel') || c.includes('level')),
+            statusCount: osmosisData.status?.length || 0
+          });
+          
+          if (hasNivelPurificada || hasNivelRecuperada) {
+            // Generar histórico para "Nivel Purificada" si existe, sino usar "Nivel Recuperada"
+            const sensorName = hasNivelPurificada ? 'Nivel Purificada' : 'Nivel Recuperada';
+            
+            console.log(`[SensorDataV2] Generando histórico para TIWater ${resourceId} en osmosisSystems con sensor: ${sensorName}`);
+            
+            try {
+              const [historicoHora, historicoDiario] = await Promise.all([
+                generateNivelHistoricoV2(codigoTienda, resourceId, sensorName, null, 'tiwater'),
+                generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName, 30, 'tiwater')
+              ]);
+              
+              if (historicoHora || historicoDiario) {
+                osmosisData.historico = historicoHora || null;
+                osmosisData.historico_diario = historicoDiario || null;
+                console.log(`📊 [SensorDataV2] Histórico agregado a osmosisSystems para TIWater ${resourceId} (${sensorName}): ${historicoHora?.hours_with_data?.length || 0} horas, ${historicoDiario?.days_with_data?.length || 0} días`);
+              } else {
+                console.warn(`⚠️ [SensorDataV2] No se generó histórico para TIWater ${resourceId} en osmosisSystems (${sensorName}) - ambos históricos son null`);
+              }
+            } catch (error) {
+              console.error(`[SensorDataV2] Error generando histórico para TIWater ${resourceId} en osmosisSystems:`, error);
+            }
+          } else {
+            console.log(`[SensorDataV2] TIWater ${resourceId} en osmosisSystems no tiene datos de nivel para generar histórico`);
+          }
+        }
+
         osmosisSystems.push(osmosisData);
       } catch (error) {
         console.error(`[SensorDataV2] Error getting osmosis system ${resourceId}:`, error);
