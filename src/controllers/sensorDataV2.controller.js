@@ -947,29 +947,52 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
             statusCount: osmosisData.status?.length || 0
           });
           
-          if (hasNivelPurificada || hasNivelRecuperada) {
-            // Generar histórico para "Nivel Purificada" si existe, sino usar "Nivel Recuperada"
-            const sensorName = hasNivelPurificada ? 'Nivel Purificada' : 'Nivel Recuperada';
-            
-            console.log(`[SensorDataV2] Generando histórico para TIWater ${resourceId} en osmosisSystems con sensor: ${sensorName}`);
+          // Generar histórico para "Nivel Purificada" si existe
+          if (hasNivelPurificada) {
+            console.log(`[SensorDataV2] Generando histórico para TIWater ${resourceId} en osmosisSystems (Nivel Purificada)`);
             
             try {
               const [historicoHora, historicoDiario] = await Promise.all([
-                generateNivelHistoricoV2(codigoTienda, resourceId, sensorName, null, 'tiwater'),
-                generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName, 30, 'tiwater')
+                generateNivelHistoricoV2(codigoTienda, resourceId, 'Nivel Purificada', null, 'tiwater'),
+                generateNivelHistoricoDiarioV2(codigoTienda, resourceId, 'Nivel Purificada', 30, 'tiwater')
               ]);
               
               if (historicoHora || historicoDiario) {
                 osmosisData.historico = historicoHora || null;
                 osmosisData.historico_diario = historicoDiario || null;
-                console.log(`📊 [SensorDataV2] Histórico agregado a osmosisSystems para TIWater ${resourceId} (${sensorName}): ${historicoHora?.hours_with_data?.length || 0} horas, ${historicoDiario?.days_with_data?.length || 0} días`);
+                console.log(`📊 [SensorDataV2] Histórico agregado a osmosisSystems para TIWater ${resourceId} (Nivel Purificada): ${historicoHora?.hours_with_data?.length || 0} horas, ${historicoDiario?.days_with_data?.length || 0} días`);
               } else {
-                console.warn(`⚠️ [SensorDataV2] No se generó histórico para TIWater ${resourceId} en osmosisSystems (${sensorName}) - ambos históricos son null`);
+                console.warn(`⚠️ [SensorDataV2] No se generó histórico para TIWater ${resourceId} en osmosisSystems (Nivel Purificada) - ambos históricos son null`);
               }
             } catch (error) {
-              console.error(`[SensorDataV2] Error generando histórico para TIWater ${resourceId} en osmosisSystems:`, error);
+              console.error(`[SensorDataV2] Error generando histórico para TIWater ${resourceId} en osmosisSystems (Nivel Purificada):`, error);
             }
-          } else {
+          }
+          
+          // Generar histórico para "Nivel Recuperada" si existe
+          if (hasNivelRecuperada) {
+            console.log(`[SensorDataV2] Generando histórico para TIWater ${resourceId} en osmosisSystems (Nivel Recuperada)`);
+            
+            try {
+              const [historicoHoraRecuperada, historicoDiarioRecuperada] = await Promise.all([
+                generateNivelHistoricoV2(codigoTienda, resourceId, 'Nivel Recuperada', null, 'tiwater'),
+                generateNivelHistoricoDiarioV2(codigoTienda, resourceId, 'Nivel Recuperada', 30, 'tiwater')
+              ]);
+              
+              if (historicoHoraRecuperada || historicoDiarioRecuperada) {
+                osmosisData.historico_recuperada = historicoHoraRecuperada || null;
+                osmosisData.historico_recuperada_diario = historicoDiarioRecuperada || null;
+                console.log(`📊 [SensorDataV2] Histórico agregado a osmosisSystems para TIWater ${resourceId} (Nivel Recuperada): ${historicoHoraRecuperada?.hours_with_data?.length || 0} horas, ${historicoDiarioRecuperada?.days_with_data?.length || 0} días`);
+              } else {
+                console.warn(`⚠️ [SensorDataV2] No se generó histórico para TIWater ${resourceId} en osmosisSystems (Nivel Recuperada) - ambos históricos son null`);
+              }
+            } catch (error) {
+              console.error(`[SensorDataV2] Error generando histórico para TIWater ${resourceId} en osmosisSystems (Nivel Recuperada):`, error);
+            }
+          }
+          
+          // Si no tiene ninguno de los dos, usar el fallback antiguo
+          if (!hasNivelPurificada && !hasNivelRecuperada) {
             console.log(`[SensorDataV2] TIWater ${resourceId} en osmosisSystems no tiene datos de nivel para generar histórico`);
           }
         }
@@ -996,6 +1019,8 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       // Para productos TIWater, agregar histórico de niveles si tienen datos de nivel
       let historicoHora = null;
       let historicoDiario = null;
+      let historicoHoraRecuperada = null;
+      let historicoDiarioRecuperada = null;
       
       if (productType === 'TIWater' && osmosis.resourceId) {
         // Verificar si tiene datos de nivel (Nivel Purificada o Nivel Recuperada)
@@ -1010,27 +1035,48 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           statusCount: osmosis.status?.length || 0
         });
         
-        if (hasNivelPurificada || hasNivelRecuperada) {
-          // Generar histórico para "Nivel Purificada" si existe, sino usar "Nivel Recuperada"
-          const sensorName = hasNivelPurificada ? 'Nivel Purificada' : 'Nivel Recuperada';
-          
-          console.log(`[SensorDataV2] Generando histórico para TIWater ${osmosis.resourceId} con sensor: ${sensorName}`);
+        // Generar histórico para "Nivel Purificada" si existe
+        if (hasNivelPurificada) {
+          console.log(`[SensorDataV2] Generando histórico para TIWater ${osmosis.resourceId} (Nivel Purificada)`);
           
           try {
             [historicoHora, historicoDiario] = await Promise.all([
-              generateNivelHistoricoV2(codigoTienda, osmosis.resourceId, sensorName, null, 'tiwater'),
-              generateNivelHistoricoDiarioV2(codigoTienda, osmosis.resourceId, sensorName, 30, 'tiwater')
+              generateNivelHistoricoV2(codigoTienda, osmosis.resourceId, 'Nivel Purificada', null, 'tiwater'),
+              generateNivelHistoricoDiarioV2(codigoTienda, osmosis.resourceId, 'Nivel Purificada', 30, 'tiwater')
             ]);
             
             if (historicoHora || historicoDiario) {
-              console.log(`📊 [SensorDataV2] Histórico agregado para producto TIWater ${osmosis.resourceId} (${sensorName}): ${historicoHora?.hours_with_data?.length || 0} horas, ${historicoDiario?.days_with_data?.length || 0} días`);
+              console.log(`📊 [SensorDataV2] Histórico agregado para producto TIWater ${osmosis.resourceId} (Nivel Purificada): ${historicoHora?.hours_with_data?.length || 0} horas, ${historicoDiario?.days_with_data?.length || 0} días`);
             } else {
-              console.warn(`⚠️ [SensorDataV2] No se generó histórico para TIWater ${osmosis.resourceId} (${sensorName}) - ambos históricos son null`);
+              console.warn(`⚠️ [SensorDataV2] No se generó histórico para TIWater ${osmosis.resourceId} (Nivel Purificada) - ambos históricos son null`);
             }
           } catch (error) {
-            console.error(`[SensorDataV2] Error generando histórico para TIWater ${osmosis.resourceId}:`, error);
+            console.error(`[SensorDataV2] Error generando histórico para TIWater ${osmosis.resourceId} (Nivel Purificada):`, error);
           }
-        } else {
+        }
+        
+        // Generar histórico para "Nivel Recuperada" si existe
+        if (hasNivelRecuperada) {
+          console.log(`[SensorDataV2] Generando histórico para TIWater ${osmosis.resourceId} (Nivel Recuperada)`);
+          
+          try {
+            [historicoHoraRecuperada, historicoDiarioRecuperada] = await Promise.all([
+              generateNivelHistoricoV2(codigoTienda, osmosis.resourceId, 'Nivel Recuperada', null, 'tiwater'),
+              generateNivelHistoricoDiarioV2(codigoTienda, osmosis.resourceId, 'Nivel Recuperada', 30, 'tiwater')
+            ]);
+            
+            if (historicoHoraRecuperada || historicoDiarioRecuperada) {
+              console.log(`📊 [SensorDataV2] Histórico agregado para producto TIWater ${osmosis.resourceId} (Nivel Recuperada): ${historicoHoraRecuperada?.hours_with_data?.length || 0} horas, ${historicoDiarioRecuperada?.days_with_data?.length || 0} días`);
+            } else {
+              console.warn(`⚠️ [SensorDataV2] No se generó histórico para TIWater ${osmosis.resourceId} (Nivel Recuperada) - ambos históricos son null`);
+            }
+          } catch (error) {
+            console.error(`[SensorDataV2] Error generando histórico para TIWater ${osmosis.resourceId} (Nivel Recuperada):`, error);
+          }
+        }
+        
+        // Si no tiene ninguno de los dos, usar el fallback antiguo
+        if (!hasNivelPurificada && !hasNivelRecuperada) {
           console.log(`[SensorDataV2] TIWater ${osmosis.resourceId} no tiene datos de nivel para generar histórico`);
         }
       }
@@ -1043,8 +1089,10 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         status: osmosis.status || [],
         online: osmosis.online || false,
         lastUpdate: osmosis.lastUpdate,
-        historico: historicoHora || null,
-        historico_diario: historicoDiario || null
+        historico: historicoHora || osmosis.historico || null,
+        historico_diario: historicoDiario || osmosis.historico_diario || null,
+        historico_recuperada: historicoHoraRecuperada || osmosis.historico_recuperada || null,
+        historico_recuperada_diario: historicoDiarioRecuperada || osmosis.historico_recuperada_diario || null
       };
     }));
 
