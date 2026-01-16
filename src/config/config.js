@@ -17,6 +17,9 @@ const config = {
   POSTGRES_USER: process.env.POSTGRES_USER || 'TIWater_user',
   POSTGRES_PASSWORD: process.env.POSTGRES_PASSWORD,
   POSTGRES_SSL: process.env.POSTGRES_SSL || 'false',
+  // TI Water API Key configuration
+  TIWATER_API_KEY: process.env.TIWATER_API_KEY,
+  TIWATER_API_KEY_HASH: process.env.TIWATER_API_KEY_HASH, // Optional: SHA256 hash of the API key
 };
 
 export default config;  // Use 'export default' for ESM

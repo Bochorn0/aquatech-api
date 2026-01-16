@@ -23,6 +23,8 @@ import controllerRoutes from './routes/controller.routes.js' // Use `import` for
 import puntoVentaRoutes from './routes/puntoVenta.routes.js' // Use `import` for PuntoVenta
 import sensorDataRoutes from './routes/sensorData.routes.js';  // Use `import` for sensorDataRoutes
 import sensorDataV2Routes from './routes/sensorDataV2.routes.js';  // Use `import` for sensorDataV2Routes (v2.0)
+import tiwaterProductRoutes from './routes/tiwater-product.routes.js';  // Use `import` for TI Water product routes (v2.0)
+import tiwaterQuoteRoutes from './routes/tiwater-quote.routes.js';  // Use `import` for TI Water quote routes (v2.0)
 import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoutes
 import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoutes
 import { authenticate, authorizeRoles } from './middlewares/auth.middleware.js';  // Import the authentication and authorization middleware
@@ -93,6 +95,10 @@ app.use('/api/v1.0/sensor-data', authenticate, authorizeRoles('admin', 'cliente'
 // v2.0 API routes - PostgreSQL based
 app.use('/api/v2.0/sensors', authenticate, authorizeRoles('admin', 'cliente'), sensorDataV2Routes);
 app.use('/api/v2.0', authenticate, authorizeRoles('admin', 'cliente'), sensorDataV2Routes);
+
+// v2.0 TI Water API routes - PostgreSQL based (separate database)
+app.use('/api/v2.0/tiwater/products', tiwaterProductRoutes);
+app.use('/api/v2.0/tiwater/quotes', tiwaterQuoteRoutes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/auth', authRoutes);
