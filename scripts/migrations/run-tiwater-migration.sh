@@ -50,16 +50,34 @@ setup_postgresql_path
 if [ -f .env ]; then
     # Extract only PostgreSQL related variables (one line per variable)
     # This avoids issues with multi-line certificates/keys in .env
-    grep -E '^(POSTGRES|TIWATER).*=' .env | grep -v '^#' | while IFS='=' read -r key value; do
-        # Remove leading/trailing whitespace
-        key=$(echo "$key" | xargs)
-        value=$(echo "$value" | sed 's/^"//;s/"$//' | xargs)
+    # Use process substitution to avoid subshell issues with while loops
+    TEMP_ENV=$(mktemp)
+    grep -E '^(POSTGRES|TIWATER).*=' .env | grep -v '^#' > "$TEMP_ENV"
+    
+    # Read from temp file (not pipe) to avoid subshell issues
+    while IFS='=' read -r key value; do
+        # Skip empty lines
+        [ -z "$key" ] && continue
+        
+        # Remove leading/trailing whitespace and quotes
+        key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        value=$(echo "$value" | sed 's/^[[:space:]]*"//;s/"[[:space:]]*$//;s/^[[:space:]]*//;s/[[:space:]]*$//')
         
         # Export the variable (only if key is not empty)
         if [ -n "$key" ]; then
             export "$key"="$value"
         fi
-    done
+    done < "$TEMP_ENV"
+    rm -f "$TEMP_ENV"
+    
+    # Debug: Verify password variable is set (without showing actual password)
+    if [ -n "$POSTGRES_TIWATER_PASSWORD" ]; then
+        echo -e "${GREEN}✓ POSTGRES_TIWATER_PASSWORD loaded${NC}"
+    elif [ -n "$POSTGRES_PASSWORD" ]; then
+        echo -e "${GREEN}✓ POSTGRES_PASSWORD loaded${NC}"
+    else
+        echo -e "${YELLOW}⚠ No password found in .env - will prompt for password${NC}"
+    fi
 else
     echo -e "${RED}Error: .env file not found${NC}"
     exit 1
@@ -83,6 +101,15 @@ PGPORT=${POSTGRES_TIWATER_PORT:-${POSTGRES_PORT:-5432}}
 PGDATABASE=${POSTGRES_TIWATER_DB:-ti_water}
 PGUSER=${POSTGRES_TIWATER_USER:-${POSTGRES_USER:-tiwater_user}}
 PGPASSWORD=${POSTGRES_TIWATER_PASSWORD:-${POSTGRES_PASSWORD:-}}
+
+# Debug: Show which password variable is being used (without showing the actual password)
+if [ -n "$POSTGRES_TIWATER_PASSWORD" ]; then
+    echo -e "${YELLOW}Using POSTGRES_TIWATER_PASSWORD from .env${NC}"
+elif [ -n "$POSTGRES_PASSWORD" ]; then
+    echo -e "${YELLOW}Using POSTGRES_PASSWORD from .env${NC}"
+else
+    echo -e "${YELLOW}⚠️  No password found in .env - will prompt for password${NC}"
+fi
 
 echo -e "${YELLOW}Running TI Water migration: $MIGRATION_FILE${NC}"
 echo -e "Host: $PGHOST"

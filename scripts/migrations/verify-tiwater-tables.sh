@@ -16,16 +16,25 @@ NC='\033[0m'
 if [ -f .env ]; then
     # Extract only PostgreSQL related variables (one line per variable)
     # This avoids issues with multi-line certificates/keys in .env
-    grep -E '^(POSTGRES|TIWATER).*=' .env | grep -v '^#' | while IFS='=' read -r key value; do
-        # Remove leading/trailing whitespace
-        key=$(echo "$key" | xargs)
-        value=$(echo "$value" | sed 's/^"//;s/"$//' | xargs)
+    # Use a temporary file to avoid subshell issues with while loops
+    TEMP_ENV=$(mktemp)
+    grep -E '^(POSTGRES|TIWATER).*=' .env | grep -v '^#' > "$TEMP_ENV"
+    
+    # Read from temp file (not pipe) to avoid subshell issues
+    while IFS='=' read -r key value; do
+        # Skip empty lines
+        [ -z "$key" ] && continue
+        
+        # Remove leading/trailing whitespace and quotes
+        key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        value=$(echo "$value" | sed 's/^[[:space:]]*"//;s/"[[:space:]]*$//;s/^[[:space:]]*//;s/[[:space:]]*$//')
         
         # Export the variable (only if key is not empty)
         if [ -n "$key" ]; then
             export "$key"="$value"
         fi
-    done
+    done < "$TEMP_ENV"
+    rm -f "$TEMP_ENV"
 else
     echo -e "${RED}Error: .env file not found${NC}"
     exit 1
