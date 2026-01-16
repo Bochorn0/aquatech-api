@@ -45,9 +45,21 @@ setup_postgresql_path() {
 # Setup PostgreSQL PATH if on macOS
 setup_postgresql_path
 
-# Load environment variables
+# Load environment variables (handle multi-line values safely)
+# Only load POSTGRES variables to avoid issues with certificates/keys
 if [ -f .env ]; then
-    export $(cat .env | grep -v '^#' | xargs)
+    # Extract only PostgreSQL related variables (one line per variable)
+    # This avoids issues with multi-line certificates/keys in .env
+    grep -E '^(POSTGRES|TIWATER).*=' .env | grep -v '^#' | while IFS='=' read -r key value; do
+        # Remove leading/trailing whitespace
+        key=$(echo "$key" | xargs)
+        value=$(echo "$value" | sed 's/^"//;s/"$//' | xargs)
+        
+        # Export the variable (only if key is not empty)
+        if [ -n "$key" ]; then
+            export "$key"="$value"
+        fi
+    done
 else
     echo -e "${RED}Error: .env file not found${NC}"
     exit 1
