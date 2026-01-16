@@ -20,7 +20,8 @@
     "test:migrate:puntoventa": "bash scripts/test-migrate-puntoventa.sh",
     "migrate:tiwater:products": "bash scripts/migrations/run-tiwater-migration.sh scripts/migrations/004_create_tiwater_products_table.sql",
     "migrate:tiwater:quotes": "bash scripts/migrations/run-tiwater-migration.sh scripts/migrations/005_create_tiwater_quotes_table.sql",
-    "migrate:tiwater": "bash scripts/migrations/run-tiwater-migration.sh"
+    "migrate:tiwater": "bash scripts/migrations/run-tiwater-migration.sh",
+    "verify:tiwater": "bash scripts/migrations/verify-tiwater-tables.sh"
   },
   "dependencies": {
     "@tuya/tuya-connector-nodejs": "^2.1.2",

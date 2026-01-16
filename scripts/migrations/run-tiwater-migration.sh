@@ -91,22 +91,43 @@ if ! command -v psql &> /dev/null; then
 fi
 
 # Run migration
-# Use full path to psql on CentOS (PostgreSQL 15)
-if [ -f /usr/pgsql-15/bin/psql ]; then
-    PSQL_CMD="/usr/pgsql-15/bin/psql"
-elif command -v psql &> /dev/null; then
+# Detect psql location - try CentOS paths first, then system PATH
+PSQL_CMD=""
+
+# Try CentOS/RedHat PostgreSQL locations (common versions)
+for version in 17 16 15 14 13 12 11; do
+    if [ -f "/usr/pgsql-${version}/bin/psql" ]; then
+        PSQL_CMD="/usr/pgsql-${version}/bin/psql"
+        echo -e "${YELLOW}Found PostgreSQL ${version} at: $PSQL_CMD${NC}"
+        break
+    fi
+done
+
+# If not found, try system PATH
+if [ -z "$PSQL_CMD" ] && command -v psql &> /dev/null; then
     PSQL_CMD="psql"
-else
+    echo -e "${YELLOW}Using psql from system PATH${NC}"
+fi
+
+# If still not found, error
+if [ -z "$PSQL_CMD" ]; then
     echo -e "${RED}Error: psql command not found${NC}"
+    echo -e "${YELLOW}Please ensure PostgreSQL is installed or add it to PATH${NC}"
+    echo -e "${YELLOW}Common CentOS locations: /usr/pgsql-15/bin/psql, /usr/pgsql-16/bin/psql${NC}"
     exit 1
 fi
 
+echo ""
+
+# Run migration with output
 if [ -n "$PGPASSWORD" ]; then
     export PGPASSWORD=$PGPASSWORD
-    $PSQL_CMD -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE -v ON_ERROR_STOP=1 2>&1
+    echo -e "${YELLOW}Executing migration...${NC}"
+    $PSQL_CMD -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE -v ON_ERROR_STOP=1
     MIGRATION_EXIT_CODE=$?
 else
-    $PSQL_CMD -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE -v ON_ERROR_STOP=1 2>&1
+    echo -e "${YELLOW}Executing migration...${NC}"
+    $PSQL_CMD -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f $MIGRATION_FILE -v ON_ERROR_STOP=1
     MIGRATION_EXIT_CODE=$?
 fi
 
