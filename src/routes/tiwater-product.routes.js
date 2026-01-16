@@ -9,22 +9,22 @@ import {
   getProductStats
 } from '../controllers/tiwater-product.controller.js';
 import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';
-import { validateTiWaterApiKey } from '../middlewares/tiwater-api-key.middleware.js';
+import { validateTiWaterApiKey, validateTiWaterApiKeyOrAuth } from '../middlewares/tiwater-api-key.middleware.js';
 
 const router = Router();
 
-// Protected routes - Requires TI Water API Key for viewing products (catalog)
+// Protected routes - Accepts either API Key (TI_water frontend) OR JWT Token (Aquatech_front dashboard)
 // Get all products (with optional filters)
-router.get('/', validateTiWaterApiKey, getProducts);
+router.get('/', validateTiWaterApiKeyOrAuth, getProducts);
 
 // Get product statistics
-router.get('/stats', validateTiWaterApiKey, getProductStats);
+router.get('/stats', validateTiWaterApiKeyOrAuth, getProductStats);
 
 // Get product by code
-router.get('/code/:code', validateTiWaterApiKey, getProductByCode);
+router.get('/code/:code', validateTiWaterApiKeyOrAuth, getProductByCode);
 
 // Get specific product by ID
-router.get('/:productId', validateTiWaterApiKey, getProductById);
+router.get('/:productId', validateTiWaterApiKeyOrAuth, getProductById);
 
 // Create new product (admin only)
 router.post('/', authenticate, authorizeRoles('admin'), createProduct);
