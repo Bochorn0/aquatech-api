@@ -50,34 +50,29 @@ setup_postgresql_path
 if [ -f .env ]; then
     # Extract only PostgreSQL related variables (one line per variable)
     # This avoids issues with multi-line certificates/keys in .env
-    # Use process substitution to avoid subshell issues with while loops
+    # Use a temporary file to avoid subshell issues with while loops
     TEMP_ENV=$(mktemp)
     grep -E '^(POSTGRES|TIWATER).*=' .env | grep -v '^#' > "$TEMP_ENV"
     
     # Read from temp file (not pipe) to avoid subshell issues
-    while IFS='=' read -r key value; do
+    while IFS='=' read -r key value || [ -n "$key" ]; do
         # Skip empty lines
         [ -z "$key" ] && continue
         
-        # Remove leading/trailing whitespace and quotes
+        # Remove leading/trailing whitespace and quotes from key
         key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        value=$(echo "$value" | sed 's/^[[:space:]]*"//;s/"[[:space:]]*$//;s/^[[:space:]]*//;s/[[:space:]]*$//')
+        
+        # Remove leading/trailing whitespace and quotes from value
+        # Also handle escaped characters
+        value=$(echo "$value" | sed 's/^[[:space:]]*"//;s/"[[:space:]]*$//;s/^[[:space:]]*//;s/[[:space:]]*$//' | sed "s/\\\\n/ /g")
         
         # Export the variable (only if key is not empty)
         if [ -n "$key" ]; then
-            export "$key"="$value"
+            # Use eval to properly handle special characters in values
+            eval "export \"$key\"=\"$value\""
         fi
     done < "$TEMP_ENV"
     rm -f "$TEMP_ENV"
-    
-    # Debug: Verify password variable is set (without showing actual password)
-    if [ -n "$POSTGRES_TIWATER_PASSWORD" ]; then
-        echo -e "${GREEN}✓ POSTGRES_TIWATER_PASSWORD loaded${NC}"
-    elif [ -n "$POSTGRES_PASSWORD" ]; then
-        echo -e "${GREEN}✓ POSTGRES_PASSWORD loaded${NC}"
-    else
-        echo -e "${YELLOW}⚠ No password found in .env - will prompt for password${NC}"
-    fi
 else
     echo -e "${RED}Error: .env file not found${NC}"
     exit 1
@@ -103,13 +98,28 @@ PGUSER=${POSTGRES_TIWATER_USER:-${POSTGRES_USER:-tiwater_user}}
 PGPASSWORD=${POSTGRES_TIWATER_PASSWORD:-${POSTGRES_PASSWORD:-}}
 
 # Debug: Show which password variable is being used (without showing the actual password)
+echo ""
+echo -e "${YELLOW}=== Debug: Environment Variables ===${NC}"
 if [ -n "$POSTGRES_TIWATER_PASSWORD" ]; then
-    echo -e "${YELLOW}Using POSTGRES_TIWATER_PASSWORD from .env${NC}"
+    echo -e "${GREEN}✓ Using POSTGRES_TIWATER_PASSWORD (length: ${#POSTGRES_TIWATER_PASSWORD})${NC}"
 elif [ -n "$POSTGRES_PASSWORD" ]; then
-    echo -e "${YELLOW}Using POSTGRES_PASSWORD from .env${NC}"
+    echo -e "${GREEN}✓ Using POSTGRES_PASSWORD (fallback) (length: ${#POSTGRES_PASSWORD})${NC}"
+elif [ -n "$PGPASSWORD" ]; then
+    echo -e "${GREEN}✓ Using PGPASSWORD (length: ${#PGPASSWORD})${NC}"
 else
-    echo -e "${YELLOW}⚠️  No password found in .env - will prompt for password${NC}"
+    echo -e "${RED}✗ No password found in environment variables${NC}"
+    echo -e "${YELLOW}Checking .env file for POSTGRES*PASSWORD variables...${NC}"
+    if grep -q '^POSTGRES.*PASSWORD' .env 2>/dev/null; then
+        grep -E '^POSTGRES.*PASSWORD' .env | cut -d'=' -f1 | while read var; do
+            echo -e "${YELLOW}  Found: $var in .env (but not loaded)${NC}"
+        done
+    else
+        echo -e "${YELLOW}  No POSTGRES*PASSWORD variables found in .env${NC}"
+    fi
+    echo -e "${YELLOW}⚠️  Will prompt for password interactively${NC}"
 fi
+echo -e "${YELLOW}Using PGPASSWORD variable (length: ${#PGPASSWORD})${NC}"
+echo ""
 
 echo -e "${YELLOW}Running TI Water migration: $MIGRATION_FILE${NC}"
 echo -e "Host: $PGHOST"
