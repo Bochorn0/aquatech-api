@@ -3,6 +3,7 @@
 
 import SensoresModel from '../models/postgres/sensores.model.js';
 import { query } from '../config/postgres.config.js';
+import ClientModel from '../models/postgres/client.model.js';
 
 /**
  * Genera el histórico diario de un producto tipo Nivel basándose en registros acumulados
@@ -509,7 +510,7 @@ export const getPuntosVentaV2 = async (req, res) => {
     const now = new Date();
     const thresholdTime = new Date(now.getTime() - ONLINE_THRESHOLD_MS);
 
-    // Get online status for each punto de venta
+    // Get online status for each punto de venta and fetch client data
     const puntosConEstado = await Promise.all(
       puntosPG.map(async (pv) => {
         let online = false;
@@ -532,6 +533,21 @@ export const getPuntosVentaV2 = async (req, res) => {
           }
         }
 
+        // Fetch client data if clientId exists
+        let clienteData = null;
+        if (pv.clientId) {
+          try {
+            const clientId = typeof pv.clientId === 'string' 
+              ? parseInt(pv.clientId, 10) 
+              : pv.clientId;
+            if (!isNaN(clientId)) {
+              clienteData = await ClientModel.findById(clientId);
+            }
+          } catch (error) {
+            console.warn(`[getPuntosVentaV2] Error fetching client ${pv.clientId}:`, error.message);
+          }
+        }
+
         // Parse address if it's a JSON string
         let addressObj = null;
         if (pv.address) {
@@ -549,9 +565,12 @@ export const getPuntosVentaV2 = async (req, res) => {
           id: String(pv.id),
           name: pv.name || 'Sin nombre',
           codigo_tienda: pv.codigo_tienda || pv.code || null,
-          cliente: pv.clientId ? {
-            _id: String(pv.clientId),
-            name: null // Would need to join with client table if needed
+          cliente: clienteData ? {
+            _id: String(clienteData.id),
+            id: String(clienteData.id),
+            name: clienteData.name || null,
+            email: clienteData.email || null,
+            phone: clienteData.phone || null
           } : null,
           city: addressObj ? {
             _id: null,
@@ -628,13 +647,34 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       });
     }
     
+    // Fetch client data if clientId exists
+    let clienteData = null;
+    if (puntoFromPG.clientId) {
+      try {
+        const clientId = typeof puntoFromPG.clientId === 'string' 
+          ? parseInt(puntoFromPG.clientId, 10) 
+          : puntoFromPG.clientId;
+        if (!isNaN(clientId)) {
+          clienteData = await ClientModel.findById(clientId);
+        }
+      } catch (error) {
+        console.warn(`[getPuntoVentaDetalleV2] Error fetching client ${puntoFromPG.clientId}:`, error.message);
+      }
+    }
+
     // Create punto object from PostgreSQL data
     const punto = {
       _id: String(puntoFromPG.id),
       id: String(puntoFromPG.id),
       name: puntoFromPG.name || `Punto de Venta ${codigoTienda}`,
       codigo_tienda: codigoTienda,
-      cliente: null,
+      cliente: clienteData ? {
+        _id: String(clienteData.id),
+        id: String(clienteData.id),
+        name: clienteData.name || null,
+        email: clienteData.email || null,
+        phone: clienteData.phone || null
+      } : null,
       city: null,
       productos: [],
       controladores: [],
