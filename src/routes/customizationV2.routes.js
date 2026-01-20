@@ -20,7 +20,11 @@ import {
   getCityByIdV2,
   addCityV2,
   updateCityV2,
-  removeCityV2
+  removeCityV2,
+  // PuntosVenta
+  addPuntoVentaV2,
+  updatePuntoVentaV2,
+  removePuntoVentaV2
 } from '../controllers/customizationV2.controller.js';
 
 const router = express.Router();
@@ -141,5 +145,30 @@ router.patch('/cities/:id', updateCityV2);
  * @access  Private
  */
 router.delete('/cities/:id', removeCityV2);
+
+// ============================================================================
+// PUNTOVENTA ROUTES
+// ============================================================================
+
+/**
+ * @route   POST /api/v2.0/puntoVentas
+ * @desc    Create new punto de venta (PostgreSQL)
+ * @access  Private
+ */
+router.post('/puntoVentas', addPuntoVentaV2);
+
+/**
+ * @route   PATCH /api/v2.0/puntoVentas/:id
+ * @desc    Update punto de venta (PostgreSQL)
+ * @access  Private
+ */
+router.patch('/puntoVentas/:id', updatePuntoVentaV2);
+
+/**
+ * @route   DELETE /api/v2.0/puntoVentas/:id
+ * @desc    Delete punto de venta (PostgreSQL)
+ * @access  Private
+ */
+router.delete('/puntoVentas/:id', removePuntoVentaV2);
 
 export default router;

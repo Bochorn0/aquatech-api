@@ -484,11 +484,134 @@ export const removeCityV2 = async (req, res) => {
 };
 
 // ============================================================================
-// PUNTOVENTA CONTROLLERS (already exists, but adding here for consistency)
+// PUNTOVENTA CONTROLLERS
 // ============================================================================
 
 /**
- * Get all puntos de venta (v2.0 - PostgreSQL)
- * Already implemented in sensorDataV2.controller.js as getPuntosVentaV2
- * This is just for reference
+ * Create puntoVenta (v2.0 - PostgreSQL)
+ * @route   POST /api/v2.0/puntoVentas
+ * @desc    Create a new punto de venta
+ * @access  Private
  */
+export const addPuntoVentaV2 = async (req, res) => {
+  try {
+    const puntoVentaData = req.body;
+    
+    // Convert cliente to clientId if needed
+    if (puntoVentaData.cliente) {
+      const clientId = parseInt(puntoVentaData.cliente, 10);
+      if (!isNaN(clientId)) {
+        puntoVentaData.clientId = clientId;
+      }
+    }
+    
+    // Handle address - convert to JSON string if it's an object
+    if (puntoVentaData.address && typeof puntoVentaData.address === 'object') {
+      puntoVentaData.address = JSON.stringify(puntoVentaData.address);
+    }
+    
+    // Handle meta - convert to JSON string if it's an object
+    if (puntoVentaData.meta && typeof puntoVentaData.meta === 'object') {
+      puntoVentaData.meta = JSON.stringify(puntoVentaData.meta);
+    }
+    
+    // Extract codigo_tienda if provided
+    if (puntoVentaData.codigo_tienda) {
+      puntoVentaData.code = puntoVentaData.codigo_tienda;
+    }
+    
+    const newPuntoVenta = await PuntoVentaModel.getOrCreate(puntoVentaData);
+    
+    res.status(201).json(newPuntoVenta);
+  } catch (error) {
+    console.error('Error creating punto de venta in PostgreSQL (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error creating punto de venta',
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * Update puntoVenta (v2.0 - PostgreSQL)
+ * @route   PATCH /api/v2.0/puntoVentas/:id
+ * @desc    Update a punto de venta
+ * @access  Private
+ */
+export const updatePuntoVentaV2 = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const puntoVentaData = req.body;
+    
+    // Convert cliente to clientId if needed
+    if (puntoVentaData.cliente) {
+      const clientId = parseInt(puntoVentaData.cliente, 10);
+      if (!isNaN(clientId)) {
+        puntoVentaData.clientId = clientId;
+      }
+    }
+    
+    // Handle address - convert to JSON string if it's an object
+    if (puntoVentaData.address && typeof puntoVentaData.address === 'object') {
+      puntoVentaData.address = JSON.stringify(puntoVentaData.address);
+    }
+    
+    // Handle meta - convert to JSON string if it's an object
+    if (puntoVentaData.meta && typeof puntoVentaData.meta === 'object') {
+      puntoVentaData.meta = JSON.stringify(puntoVentaData.meta);
+    }
+    
+    // Handle codigo_tienda
+    if (puntoVentaData.codigo_tienda) {
+      puntoVentaData.code = puntoVentaData.codigo_tienda;
+    }
+    
+    const updatedPuntoVenta = await PuntoVentaModel.update(parseInt(id, 10), puntoVentaData);
+    
+    if (!updatedPuntoVenta) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Punto de venta no encontrado' 
+      });
+    }
+    
+    res.json(updatedPuntoVenta);
+  } catch (error) {
+    console.error('Error updating punto de venta in PostgreSQL (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error updating punto de venta',
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * Delete puntoVenta (v2.0 - PostgreSQL)
+ * @route   DELETE /api/v2.0/puntoVentas/:id
+ * @desc    Delete a punto de venta
+ * @access  Private
+ */
+export const removePuntoVentaV2 = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await PuntoVentaModel.delete(parseInt(id, 10));
+    
+    if (!deleted) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Punto de venta no encontrado' 
+      });
+    }
+    
+    res.json({ success: true, message: 'Punto de venta eliminado exitosamente' });
+  } catch (error) {
+    console.error('Error deleting punto de venta from PostgreSQL (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error deleting punto de venta',
+      error: error.message 
+    });
+  }
+};

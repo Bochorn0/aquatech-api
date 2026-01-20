@@ -309,6 +309,22 @@ class PuntoVentaModel {
   }
 
   /**
+   * Delete puntoVenta
+   * @param {Number} id - PuntoVenta ID
+   * @returns {Promise<Boolean>} True if deleted
+   */
+  static async delete(id) {
+    const deleteQuery = 'DELETE FROM puntoventa WHERE id = $1 RETURNING id';
+    try {
+      const result = await query(deleteQuery, [id]);
+      return result.rows.length > 0;
+    } catch (error) {
+      console.error('[PuntoVentaModel] Error deleting puntoVenta:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Parse database row to object with camelCase keys
    * @param {Object} row - Database row
    * @returns {Object} Parsed object
