@@ -23,6 +23,7 @@ import controllerRoutes from './routes/controller.routes.js' // Use `import` for
 import puntoVentaRoutes from './routes/puntoVenta.routes.js' // Use `import` for PuntoVenta
 import sensorDataRoutes from './routes/sensorData.routes.js';  // Use `import` for sensorDataRoutes
 import sensorDataV2Routes from './routes/sensorDataV2.routes.js';  // Use `import` for sensorDataV2Routes (v2.0)
+import customizationV2Routes from './routes/customizationV2.routes.js';  // Use `import` for customizationV2Routes (v2.0)
 import tiwaterProductRoutes from './routes/tiwater-product.routes.js';  // Use `import` for TI Water product routes (v2.0)
 import tiwaterQuoteRoutes from './routes/tiwater-quote.routes.js';  // Use `import` for TI Water quote routes (v2.0)
 import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoutes
@@ -100,6 +101,8 @@ app.use('/api/v2.0/tiwater/quotes', tiwaterQuoteRoutes);
 
 // v2.0 API routes - PostgreSQL based (sensors - must come after tiwater routes)
 app.use('/api/v2.0/sensors', authenticate, authorizeRoles('admin', 'cliente'), sensorDataV2Routes);
+// v2.0 API routes - Customization (metrics, clients, cities, puntosVenta)
+app.use('/api/v2.0', authenticate, authorizeRoles('admin', 'cliente'), customizationV2Routes);
 app.use('/api/v2.0', authenticate, authorizeRoles('admin', 'cliente'), sensorDataV2Routes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
