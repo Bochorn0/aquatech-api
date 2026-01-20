@@ -505,6 +505,42 @@ export const addPuntoVentaV2 = async (req, res) => {
       }
     }
     
+    // Handle city - fetch city data and update lat/long/address
+    if (puntoVentaData.city) {
+      try {
+        const cityId = typeof puntoVentaData.city === 'string' 
+          ? parseInt(puntoVentaData.city, 10) 
+          : puntoVentaData.city;
+        if (!isNaN(cityId)) {
+          const cityData = await CityModel.findById(cityId);
+          if (cityData) {
+            // Update lat and long from city data
+            puntoVentaData.lat = cityData.lat || puntoVentaData.lat;
+            puntoVentaData.long = cityData.lon || puntoVentaData.long;
+            
+            // Update address with city information
+            let addressObj = {};
+            if (puntoVentaData.address) {
+              try {
+                addressObj = typeof puntoVentaData.address === 'string' 
+                  ? JSON.parse(puntoVentaData.address) 
+                  : puntoVentaData.address;
+              } catch (e) {
+                addressObj = {};
+              }
+            }
+            addressObj.city = cityData.city || addressObj.city;
+            addressObj.state = cityData.state || addressObj.state;
+            addressObj.lat = cityData.lat || addressObj.lat;
+            addressObj.lon = cityData.lon || addressObj.lon;
+            puntoVentaData.address = addressObj;
+          }
+        }
+      } catch (error) {
+        console.warn(`[addPuntoVentaV2] Error fetching city ${puntoVentaData.city}:`, error.message);
+      }
+    }
+    
     // Handle address - convert to JSON string if it's an object
     if (puntoVentaData.address && typeof puntoVentaData.address === 'object') {
       puntoVentaData.address = JSON.stringify(puntoVentaData.address);
@@ -549,6 +585,42 @@ export const updatePuntoVentaV2 = async (req, res) => {
       const clientId = parseInt(puntoVentaData.cliente, 10);
       if (!isNaN(clientId)) {
         puntoVentaData.clientId = clientId;
+      }
+    }
+    
+    // Handle city - fetch city data and update lat/long/address
+    if (puntoVentaData.city) {
+      try {
+        const cityId = typeof puntoVentaData.city === 'string' 
+          ? parseInt(puntoVentaData.city, 10) 
+          : puntoVentaData.city;
+        if (!isNaN(cityId)) {
+          const cityData = await CityModel.findById(cityId);
+          if (cityData) {
+            // Update lat and long from city data
+            puntoVentaData.lat = cityData.lat || puntoVentaData.lat;
+            puntoVentaData.long = cityData.lon || puntoVentaData.long;
+            
+            // Update address with city information
+            let addressObj = {};
+            if (puntoVentaData.address) {
+              try {
+                addressObj = typeof puntoVentaData.address === 'string' 
+                  ? JSON.parse(puntoVentaData.address) 
+                  : puntoVentaData.address;
+              } catch (e) {
+                addressObj = {};
+              }
+            }
+            addressObj.city = cityData.city || addressObj.city;
+            addressObj.state = cityData.state || addressObj.state;
+            addressObj.lat = cityData.lat || addressObj.lat;
+            addressObj.lon = cityData.lon || addressObj.lon;
+            puntoVentaData.address = addressObj;
+          }
+        }
+      } catch (error) {
+        console.warn(`[updatePuntoVentaV2] Error fetching city ${puntoVentaData.city}:`, error.message);
       }
     }
     

@@ -559,6 +559,17 @@ export const getPuntosVentaV2 = async (req, res) => {
           }
         }
 
+        // Try to fetch city data from cities table if address has city/state
+        let cityData = null;
+        if (addressObj && addressObj.city && addressObj.state) {
+          try {
+            const CityModel = (await import('../models/postgres/city.model.js')).default;
+            cityData = await CityModel.findByStateAndCity(addressObj.state, addressObj.city);
+          } catch (error) {
+            console.warn(`[getPuntosVentaV2] Error fetching city for ${pv.id}:`, error.message);
+          }
+        }
+
         // Transform PostgreSQL format to MongoDB-compatible format
         return {
           _id: String(pv.id), // Use id as _id for compatibility (convert to string)
@@ -572,7 +583,14 @@ export const getPuntosVentaV2 = async (req, res) => {
             email: clienteData.email || null,
             phone: clienteData.phone || null
           } : null,
-          city: addressObj ? {
+          city: cityData ? {
+            _id: String(cityData.id),
+            id: String(cityData.id),
+            city: cityData.city || null,
+            state: cityData.state || null,
+            lat: cityData.lat || pv.lat || null,
+            lon: cityData.lon || pv.long || null
+          } : (addressObj ? {
             _id: null,
             city: addressObj.city || null,
             state: addressObj.state || null,
@@ -584,7 +602,7 @@ export const getPuntosVentaV2 = async (req, res) => {
             state: null,
             lat: pv.lat || null,
             lon: pv.long || null
-          },
+          }),
           address: addressObj || null,
           productos: [], // Products would need to be queried separately if needed
           controladores: [], // Controllers would need to be queried separately if needed
@@ -662,6 +680,40 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       }
     }
 
+    // Fetch city data from address or try to match by lat/long
+    let cityData = null;
+    try {
+      // Try to parse address to get city/state
+      let addressObj = null;
+      if (puntoFromPG.address) {
+        try {
+          addressObj = typeof puntoFromPG.address === 'string' 
+            ? JSON.parse(puntoFromPG.address) 
+            : puntoFromPG.address;
+        } catch (e) {
+          addressObj = null;
+        }
+      }
+      
+      // If address has city and state, try to find matching city
+      if (addressObj && addressObj.city && addressObj.state) {
+        const CityModel = (await import('../models/postgres/city.model.js')).default;
+        cityData = await CityModel.findByStateAndCity(addressObj.state, addressObj.city);
+      }
+      
+      // If not found and we have lat/long, we could try to find closest city, but for now just use address data
+      if (!cityData && addressObj) {
+        cityData = {
+          city: addressObj.city || null,
+          state: addressObj.state || null,
+          lat: addressObj.lat || puntoFromPG.lat || null,
+          lon: addressObj.lon || puntoFromPG.long || null
+        };
+      }
+    } catch (error) {
+      console.warn(`[getPuntoVentaDetalleV2] Error fetching city:`, error.message);
+    }
+
     // Create punto object from PostgreSQL data
     const punto = {
       _id: String(puntoFromPG.id),
@@ -675,7 +727,14 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         email: clienteData.email || null,
         phone: clienteData.phone || null
       } : null,
-      city: null,
+      city: cityData ? {
+        _id: cityData.id ? String(cityData.id) : null,
+        id: cityData.id ? String(cityData.id) : null,
+        city: cityData.city || null,
+        state: cityData.state || null,
+        lat: cityData.lat || null,
+        lon: cityData.lon || null
+      } : null,
       productos: [],
       controladores: [],
       online: false,
