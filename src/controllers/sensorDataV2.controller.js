@@ -487,6 +487,46 @@ export const getOsmosisSystemByPuntoVenta = async (req, res) => {
 /**
  * Get punto de venta detail with osmosis system data from PostgreSQL
  */
+/**
+ * Get all puntos de venta (v2.0 - PostgreSQL compatible)
+ * @route   GET /api/v2.0/puntoVentas/all
+ * @desc    Get all puntos de venta from MongoDB (same as v1.0 but routed through v2.0)
+ * @access  Private
+ */
+export const getPuntosVentaV2 = async (req, res) => {
+  try {
+    console.log('Fetching Puntos de Venta from MongoDB (v2.0)...');
+
+    // Import PuntoVenta model (MongoDB)
+    const PuntoVenta = (await import('../models/puntoVenta.model.js')).default;
+
+    const puntos = await PuntoVenta.find({})
+      .populate('cliente')
+      .populate('city')
+      .populate('productos')
+      .populate('controladores');
+
+    const now = Date.now();
+    const ONLINE_THRESHOLD_MS = 5000;
+
+    const puntosConEstado = puntos.map(pv => {
+      const tieneControladorOnline = pv.controladores?.some(
+        ctrl => ctrl.last_time_active && (now - ctrl.last_time_active <= ONLINE_THRESHOLD_MS)
+      );
+
+      return {
+        ...pv.toObject(),
+        online: tieneControladorOnline,
+      };
+    });
+
+    res.json(puntosConEstado);
+  } catch (error) {
+    console.error('Error fetching puntos de venta (v2.0):', error);
+    res.status(500).json({ message: 'Error fetching puntos de venta' });
+  }
+};
+
 export const getPuntoVentaDetalleV2 = async (req, res) => {
   try {
     const { id } = req.params;

@@ -5,6 +5,7 @@ import express from 'express';
 import {
   getOsmosisSystemByPuntoVenta,
   getPuntoVentaDetalleV2,
+  getPuntosVentaV2,
   getSensorTimeSeries,
   getTiwaterSensorData
 } from '../controllers/sensorDataV2.controller.js';
@@ -18,6 +19,13 @@ const router = express.Router();
  * @query   codigoTienda (required), resourceId (optional)
  */
 router.get('/osmosis', getOsmosisSystemByPuntoVenta);
+
+/**
+ * @route   GET /api/v2.0/puntoVentas/all
+ * @desc    Get all puntos de venta (MongoDB - v2.0 compatible)
+ * @access  Private
+ */
+router.get('/puntoVentas/all', getPuntosVentaV2);
 
 /**
  * @route   GET /api/v2.0/puntoVentas/:id/detalle
