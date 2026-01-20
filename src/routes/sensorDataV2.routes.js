@@ -28,11 +28,12 @@ router.get('/osmosis', getOsmosisSystemByPuntoVenta);
 router.get('/puntoVentas/all', getPuntosVentaV2);
 
 /**
- * @route   GET /api/v2.0/puntoVentas/:id/detalle
+ * @route   GET /api/v2.0/puntoVentas/:id
  * @desc    Get punto de venta detail with osmosis data from PostgreSQL
  * @access  Private
+ * @param   id - Can be numeric ID or codigo_tienda
  */
-router.get('/puntoVentas/:id/detalle', getPuntoVentaDetalleV2);
+router.get('/puntoVentas/:id', getPuntoVentaDetalleV2);
 
 /**
  * @route   GET /api/v2.0/sensors/timeseries

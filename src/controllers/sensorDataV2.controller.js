@@ -599,91 +599,80 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Import PuntoVenta model (MongoDB)
-    const PuntoVenta = (await import('../models/puntoVenta.model.js')).default;
+    // Import PostgreSQL PuntoVenta model first (v2.0 uses PostgreSQL)
+    const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
     
-    // Try to find by _id first, if that fails try by codigo_tienda
-    let punto = null;
-    
-    // Check if id looks like a MongoDB ObjectId (24 hex characters)
-    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
-    
-    if (isObjectId) {
-      // Try to find by MongoDB _id
-      punto = await PuntoVenta.findById(id)
-        .populate('cliente')
-        .populate('city')
-        .populate('productos')
-        .populate('controladores');
-    }
-    
-    // If not found by _id, try by codigo_tienda
-    if (!punto) {
-      punto = await PuntoVenta.findOne({ codigo_tienda: id.toUpperCase() })
-        .populate('cliente')
-        .populate('city')
-        .populate('productos')
-        .populate('controladores');
-    }
-
-    // If not found in MongoDB, try PostgreSQL
-    let codigoTienda = null;
     let puntoFromPG = null;
+    let codigoTienda = null;
     
-    if (!punto) {
-      // Try to find in PostgreSQL by code/codigo_tienda
-      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
-      puntoFromPG = await PuntoVentaModel.findByCode(id);
-      
-      if (puntoFromPG) {
-        codigoTienda = (puntoFromPG.code || puntoFromPG.codigo_tienda || id).toUpperCase();
-        // Create minimal punto object from PostgreSQL data
-        punto = {
-          _id: `pg-${puntoFromPG.id}`,
-          id: puntoFromPG.id,
-          name: puntoFromPG.name || `Punto de Venta ${codigoTienda}`,
-          codigo_tienda: codigoTienda,
-          cliente: null,
-          city: null,
-          productos: [],
-          controladores: [],
-          online: false,
-          toObject: function() {
-            return {
-              _id: this._id,
-              id: this.id,
-              name: this.name,
-              codigo_tienda: this.codigo_tienda,
-              cliente: this.cliente,
-              city: this.city,
-              productos: this.productos,
-              controladores: this.controladores,
-              online: this.online,
-              // Add PostgreSQL fields
-              owner: puntoFromPG.owner,
-              clientId: puntoFromPG.clientId,
-              status: puntoFromPG.status,
-              lat: puntoFromPG.lat,
-              long: puntoFromPG.long,
-              address: puntoFromPG.address,
-              contactId: puntoFromPG.contactId,
-              createdAt: puntoFromPG.createdAt,
-              updatedAt: puntoFromPG.updatedAt,
-              meta: puntoFromPG.meta
-            };
-          }
-        };
-      }
-    } else {
-      codigoTienda = punto.codigo_tienda?.toUpperCase();
+    // Check if id is numeric (PostgreSQL ID)
+    const isNumericId = /^\d+$/.test(id);
+    
+    if (isNumericId) {
+      // Try to find by PostgreSQL numeric ID first
+      puntoFromPG = await PuntoVentaModel.findById(parseInt(id, 10));
     }
-
-    if (!punto || !codigoTienda) {
+    
+    // If not found by ID, try by codigo_tienda
+    if (!puntoFromPG) {
+      puntoFromPG = await PuntoVentaModel.findByCode(id);
+    }
+    
+    if (puntoFromPG) {
+      codigoTienda = (puntoFromPG.code || puntoFromPG.codigo_tienda || id).toUpperCase();
+    } else {
+      // If not found in PostgreSQL, return 404
       return res.status(404).json({
         success: false,
         message: 'Punto de venta no encontrado'
       });
     }
+    
+    // Create punto object from PostgreSQL data
+    const punto = {
+      _id: String(puntoFromPG.id),
+      id: String(puntoFromPG.id),
+      name: puntoFromPG.name || `Punto de Venta ${codigoTienda}`,
+      codigo_tienda: codigoTienda,
+      cliente: null,
+      city: null,
+      productos: [],
+      controladores: [],
+      online: false,
+      owner: puntoFromPG.owner,
+      clientId: puntoFromPG.clientId,
+      status: puntoFromPG.status,
+      lat: puntoFromPG.lat,
+      long: puntoFromPG.long,
+      address: puntoFromPG.address,
+      contactId: puntoFromPG.contactId,
+      createdAt: puntoFromPG.createdAt,
+      updatedAt: puntoFromPG.updatedAt,
+      meta: puntoFromPG.meta,
+      toObject: function() {
+        return {
+          _id: this._id,
+          id: this.id,
+          name: this.name,
+          codigo_tienda: this.codigo_tienda,
+          cliente: this.cliente,
+          city: this.city,
+          productos: this.productos,
+          controladores: this.controladores,
+          online: this.online,
+          owner: this.owner,
+          clientId: this.clientId,
+          status: this.status,
+          lat: this.lat,
+          long: this.long,
+          address: this.address,
+          contactId: this.contactId,
+          createdAt: this.createdAt,
+          updatedAt: this.updatedAt,
+          meta: this.meta
+        };
+      }
+    };
 
     // Get osmosis systems from PostgreSQL (including tiwater systems)
     const osmosisSystems = [];
