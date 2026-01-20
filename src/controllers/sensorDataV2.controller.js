@@ -488,42 +488,110 @@ export const getOsmosisSystemByPuntoVenta = async (req, res) => {
  * Get punto de venta detail with osmosis system data from PostgreSQL
  */
 /**
- * Get all puntos de venta (v2.0 - PostgreSQL compatible)
+ * Get all puntos de venta (v2.0 - PostgreSQL)
  * @route   GET /api/v2.0/puntoVentas/all
- * @desc    Get all puntos de venta from MongoDB (same as v1.0 but routed through v2.0)
+ * @desc    Get all puntos de venta from PostgreSQL
  * @access  Private
  */
 export const getPuntosVentaV2 = async (req, res) => {
   try {
-    console.log('Fetching Puntos de Venta from MongoDB (v2.0)...');
+    console.log('Fetching Puntos de Venta from PostgreSQL (v2.0)...');
 
-    // Import PuntoVenta model (MongoDB)
-    const PuntoVenta = (await import('../models/puntoVenta.model.js')).default;
+    // Import PostgreSQL PuntoVenta model
+    const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
 
-    const puntos = await PuntoVenta.find({})
-      .populate('cliente')
-      .populate('city')
-      .populate('productos')
-      .populate('controladores');
+    // Get all puntos de venta from PostgreSQL
+    const puntosPG = await PuntoVentaModel.find({}, { limit: 1000, offset: 0 });
 
-    const now = Date.now();
-    const ONLINE_THRESHOLD_MS = 5000;
+    // Check online status by querying sensors table for recent data
+    // A punto de venta is online if it has sensor data in the last 5 minutes
+    const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+    const now = new Date();
+    const thresholdTime = new Date(now.getTime() - ONLINE_THRESHOLD_MS);
 
-    const puntosConEstado = puntos.map(pv => {
-      const tieneControladorOnline = pv.controladores?.some(
-        ctrl => ctrl.last_time_active && (now - ctrl.last_time_active <= ONLINE_THRESHOLD_MS)
-      );
+    // Get online status for each punto de venta
+    const puntosConEstado = await Promise.all(
+      puntosPG.map(async (pv) => {
+        let online = false;
+        
+        // Check if there are recent sensor readings for this punto de venta
+        if (pv.codigo_tienda || pv.code) {
+          const codigoTienda = (pv.codigo_tienda || pv.code).toUpperCase();
+          try {
+            const onlineCheckQuery = `
+              SELECT COUNT(*) as count
+              FROM sensores
+              WHERE codigotienda = $1
+                AND createdat >= $2
+              LIMIT 1
+            `;
+            const onlineResult = await query(onlineCheckQuery, [codigoTienda, thresholdTime]);
+            online = onlineResult.rows.length > 0 && parseInt(onlineResult.rows[0].count) > 0;
+          } catch (error) {
+            console.warn(`[getPuntosVentaV2] Error checking online status for ${codigoTienda}:`, error.message);
+          }
+        }
 
-      return {
-        ...pv.toObject(),
-        online: tieneControladorOnline,
-      };
-    });
+        // Parse address if it's a JSON string
+        let addressObj = null;
+        if (pv.address) {
+          try {
+            addressObj = typeof pv.address === 'string' ? JSON.parse(pv.address) : pv.address;
+          } catch (e) {
+            // If parsing fails, treat as plain string or object
+            addressObj = pv.address;
+          }
+        }
 
+        // Transform PostgreSQL format to MongoDB-compatible format
+        return {
+          _id: String(pv.id), // Use id as _id for compatibility (convert to string)
+          id: String(pv.id),
+          name: pv.name || 'Sin nombre',
+          codigo_tienda: pv.codigo_tienda || pv.code || null,
+          cliente: pv.clientId ? {
+            _id: String(pv.clientId),
+            name: null // Would need to join with client table if needed
+          } : null,
+          city: addressObj ? {
+            _id: null,
+            city: addressObj.city || null,
+            state: addressObj.state || null,
+            lat: pv.lat || addressObj.lat || null,
+            lon: pv.long || addressObj.lon || null
+          } : {
+            _id: null,
+            city: null,
+            state: null,
+            lat: pv.lat || null,
+            lon: pv.long || null
+          },
+          address: addressObj || null,
+          productos: [], // Products would need to be queried separately if needed
+          controladores: [], // Controllers would need to be queried separately if needed
+          online: online,
+          status: pv.status || 'active',
+          owner: pv.owner || null,
+          clientId: pv.clientId ? String(pv.clientId) : null,
+          lat: pv.lat || null,
+          long: pv.long || null,
+          contactId: pv.contactId ? String(pv.contactId) : null,
+          meta: pv.meta || null,
+          createdAt: pv.createdAt || null,
+          updatedAt: pv.updatedAt || null
+        };
+      })
+    );
+
+    console.log(`[getPuntosVentaV2] ✅ Found ${puntosConEstado.length} puntos de venta from PostgreSQL`);
     res.json(puntosConEstado);
   } catch (error) {
-    console.error('Error fetching puntos de venta (v2.0):', error);
-    res.status(500).json({ message: 'Error fetching puntos de venta' });
+    console.error('Error fetching puntos de venta from PostgreSQL (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error fetching puntos de venta',
+      error: error.message 
+    });
   }
 };
 
