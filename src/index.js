@@ -48,8 +48,8 @@ app.get('/health', (req, res) => {
   res.json({ message: 'API Working' });
 });
 
-// Test SMTP connection endpoint (for debugging)
-app.get('/api/v1.0/test-smtp', async (req, res) => {
+// Test SMTP connection endpoint (for debugging) - supports both GET and POST
+const testSmtpHandler = async (req, res) => {
   try {
     const testResult = await emailHelper.sendEmail({
       to: process.env.SMTP_USER || 'soporte@lcc.com.mx',
@@ -78,7 +78,10 @@ app.get('/api/v1.0/test-smtp', async (req, res) => {
       error: error.message 
     });
   }
-});
+};
+
+app.get('/api/v1.0/test-smtp', testSmtpHandler);
+app.post('/api/v1.0/test-smtp', testSmtpHandler);
 
 // MQTT Status endpoint
 app.get('/api/v1.0/mqtt/status', (req, res) => {
