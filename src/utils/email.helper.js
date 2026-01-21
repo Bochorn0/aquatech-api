@@ -1,7 +1,7 @@
 // src/utils/email.helper.js
 // Reusable email helper module for sending emails
 // Can be used for password recovery, alerts, notifications, etc.
-// Supports both SMTP (nodemailer) and SendGrid API
+// Supports SMTP (nodemailer) and multiple API providers: SendGrid, Mailgun, Resend
 
 import nodemailer from 'nodemailer';
 import axios from 'axios';
@@ -13,14 +13,25 @@ import config from '../config/config.js';
  */
 class EmailHelper {
   constructor() {
-    // Email provider: 'smtp' or 'sendgrid'
-    // Use SendGrid if SMTP ports are blocked by network
-    this.emailProvider = process.env.EMAIL_PROVIDER || 'smtp'; // 'smtp' or 'sendgrid'
+    // Email provider: 'smtp', 'sendgrid', 'mailgun', or 'resend'
+    // Use API providers if SMTP ports are blocked by network
+    this.emailProvider = process.env.EMAIL_PROVIDER || 'smtp'; // 'smtp', 'sendgrid', 'mailgun', 'resend'
     
     // SendGrid configuration
     this.sendGridApiKey = process.env.SENDGRID_API_KEY || '';
     this.sendGridFromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.SMTP_USER || 'soporte@lcc.com.mx';
     this.sendGridFromName = process.env.SENDGRID_FROM_NAME || 'Aquatech';
+    
+    // Mailgun configuration
+    this.mailgunApiKey = process.env.MAILGUN_API_KEY || '';
+    this.mailgunDomain = process.env.MAILGUN_DOMAIN || '';
+    this.mailgunFromEmail = process.env.MAILGUN_FROM_EMAIL || process.env.SMTP_USER || 'soporte@lcc.com.mx';
+    this.mailgunFromName = process.env.MAILGUN_FROM_NAME || 'Aquatech';
+    
+    // Resend configuration
+    this.resendApiKey = process.env.RESEND_API_KEY || '';
+    this.resendFromEmail = process.env.RESEND_FROM_EMAIL || process.env.SMTP_USER || 'soporte@lcc.com.mx';
+    this.resendFromName = process.env.RESEND_FROM_NAME || 'Aquatech';
     
     // SMTP configuration (fallback if SendGrid not configured)
     // Email configuration from environment variables
@@ -87,6 +98,16 @@ class EmailHelper {
       console.log('[EmailHelper] Using SendGrid API (HTTP/HTTPS, not SMTP ports)');
       if (!this.sendGridApiKey) {
         console.warn('[EmailHelper] SENDGRID_API_KEY not set. Email sending will fail.');
+      }
+    } else if (this.emailProvider === 'mailgun') {
+      console.log('[EmailHelper] Using Mailgun API (HTTP/HTTPS, not SMTP ports)');
+      if (!this.mailgunApiKey || !this.mailgunDomain) {
+        console.warn('[EmailHelper] MAILGUN_API_KEY or MAILGUN_DOMAIN not set. Email sending will fail.');
+      }
+    } else if (this.emailProvider === 'resend') {
+      console.log('[EmailHelper] Using Resend API (HTTP/HTTPS, not SMTP ports)');
+      if (!this.resendApiKey) {
+        console.warn('[EmailHelper] RESEND_API_KEY not set. Email sending will fail.');
       }
     }
   }
@@ -294,6 +315,136 @@ class EmailHelper {
   }
 
   /**
+   * Send email using Mailgun API
+   * @param {Object} options - Email options
+   * @returns {Promise<Object>} Result object
+   */
+  async sendEmailViaMailgun(options) {
+    const {
+      to,
+      subject,
+      html,
+      text,
+      from = this.mailgunFromEmail,
+      fromName = this.mailgunFromName,
+    } = options;
+
+    if (!this.mailgunApiKey || !this.mailgunDomain) {
+      return {
+        success: false,
+        error: 'MAILGUN_API_KEY or MAILGUN_DOMAIN not configured',
+      };
+    }
+
+    try {
+      // Mailgun API endpoint
+      const url = `https://api.mailgun.net/v3/${this.mailgunDomain}/messages`;
+      
+      const formData = new URLSearchParams();
+      formData.append('from', `${fromName} <${from}>`);
+      if (Array.isArray(to)) {
+        to.forEach(email => formData.append('to', email));
+      } else {
+        formData.append('to', to);
+      }
+      formData.append('subject', subject);
+      if (html) formData.append('html', html);
+      if (text) formData.append('text', text);
+
+      const response = await axios.post(url, formData.toString(), {
+        headers: {
+          'Authorization': `Basic ${Buffer.from(`api:${this.mailgunApiKey}`).toString('base64')}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        timeout: 10000,
+      });
+
+      console.log('[EmailHelper] Email sent via Mailgun:', {
+        to,
+        subject,
+        messageId: response.data.id,
+      });
+
+      return {
+        success: true,
+        messageId: response.data.id || 'mailgun-sent',
+        provider: 'mailgun',
+      };
+    } catch (error) {
+      console.error('[EmailHelper] Error sending email via Mailgun:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message || 'Unknown error sending email via Mailgun',
+        details: error.response?.data || error,
+      };
+    }
+  }
+
+  /**
+   * Send email using Resend API
+   * @param {Object} options - Email options
+   * @returns {Promise<Object>} Result object
+   */
+  async sendEmailViaResend(options) {
+    const {
+      to,
+      subject,
+      html,
+      text,
+      from = this.resendFromEmail,
+      fromName = this.resendFromName,
+    } = options;
+
+    if (!this.resendApiKey) {
+      return {
+        success: false,
+        error: 'RESEND_API_KEY not configured',
+      };
+    }
+
+    try {
+      const emailData = {
+        from: `${fromName} <${from}>`,
+        to: Array.isArray(to) ? to : [to],
+        subject,
+        html: html || text,
+        text: text || html?.replace(/<[^>]*>/g, ''),
+      };
+
+      const response = await axios.post(
+        'https://api.resend.com/emails',
+        emailData,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.resendApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 10000,
+        }
+      );
+
+      console.log('[EmailHelper] Email sent via Resend:', {
+        to,
+        subject,
+        messageId: response.data.id,
+      });
+
+      return {
+        success: true,
+        messageId: response.data.id || 'resend-sent',
+        provider: 'resend',
+      };
+    } catch (error) {
+      console.error('[EmailHelper] Error sending email via Resend:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message || 'Unknown error sending email via Resend',
+        details: error.response?.data || error,
+      };
+    }
+  }
+
+  /**
    * Send email
    * @param {Object} options - Email options
    * @param {string|Array} options.to - Recipient email(s)
@@ -322,9 +473,13 @@ class EmailHelper {
       };
     }
 
-    // Use SendGrid if configured
+    // Route to appropriate provider
     if (this.emailProvider === 'sendgrid') {
       return this.sendEmailViaSendGrid({ to, subject, html, text, from });
+    } else if (this.emailProvider === 'mailgun') {
+      return this.sendEmailViaMailgun({ to, subject, html, text, from });
+    } else if (this.emailProvider === 'resend') {
+      return this.sendEmailViaResend({ to, subject, html, text, from });
     }
 
     // Fallback to SMTP
