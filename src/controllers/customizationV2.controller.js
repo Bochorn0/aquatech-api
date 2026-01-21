@@ -687,3 +687,266 @@ export const removePuntoVentaV2 = async (req, res) => {
     });
   }
 };
+
+// ============================================================================
+// PUNTOVENTA SENSORS CONTROLLERS
+// ============================================================================
+
+/**
+ * Get all sensors for a puntoVenta (v2.0 - PostgreSQL)
+ * @route   GET /api/v2.0/puntoVentas/:id/sensors
+ * @desc    Get all sensor configurations for a punto de venta with latest readings
+ * @access  Private
+ */
+export const getPuntoVentaSensorsV2 = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const puntoVentaId = parseInt(id, 10);
+    
+    if (isNaN(puntoVentaId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid puntoVenta ID' 
+      });
+    }
+
+    // Get all sensor configurations for this puntoVenta
+    const sensors = await PuntoVentaSensorModel.findByPuntoVentaId(puntoVentaId);
+    
+    // Get puntoVenta to get codigo_tienda
+    const puntoVenta = await PuntoVentaModel.findById(puntoVentaId);
+    if (!puntoVenta) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Punto de venta no encontrado' 
+      });
+    }
+
+    const codigoTienda = (puntoVenta.codigo_tienda || puntoVenta.code || '').toUpperCase();
+
+    // Get latest readings for each sensor
+    const sensorsWithReadings = await Promise.all(
+      sensors.map(async (sensor) => {
+        try {
+          // Get latest reading for this sensor type
+          const latestReadingQuery = `
+            SELECT * FROM sensores
+            WHERE codigoTienda = $1
+              AND type = $2
+              ${sensor.resourceId ? 'AND resourceId = $3' : 'AND (resourceId IS NULL OR resourceId = $3)'}
+              ${sensor.resourceType ? 'AND resourceType = $4' : 'AND (resourceType IS NULL OR resourceType = $4)'}
+            ORDER BY timestamp DESC
+            LIMIT 1
+          `;
+          
+          const params = [codigoTienda, sensor.sensorType];
+          if (sensor.resourceId) params.push(sensor.resourceId);
+          else params.push(null);
+          if (sensor.resourceType) params.push(sensor.resourceType);
+          else params.push(null);
+
+          const readingResult = await query(latestReadingQuery, params);
+          let latestReading = null;
+          if (readingResult.rows.length > 0) {
+            const row = readingResult.rows[0];
+            latestReading = {
+              id: row.id,
+              name: row.name,
+              value: row.value !== null ? parseFloat(row.value) : null,
+              type: row.type,
+              timestamp: row.timestamp,
+              createdAt: row.createdat,
+              updatedAt: row.updatedat,
+              meta: typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta,
+              resourceId: row.resourceid,
+              resourceType: row.resourcetype,
+              codigoTienda: row.codigotienda
+            };
+          }
+
+          return {
+            ...sensor,
+            latestReading: latestReading ? {
+              value: latestReading.value,
+              timestamp: latestReading.timestamp,
+              createdAt: latestReading.createdAt
+            } : null
+          };
+        } catch (error) {
+          console.warn(`[getPuntoVentaSensorsV2] Error getting reading for sensor ${sensor.id}:`, error.message);
+          return {
+            ...sensor,
+            latestReading: null
+          };
+        }
+      })
+    );
+
+    res.json(sensorsWithReadings);
+  } catch (error) {
+    console.error('Error getting sensors for punto de venta (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error getting sensors',
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * Add sensor configuration to puntoVenta (v2.0 - PostgreSQL)
+ * @route   POST /api/v2.0/puntoVentas/:id/sensors
+ * @desc    Manually add a sensor configuration
+ * @access  Private
+ */
+export const addPuntoVentaSensorV2 = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const puntoVentaId = parseInt(id, 10);
+    const sensorData = req.body;
+    
+    if (isNaN(puntoVentaId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid puntoVenta ID' 
+      });
+    }
+
+    // Verify puntoVenta exists
+    const puntoVenta = await PuntoVentaModel.findById(puntoVentaId);
+    if (!puntoVenta) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Punto de venta no encontrado' 
+      });
+    }
+
+    const newSensor = await PuntoVentaSensorModel.create({
+      punto_venta_id: puntoVentaId,
+      sensor_name: sensorData.sensorName || sensorData.sensor_name,
+      sensor_type: sensorData.sensorType || sensorData.sensor_type,
+      resource_id: sensorData.resourceId || sensorData.resource_id || null,
+      resource_type: sensorData.resourceType || sensorData.resource_type || null,
+      label: sensorData.label || null,
+      unit: sensorData.unit || null,
+      min_value: sensorData.minValue || sensorData.min_value || null,
+      max_value: sensorData.maxValue || sensorData.max_value || null,
+      enabled: sensorData.enabled !== undefined ? sensorData.enabled : true,
+      meta: sensorData.meta || null
+    });
+
+    res.status(201).json(newSensor);
+  } catch (error) {
+    console.error('Error adding sensor to punto de venta (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error adding sensor',
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * Update sensor configuration (v2.0 - PostgreSQL)
+ * @route   PATCH /api/v2.0/puntoVentas/:id/sensors/:sensorId
+ * @desc    Update a sensor configuration
+ * @access  Private
+ */
+export const updatePuntoVentaSensorV2 = async (req, res) => {
+  try {
+    const { id, sensorId } = req.params;
+    const puntoVentaId = parseInt(id, 10);
+    const sensorConfigId = parseInt(sensorId, 10);
+    const sensorData = req.body;
+    
+    if (isNaN(puntoVentaId) || isNaN(sensorConfigId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid ID' 
+      });
+    }
+
+    // Verify sensor belongs to puntoVenta
+    const sensor = await PuntoVentaSensorModel.findById(sensorConfigId);
+    if (!sensor || parseInt(sensor.puntoVentaId, 10) !== puntoVentaId) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Sensor no encontrado' 
+      });
+    }
+
+    const updatedSensor = await PuntoVentaSensorModel.update(sensorConfigId, {
+      sensor_name: sensorData.sensorName || sensorData.sensor_name,
+      label: sensorData.label,
+      unit: sensorData.unit,
+      min_value: sensorData.minValue || sensorData.min_value,
+      max_value: sensorData.maxValue || sensorData.max_value,
+      enabled: sensorData.enabled,
+      meta: sensorData.meta
+    });
+
+    if (!updatedSensor) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Sensor no encontrado' 
+      });
+    }
+
+    res.json(updatedSensor);
+  } catch (error) {
+    console.error('Error updating sensor (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error updating sensor',
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * Delete sensor configuration (v2.0 - PostgreSQL)
+ * @route   DELETE /api/v2.0/puntoVentas/:id/sensors/:sensorId
+ * @desc    Remove a sensor configuration
+ * @access  Private
+ */
+export const removePuntoVentaSensorV2 = async (req, res) => {
+  try {
+    const { id, sensorId } = req.params;
+    const puntoVentaId = parseInt(id, 10);
+    const sensorConfigId = parseInt(sensorId, 10);
+    
+    if (isNaN(puntoVentaId) || isNaN(sensorConfigId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid ID' 
+      });
+    }
+
+    // Verify sensor belongs to puntoVenta
+    const sensor = await PuntoVentaSensorModel.findById(sensorConfigId);
+    if (!sensor || parseInt(sensor.puntoVentaId, 10) !== puntoVentaId) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Sensor no encontrado' 
+      });
+    }
+
+    const deleted = await PuntoVentaSensorModel.delete(sensorConfigId);
+    
+    if (!deleted) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Sensor no encontrado' 
+      });
+    }
+
+    res.json({ success: true, message: 'Sensor eliminado exitosamente' });
+  } catch (error) {
+    console.error('Error deleting sensor (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error deleting sensor',
+      error: error.message 
+    });
+  }
+};

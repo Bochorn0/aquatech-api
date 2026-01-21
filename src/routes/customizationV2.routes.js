@@ -24,7 +24,12 @@ import {
   // PuntosVenta
   addPuntoVentaV2,
   updatePuntoVentaV2,
-  removePuntoVentaV2
+  removePuntoVentaV2,
+  // PuntoVenta Sensors
+  getPuntoVentaSensorsV2,
+  addPuntoVentaSensorV2,
+  updatePuntoVentaSensorV2,
+  removePuntoVentaSensorV2
 } from '../controllers/customizationV2.controller.js';
 
 const router = express.Router();
@@ -170,5 +175,37 @@ router.patch('/puntoVentas/:id', updatePuntoVentaV2);
  * @access  Private
  */
 router.delete('/puntoVentas/:id', removePuntoVentaV2);
+
+// ============================================================================
+// PUNTOVENTA SENSORS ROUTES
+// ============================================================================
+
+/**
+ * @route   GET /api/v2.0/puntoVentas/:id/sensors
+ * @desc    Get all sensors for a punto de venta (PostgreSQL)
+ * @access  Private
+ */
+router.get('/puntoVentas/:id/sensors', getPuntoVentaSensorsV2);
+
+/**
+ * @route   POST /api/v2.0/puntoVentas/:id/sensors
+ * @desc    Add sensor configuration to punto de venta (PostgreSQL)
+ * @access  Private
+ */
+router.post('/puntoVentas/:id/sensors', addPuntoVentaSensorV2);
+
+/**
+ * @route   PATCH /api/v2.0/puntoVentas/:id/sensors/:sensorId
+ * @desc    Update sensor configuration (PostgreSQL)
+ * @access  Private
+ */
+router.patch('/puntoVentas/:id/sensors/:sensorId', updatePuntoVentaSensorV2);
+
+/**
+ * @route   DELETE /api/v2.0/puntoVentas/:id/sensors/:sensorId
+ * @desc    Delete sensor configuration (PostgreSQL)
+ * @access  Private
+ */
+router.delete('/puntoVentas/:id/sensors/:sensorId', removePuntoVentaSensorV2);
 
 export default router;
