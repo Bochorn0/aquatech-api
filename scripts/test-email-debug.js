@@ -473,6 +473,7 @@ Sent at ${new Date().toISOString()}
       console.log('   4. Check if SMTP is enabled for your organization');
       console.log();
     }
+    }
   }
 } else {
   console.log('❌ Step 4: Skipped - Configuration incomplete');
