@@ -54,10 +54,25 @@ class MetricModel {
       paramIndex++;
     }
 
+    if (filters.metricType) {
+      whereClause += ` AND metric_type = $${paramIndex}`;
+      values.push(filters.metricType);
+      paramIndex++;
+    }
+
+    if (filters.enabled !== undefined) {
+      whereClause += ` AND enabled = $${paramIndex}`;
+      values.push(filters.enabled);
+      paramIndex++;
+    }
+
+    // Order by display_order first, then by createdat
+    const orderBy = filters.orderBy || 'display_order ASC, createdat DESC';
+
     const selectQuery = `
       SELECT * FROM metrics
       WHERE ${whereClause}
-      ORDER BY createdat DESC
+      ORDER BY ${orderBy}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
 
@@ -81,6 +96,16 @@ class MetricModel {
     const {
       clientId,
       punto_venta_id,
+      metric_name,
+      metric_type,
+      sensor_type,
+      sensor_unit,
+      rules,
+      conditions,
+      enabled = true,
+      read_only = false,
+      display_order = 0,
+      // Legacy fields for backward compatibility
       tds_range,
       production_volume_range,
       rejected_volume_range,
@@ -91,17 +116,28 @@ class MetricModel {
 
     const insertQuery = `
       INSERT INTO metrics (
-        clientid, punto_venta_id, tds_range, production_volume_range,
-        rejected_volume_range, flow_rate_speed_range,
-        active_time, metrics_description
+        clientid, punto_venta_id, metric_name, metric_type, sensor_type, sensor_unit,
+        rules, conditions, enabled, read_only, display_order,
+        tds_range, production_volume_range, rejected_volume_range,
+        flow_rate_speed_range, active_time, metrics_description
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
       ) RETURNING *
     `;
 
     const values = [
       clientId || null,
       punto_venta_id || null,
+      metric_name || null,
+      metric_type || null,
+      sensor_type || null,
+      sensor_unit || null,
+      rules ? JSON.stringify(rules) : null,
+      conditions ? JSON.stringify(conditions) : null,
+      enabled,
+      read_only,
+      display_order || 0,
+      // Legacy fields
       tds_range !== undefined ? parseFloat(tds_range) : null,
       production_volume_range !== undefined ? parseFloat(production_volume_range) : null,
       rejected_volume_range !== undefined ? parseFloat(rejected_volume_range) : null,
@@ -129,6 +165,16 @@ class MetricModel {
     const {
       clientId,
       punto_venta_id,
+      metric_name,
+      metric_type,
+      sensor_type,
+      sensor_unit,
+      rules,
+      conditions,
+      enabled,
+      read_only,
+      display_order,
+      // Legacy fields
       tds_range,
       production_volume_range,
       rejected_volume_range,
@@ -142,26 +188,45 @@ class MetricModel {
       SET 
         clientid = COALESCE($1, clientid),
         punto_venta_id = COALESCE($2, punto_venta_id),
-        tds_range = COALESCE($3, tds_range),
-        production_volume_range = COALESCE($4, production_volume_range),
-        rejected_volume_range = COALESCE($5, rejected_volume_range),
-        flow_rate_speed_range = COALESCE($6, flow_rate_speed_range),
-        active_time = COALESCE($7, active_time),
-        metrics_description = COALESCE($8, metrics_description),
+        metric_name = COALESCE($3, metric_name),
+        metric_type = COALESCE($4, metric_type),
+        sensor_type = COALESCE($5, sensor_type),
+        sensor_unit = COALESCE($6, sensor_unit),
+        rules = COALESCE($7::jsonb, rules),
+        conditions = COALESCE($8::jsonb, conditions),
+        enabled = COALESCE($9, enabled),
+        read_only = COALESCE($10, read_only),
+        display_order = COALESCE($11, display_order),
+        tds_range = COALESCE($12, tds_range),
+        production_volume_range = COALESCE($13, production_volume_range),
+        rejected_volume_range = COALESCE($14, rejected_volume_range),
+        flow_rate_speed_range = COALESCE($15, flow_rate_speed_range),
+        active_time = COALESCE($16, active_time),
+        metrics_description = COALESCE($17, metrics_description),
         updatedat = CURRENT_TIMESTAMP
-      WHERE id = $9
+      WHERE id = $18
       RETURNING *
     `;
 
     const values = [
-      clientId || null,
-      punto_venta_id || null,
+      clientId !== undefined ? clientId : null,
+      punto_venta_id !== undefined ? punto_venta_id : null,
+      metric_name !== undefined ? metric_name : null,
+      metric_type !== undefined ? metric_type : null,
+      sensor_type !== undefined ? sensor_type : null,
+      sensor_unit !== undefined ? sensor_unit : null,
+      rules !== undefined ? JSON.stringify(rules) : null,
+      conditions !== undefined ? JSON.stringify(conditions) : null,
+      enabled !== undefined ? enabled : null,
+      read_only !== undefined ? read_only : null,
+      display_order !== undefined ? display_order : null,
+      // Legacy fields
       tds_range !== undefined ? parseFloat(tds_range) : null,
       production_volume_range !== undefined ? parseFloat(production_volume_range) : null,
       rejected_volume_range !== undefined ? parseFloat(rejected_volume_range) : null,
       flow_rate_speed_range !== undefined ? parseFloat(flow_rate_speed_range) : null,
       active_time !== undefined ? parseFloat(active_time) : null,
-      metrics_description || null,
+      metrics_description !== undefined ? metrics_description : null,
       id
     ];
 
@@ -196,12 +261,37 @@ class MetricModel {
   static parseRow(row) {
     if (!row) return null;
 
+    // Parse JSONB fields
+    let rules = null;
+    let conditions = null;
+    
+    try {
+      if (row.rules) {
+        rules = typeof row.rules === 'string' ? JSON.parse(row.rules) : row.rules;
+      }
+      if (row.conditions) {
+        conditions = typeof row.conditions === 'string' ? JSON.parse(row.conditions) : row.conditions;
+      }
+    } catch (error) {
+      console.warn('[MetricModel] Error parsing JSONB fields:', error);
+    }
+
     return {
       id: row.id ? String(row.id) : null,
       _id: row.id ? String(row.id) : null, // For compatibility
       cliente: row.clientid ? String(row.clientid) : null,
       clientId: row.clientid ? String(row.clientid) : null,
       punto_venta_id: row.punto_venta_id ? String(row.punto_venta_id) : null,
+      metric_name: row.metric_name || null,
+      metric_type: row.metric_type || null,
+      sensor_type: row.sensor_type || null,
+      sensor_unit: row.sensor_unit || null,
+      rules: rules,
+      conditions: conditions,
+      enabled: row.enabled !== undefined ? row.enabled : true,
+      read_only: row.read_only !== undefined ? row.read_only : false,
+      display_order: row.display_order || 0,
+      // Legacy fields
       tds_range: row.tds_range !== null && row.tds_range !== undefined ? parseFloat(row.tds_range) : null,
       production_volume_range: row.production_volume_range !== null && row.production_volume_range !== undefined ? parseFloat(row.production_volume_range) : null,
       rejected_volume_range: row.rejected_volume_range !== null && row.rejected_volume_range !== undefined ? parseFloat(row.rejected_volume_range) : null,

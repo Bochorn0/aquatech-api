@@ -91,12 +91,25 @@ export const addMetricV2 = async (req, res) => {
   try {
     const metricData = req.body;
     
-    // Validate required fields
-    if (!metricData.tds_range || metricData.tds_range < 0) {
-      return res.status(400).json({ message: 'El rango TDS debe ser mayor a 0' });
+    // Validate new structure fields
+    if (metricData.metric_type && !metricData.metric_name) {
+      return res.status(400).json({ message: 'El nombre de métrica es requerido cuando se especifica el tipo' });
     }
-    if (!metricData.production_volume_range || metricData.production_volume_range < 0) {
-      return res.status(400).json({ message: 'El rango de volumen de producción debe ser mayor a 0' });
+    
+    if (metricData.metric_type && !metricData.sensor_type) {
+      return res.status(400).json({ message: 'El tipo de sensor es requerido cuando se especifica el tipo de métrica' });
+    }
+    
+    // Validate rules if provided
+    if (metricData.rules && Array.isArray(metricData.rules)) {
+      for (const rule of metricData.rules) {
+        if (rule.min === null && rule.max === null) {
+          return res.status(400).json({ message: 'Cada regla debe tener al menos un valor mínimo o máximo' });
+        }
+        if (!rule.color || !rule.label) {
+          return res.status(400).json({ message: 'Cada regla debe tener un color y una etiqueta' });
+        }
+      }
     }
     
     // Convert cliente (MongoDB ObjectId string) to clientId (PostgreSQL integer)
@@ -138,6 +151,18 @@ export const updateMetricV2 = async (req, res) => {
   try {
     const { id } = req.params;
     const metricData = req.body;
+    
+    // Validate rules if provided
+    if (metricData.rules && Array.isArray(metricData.rules)) {
+      for (const rule of metricData.rules) {
+        if (rule.min === null && rule.max === null) {
+          return res.status(400).json({ message: 'Cada regla debe tener al menos un valor mínimo o máximo' });
+        }
+        if (!rule.color || !rule.label) {
+          return res.status(400).json({ message: 'Cada regla debe tener un color y una etiqueta' });
+        }
+      }
+    }
     
     // Convert cliente to clientId if needed
     if (metricData.cliente) {
