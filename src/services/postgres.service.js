@@ -3,6 +3,7 @@
 
 import SensoresModel from '../models/postgres/sensores.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
+import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
 
 /**
  * PostgreSQL Service
@@ -200,12 +201,54 @@ class PostgresService {
         { type: 'corriente_total', value: mqttData.total_corriente || mqttData.corriente_total, name: 'Corriente Total' }
       ];
 
+      // Get puntoVenta ID for sensor registration
+      let puntoVentaId = null;
+      if (codigoTienda) {
+        try {
+          const puntoVenta = await PuntoVentaModel.findByCode(codigoTienda);
+          if (puntoVenta) {
+            puntoVentaId = parseInt(puntoVenta.id, 10);
+          }
+        } catch (error) {
+          console.warn(`[PostgresService] ⚠️  Could not get puntoVenta ID for sensor registration:`, error.message);
+        }
+      }
+
       for (const mapping of sensorMappings) {
         if (mapping.value !== undefined && mapping.value !== null) {
           // Debug: Log específico para corrientes
           if (mapping.type.includes('corriente')) {
             console.log(`[PostgresService] ⚡ Guardando corriente: type="${mapping.type}", name="${mapping.name}", value=${mapping.value}`);
           }
+
+          // Register sensor configuration if puntoVenta exists
+          if (puntoVentaId) {
+            try {
+              const resourceId = context.equipo_id || mqttData.equipo_id || mqttData.gateway_id || null;
+              const resourceType = context.resource_type || this.detectResourceType(context);
+
+              // Get or create sensor configuration
+              await PuntoVentaSensorModel.getOrCreate({
+                punto_venta_id: puntoVentaId,
+                sensor_name: mapping.name,
+                sensor_type: mapping.type,
+                resource_id: resourceId,
+                resource_type: resourceType,
+                label: mapping.name,
+                unit: this.getUnitForSensorType(mapping.type),
+                enabled: true,
+                meta: {
+                  auto_registered: true,
+                  registered_at: new Date().toISOString(),
+                  source: mqttData.source || context.source || 'MQTT'
+                }
+              });
+            } catch (error) {
+              // Log but don't fail - sensor registration is optional
+              console.warn(`[PostgresService] ⚠️  Could not register sensor configuration:`, error.message);
+            }
+          }
+
           const sensorData = {
             name: mapping.name,
             type: mapping.type,
@@ -297,6 +340,40 @@ class PostgresService {
     if (context.product_id) return 'product';
     
     return 'unknown';
+  }
+
+  /**
+   * Get unit for sensor type
+   * @param {String} sensorType - Sensor type
+   * @returns {String} Unit string
+   */
+  static getUnitForSensorType(sensorType) {
+    const unitMap = {
+      'flujo_produccion': 'L/min',
+      'flujo_rechazo': 'L/min',
+      'flujo_recuperacion': 'L/min',
+      'tds': 'ppm',
+      'electronivel_purificada': '%',
+      'electronivel_recuperada': '%',
+      'nivel_purificada': 'mm',
+      'nivel_cruda': 'mm',
+      'caudal_cruda': 'L/min',
+      'caudal_cruda_lmin': 'L/min',
+      'acumulado_cruda': 'L',
+      'presion_in': 'PSI',
+      'presion_out': 'PSI',
+      'presion_co2': 'PSI',
+      'eficiencia': '%',
+      'vida': 'días',
+      'water_level': '%',
+      'corriente_ch1': 'A',
+      'corriente_ch2': 'A',
+      'corriente_ch3': 'A',
+      'corriente_ch4': 'A',
+      'corriente_total': 'A'
+    };
+
+    return unitMap[sensorType] || '';
   }
 
   /**
