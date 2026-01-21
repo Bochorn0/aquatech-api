@@ -51,6 +51,12 @@ app.get('/health', (req, res) => {
 // Test SMTP connection endpoint (for debugging) - supports both GET and POST
 const testSmtpHandler = async (req, res) => {
   try {
+    console.log('[test-smtp] SMTP Config:', {
+      host: process.env.SMTP_HOST || 'smtp.office365.com',
+      port: process.env.SMTP_PORT || '587',
+      user: process.env.SMTP_USER || 'soporte@lcc.com.mx'
+    });
+    
     const testResult = await emailHelper.sendEmail({
       to: process.env.SMTP_USER || 'soporte@lcc.com.mx',
       subject: 'Test Email from Aquatech API',
@@ -68,14 +74,20 @@ const testSmtpHandler = async (req, res) => {
         success: false, 
         message: 'SMTP connection failed',
         error: testResult.error,
-        details: testResult 
+        details: testResult,
+        config: {
+          host: process.env.SMTP_HOST || 'smtp.office365.com',
+          port: process.env.SMTP_PORT || '587'
+        }
       });
     }
   } catch (error) {
+    console.error('[test-smtp] Error:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Error testing SMTP',
-      error: error.message 
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };

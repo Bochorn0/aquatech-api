@@ -49,6 +49,13 @@ class EmailHelper {
         console.warn('[EmailHelper] SMTP credentials not configured. Email sending will fail.');
         console.warn('[EmailHelper] Please set SMTP_USER and SMTP_PASSWORD in .env file');
       }
+      console.log('[EmailHelper] SMTP Configuration:', {
+        host: this.smtpConfig.host,
+        port: this.smtpConfig.port,
+        secure: this.smtpConfig.secure,
+        user: this.smtpConfig.auth.user,
+        hasPassword: !!this.smtpConfig.auth.pass
+      });
       this.transporter = nodemailer.createTransport(this.smtpConfig);
       console.log('[EmailHelper] Email transporter initialized');
     } catch (error) {
