@@ -1,8 +1,10 @@
 // src/utils/email.helper.js
 // Reusable email helper module for sending emails
 // Can be used for password recovery, alerts, notifications, etc.
+// Supports both SMTP (nodemailer) and SendGrid API
 
 import nodemailer from 'nodemailer';
+import axios from 'axios';
 import config from '../config/config.js';
 
 /**
@@ -11,6 +13,16 @@ import config from '../config/config.js';
  */
 class EmailHelper {
   constructor() {
+    // Email provider: 'smtp' or 'sendgrid'
+    // Use SendGrid if SMTP ports are blocked by network
+    this.emailProvider = process.env.EMAIL_PROVIDER || 'smtp'; // 'smtp' or 'sendgrid'
+    
+    // SendGrid configuration
+    this.sendGridApiKey = process.env.SENDGRID_API_KEY || '';
+    this.sendGridFromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.SMTP_USER || 'soporte@lcc.com.mx';
+    this.sendGridFromName = process.env.SENDGRID_FROM_NAME || 'Aquatech';
+    
+    // SMTP configuration (fallback if SendGrid not configured)
     // Email configuration from environment variables
     // All SMTP settings must be configured in .env file
     // For lcc.com.mx, you might need to use a different SMTP server
@@ -19,26 +31,64 @@ class EmailHelper {
     // - mail.lcc.com.mx or smtp.lcc.com.mx (if they have their own mail server)
     // - smtp.gmail.com (if using Gmail/Google Workspace)
     // IMPORTANT: Set SMTP_HOST in .env file to match your email provider!
+    // 
+    // If port 587 is blocked, try port 465 with SSL:
+    // SMTP_PORT=465
+    // SMTP_SECURE=true
+    //
+    // OAuth 2.0 Support (required for accounts with 2FA enabled):
+    // Set SMTP_AUTH_TYPE=oauth2 and provide OAuth credentials
+    const authType = process.env.SMTP_AUTH_TYPE || 'password'; // 'password' or 'oauth2'
+    
+    let authConfig;
+    if (authType === 'oauth2') {
+      // OAuth 2.0 authentication (required for 2FA-enabled accounts)
+      // For Office365, you need: clientId, clientSecret, refreshToken
+      authConfig = {
+        type: 'OAuth2',
+        user: process.env.SMTP_USER || '',
+        clientId: process.env.OAUTH_CLIENT_ID || '',
+        clientSecret: process.env.OAUTH_CLIENT_SECRET || '',
+        refreshToken: process.env.OAUTH_REFRESH_TOKEN || '',
+        accessToken: process.env.OAUTH_ACCESS_TOKEN || '', // Optional, will be refreshed automatically
+        expires: parseInt(process.env.OAUTH_ACCESS_TOKEN_EXPIRES || '0', 10), // Token expiration timestamp
+      };
+    } else {
+      // Password authentication (traditional)
+      authConfig = {
+        user: process.env.SMTP_USER || '',
+        pass: process.env.SMTP_PASSWORD || '',
+      };
+    }
+
     this.smtpConfig = {
       host: process.env.SMTP_HOST || 'smtp.office365.com', // Default to Office365 (most common for business emails)
       port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
-      auth: {
-        user: process.env.SMTP_USER || '',
-        pass: process.env.SMTP_PASSWORD || '',
-      },
+      auth: authConfig,
       // Add connection timeout settings
       connectionTimeout: 10000, // 10 seconds
       greetingTimeout: 10000,
       socketTimeout: 10000,
+      // Try to bypass some network restrictions
+      tls: {
+        rejectUnauthorized: false // Only set to false if you trust the SMTP server
+      }
     };
 
     // Default sender email
     this.defaultFrom = process.env.SMTP_FROM || process.env.SMTP_USER || '';
 
-    // Create transporter (reused for all emails)
+    // Create transporter (reused for all emails) - only if using SMTP
     this.transporter = null;
-    this.initializeTransporter();
+    if (this.emailProvider === 'smtp') {
+      this.initializeTransporter();
+    } else if (this.emailProvider === 'sendgrid') {
+      console.log('[EmailHelper] Using SendGrid API (HTTP/HTTPS, not SMTP ports)');
+      if (!this.sendGridApiKey) {
+        console.warn('[EmailHelper] SENDGRID_API_KEY not set. Email sending will fail.');
+      }
+    }
   }
 
   /**
@@ -46,22 +96,200 @@ class EmailHelper {
    */
   initializeTransporter() {
     try {
-      if (!this.smtpConfig.auth.user || !this.smtpConfig.auth.pass) {
-        console.warn('[EmailHelper] SMTP credentials not configured. Email sending will fail.');
-        console.warn('[EmailHelper] Please set SMTP_USER and SMTP_PASSWORD in .env file');
+      const authType = this.smtpConfig.auth.type || (this.smtpConfig.auth.pass ? 'password' : 'oauth2');
+      
+      if (authType === 'oauth2') {
+        // OAuth 2.0 validation
+        if (!this.smtpConfig.auth.user || !this.smtpConfig.auth.clientId || !this.smtpConfig.auth.clientSecret || !this.smtpConfig.auth.refreshToken) {
+          console.warn('[EmailHelper] OAuth 2.0 credentials not fully configured.');
+          console.warn('[EmailHelper] Required: SMTP_USER, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_REFRESH_TOKEN');
+        }
+        console.log('[EmailHelper] SMTP Configuration (OAuth 2.0):', {
+          host: this.smtpConfig.host,
+          port: this.smtpConfig.port,
+          secure: this.smtpConfig.secure,
+          user: this.smtpConfig.auth.user,
+          authType: 'OAuth2',
+          hasClientId: !!this.smtpConfig.auth.clientId,
+          hasRefreshToken: !!this.smtpConfig.auth.refreshToken
+        });
+      } else {
+        // Password authentication validation
+        if (!this.smtpConfig.auth.user || !this.smtpConfig.auth.pass) {
+          console.warn('[EmailHelper] SMTP credentials not configured. Email sending will fail.');
+          console.warn('[EmailHelper] Please set SMTP_USER and SMTP_PASSWORD in .env file');
+        }
+        console.log('[EmailHelper] SMTP Configuration (Password):', {
+          host: this.smtpConfig.host,
+          port: this.smtpConfig.port,
+          secure: this.smtpConfig.secure,
+          user: this.smtpConfig.auth.user,
+          hasPassword: !!this.smtpConfig.auth.pass
+        });
       }
-      console.log('[EmailHelper] SMTP Configuration:', {
-        host: this.smtpConfig.host,
-        port: this.smtpConfig.port,
-        secure: this.smtpConfig.secure,
-        user: this.smtpConfig.auth.user,
-        hasPassword: !!this.smtpConfig.auth.pass
-      });
+      
       this.transporter = nodemailer.createTransport(this.smtpConfig);
       console.log('[EmailHelper] Email transporter initialized');
     } catch (error) {
       console.error('[EmailHelper] Error initializing transporter:', error);
       this.transporter = null;
+    }
+  }
+
+  /**
+   * Test SMTP connection and configuration
+   * @returns {Promise<Object>} Test result with diagnostics
+   */
+  async testConnection() {
+    const diagnostics = {
+      configValid: true,
+      errors: [],
+      warnings: [],
+      info: {},
+    };
+
+    // Check configuration
+    if (!this.smtpConfig.auth.user) {
+      diagnostics.configValid = false;
+      diagnostics.errors.push('SMTP_USER is not set');
+    }
+    if (!this.smtpConfig.auth.pass && this.emailProvider === 'smtp') {
+      diagnostics.configValid = false;
+      diagnostics.errors.push('SMTP_PASSWORD is not set');
+    }
+
+    // Check for common configuration issues
+    const emailDomain = this.smtpConfig.auth.user?.split('@')[1] || '';
+    
+    if (emailDomain.includes('gmail.com') && !this.smtpConfig.host.includes('gmail')) {
+      diagnostics.warnings.push(`Using Gmail address but SMTP_HOST is ${this.smtpConfig.host}. Should be smtp.gmail.com`);
+    }
+    
+    if ((emailDomain.includes('outlook.com') || emailDomain.includes('office365.com')) && !this.smtpConfig.host.includes('office365')) {
+      diagnostics.warnings.push(`Using Outlook/Office365 address but SMTP_HOST is ${this.smtpConfig.host}. Should be smtp.office365.com`);
+    }
+
+    // If using custom domain, check if it might need Google Workspace or Office365
+    if (emailDomain && !emailDomain.includes('gmail.com') && !emailDomain.includes('outlook.com') && !emailDomain.includes('office365.com')) {
+      if (this.smtpConfig.host.includes('gmail.com')) {
+        diagnostics.info.googleWorkspace = 'Using smtp.gmail.com with custom domain - verify you are using Google Workspace';
+      } else if (this.smtpConfig.host.includes('office365.com')) {
+        diagnostics.info.microsoft365 = 'Using smtp.office365.com with custom domain - verify you are using Microsoft 365';
+      }
+    }
+
+    diagnostics.info.config = {
+      host: this.smtpConfig.host,
+      port: this.smtpConfig.port,
+      secure: this.smtpConfig.secure,
+      user: this.smtpConfig.auth.user,
+      emailProvider: this.emailProvider,
+    };
+
+    // Test actual connection if using SMTP
+    if (this.emailProvider === 'smtp' && diagnostics.configValid && this.transporter) {
+      try {
+        await this.transporter.verify();
+        diagnostics.info.connection = 'SUCCESS';
+        diagnostics.info.message = 'SMTP server is ready to accept messages';
+      } catch (error) {
+        diagnostics.info.connection = 'FAILED';
+        diagnostics.errors.push(`Connection test failed: ${error.message}`);
+        diagnostics.info.errorCode = error.code;
+        diagnostics.info.errorDetails = {
+          message: error.message,
+          code: error.code,
+        };
+      }
+    } else if (this.emailProvider === 'sendgrid') {
+      diagnostics.info.connection = 'SKIPPED';
+      diagnostics.info.message = 'Using SendGrid API (no SMTP connection test needed)';
+    }
+
+    return {
+      success: diagnostics.configValid && diagnostics.info.connection === 'SUCCESS',
+      diagnostics,
+    };
+  }
+
+  /**
+   * Send email using SendGrid API
+   * @param {Object} options - Email options
+   * @returns {Promise<Object>} Result object
+   */
+  async sendEmailViaSendGrid(options) {
+    const {
+      to,
+      subject,
+      html,
+      text,
+      from = this.sendGridFromEmail,
+      fromName = this.sendGridFromName,
+    } = options;
+
+    if (!this.sendGridApiKey) {
+      return {
+        success: false,
+        error: 'SENDGRID_API_KEY not configured',
+      };
+    }
+
+    try {
+      const emailData = {
+        personalizations: [{
+          to: Array.isArray(to) ? to.map(email => ({ email })) : [{ email: to }],
+          subject,
+        }],
+        from: {
+          email: from,
+          name: fromName,
+        },
+        content: [
+          {
+            type: 'text/html',
+            value: html || text,
+          },
+        ],
+      };
+
+      // Add plain text if provided
+      if (text && html) {
+        emailData.content.push({
+          type: 'text/plain',
+          value: text,
+        });
+      }
+
+      const response = await axios.post(
+        'https://api.sendgrid.com/v3/mail/send',
+        emailData,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.sendGridApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 10000,
+        }
+      );
+
+      console.log('[EmailHelper] Email sent via SendGrid:', {
+        to,
+        subject,
+        statusCode: response.status,
+      });
+
+      return {
+        success: true,
+        messageId: response.headers['x-message-id'] || 'sendgrid-sent',
+        provider: 'sendgrid',
+      };
+    } catch (error) {
+      console.error('[EmailHelper] Error sending email via SendGrid:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.errors?.[0]?.message || error.message || 'Unknown error sending email via SendGrid',
+        details: error.response?.data || error,
+      };
     }
   }
 
@@ -94,6 +322,12 @@ class EmailHelper {
       };
     }
 
+    // Use SendGrid if configured
+    if (this.emailProvider === 'sendgrid') {
+      return this.sendEmailViaSendGrid({ to, subject, html, text, from });
+    }
+
+    // Fallback to SMTP
     // Check if transporter is initialized
     if (!this.transporter) {
       console.error('[EmailHelper] Transporter not initialized');

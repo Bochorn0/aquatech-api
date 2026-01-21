@@ -51,34 +51,160 @@ app.get('/health', (req, res) => {
 // Test SMTP connection endpoint (for debugging) - supports both GET and POST
 const testSmtpHandler = async (req, res) => {
   try {
+    const sendEmail = req.query.send !== 'false' && req.body?.send !== false;
+    const emailTo = req.query.to || req.body?.to || process.env.SMTP_USER || 'soporte@lcc.com.mx';
+    
     console.log('[test-smtp] SMTP Config:', {
       host: process.env.SMTP_HOST || 'smtp.office365.com',
       port: process.env.SMTP_PORT || '587',
-      user: process.env.SMTP_USER || 'soporte@lcc.com.mx'
+      user: process.env.SMTP_USER || 'soporte@lcc.com.mx',
+      provider: process.env.EMAIL_PROVIDER || 'smtp',
+      sendEmail: sendEmail
     });
     
-    const testResult = await emailHelper.sendEmail({
-      to: process.env.SMTP_USER || 'soporte@lcc.com.mx',
-      subject: 'Test Email from Aquatech API',
-      html: '<p>This is a test email to verify SMTP configuration.</p>',
-    });
+    // First, test connection
+    const connectionTest = await emailHelper.testConnection();
     
-    if (testResult.success) {
-      res.json({ 
-        success: true, 
-        message: 'SMTP connection successful! Test email sent.',
-        details: testResult 
-      });
-    } else {
-      res.status(500).json({ 
+    // If connection test fails, return diagnostics without trying to send
+    if (!connectionTest.success && !sendEmail) {
+      const diagnostics = connectionTest.diagnostics;
+      const troubleshooting = [];
+      
+      // Add troubleshooting tips based on error type
+      if (diagnostics.info?.errorCode === 'ETIMEDOUT' || diagnostics.info?.errorCode === 'ECONNREFUSED') {
+        troubleshooting.push({
+          issue: 'Connection Timeout',
+          steps: [
+            'Check if firewall is blocking outbound SMTP ports (587, 465)',
+            `Test network connectivity: nc -zv ${process.env.SMTP_HOST || 'smtp.office365.com'} ${process.env.SMTP_PORT || '587'}`,
+            'Try port 465 with SSL: SMTP_PORT=465, SMTP_SECURE=true',
+            'Consider using SendGrid API: EMAIL_PROVIDER=sendgrid'
+          ]
+        });
+      } else if (diagnostics.info?.errorCode === 'EAUTH' || diagnostics.errors?.some(e => e.includes('authentication'))) {
+        troubleshooting.push({
+          issue: 'Authentication Error',
+          steps: [
+            'Verify SMTP_USER and SMTP_PASSWORD are correct',
+            'For Gmail with 2FA: Use App Password instead of regular password',
+            'For Google Workspace: Check Admin Console > Security settings',
+            'For Office365 with 2FA: May need OAuth 2.0 authentication'
+          ]
+        });
+      }
+      
+      // Check for custom domain and suggest Google Workspace/Office365 setup
+      const emailDomain = process.env.SMTP_USER?.split('@')[1] || '';
+      if (emailDomain && !emailDomain.includes('gmail.com') && !emailDomain.includes('outlook.com') && !emailDomain.includes('office365.com')) {
+        troubleshooting.push({
+          issue: 'Custom Domain Detected',
+          note: `Your email domain is ${emailDomain}`,
+          options: {
+            googleWorkspace: {
+              host: 'smtp.gmail.com',
+              port: 587,
+              secure: false,
+              note: 'If using Google Workspace, use smtp.gmail.com. Check Admin Console for SMTP settings.'
+            },
+            microsoft365: {
+              host: 'smtp.office365.com',
+              port: 587,
+              secure: false,
+              note: 'If using Microsoft 365, use smtp.office365.com. Verify SMTP is enabled in Admin Center.'
+            },
+            customServer: {
+              host: `smtp.${emailDomain}`,
+              port: 587,
+              secure: false,
+              note: `If using custom mail server, try smtp.${emailDomain} or mail.${emailDomain}. Contact your email administrator.`
+            }
+          }
+        });
+      }
+      
+      return res.status(500).json({ 
         success: false, 
-        message: 'SMTP connection failed',
-        error: testResult.error,
-        details: testResult,
-        config: {
-          host: process.env.SMTP_HOST || 'smtp.office365.com',
-          port: process.env.SMTP_PORT || '587'
+        message: 'SMTP connection test failed',
+        diagnostics: connectionTest.diagnostics,
+        troubleshooting: troubleshooting.length > 0 ? troubleshooting : undefined,
+        suggestion: 'Check configuration and try again. Use ?send=true to attempt sending anyway.'
+      });
+    }
+    
+    // If sendEmail is true, attempt to send test email
+    if (sendEmail) {
+      const testResult = await emailHelper.sendEmail({
+        to: emailTo,
+        subject: 'Test Email from Aquatech API',
+        html: `
+          <h2>✅ Test Email - Configuration Verified</h2>
+          <p>This is a test email to verify your SMTP configuration is working correctly.</p>
+          <p><strong>Configuration Details:</strong></p>
+          <ul>
+            <li>Host: ${process.env.SMTP_HOST || 'smtp.office365.com'}</li>
+            <li>Port: ${process.env.SMTP_PORT || '587'}</li>
+            <li>Secure: ${process.env.SMTP_SECURE || 'false'}</li>
+            <li>Provider: ${process.env.EMAIL_PROVIDER || 'smtp'}</li>
+            <li>Sent at: ${new Date().toISOString()}</li>
+          </ul>
+          <p>If you received this email, your configuration is correct! 🎉</p>
+        `,
+      });
+      
+      if (testResult.success) {
+        return res.json({ 
+          success: true, 
+          message: 'SMTP connection successful! Test email sent.',
+          connectionTest: connectionTest.diagnostics,
+          emailResult: testResult,
+          sentTo: emailTo
+        });
+      } else {
+        const troubleshooting = [];
+        if (testResult.error?.includes('timeout') || testResult.error?.includes('ETIMEDOUT')) {
+          troubleshooting.push({
+            issue: 'Email Send Timeout',
+            steps: [
+              'Connection test passed but sending timed out',
+              'Check if recipient email is valid',
+              'Verify SMTP server allows sending to this address',
+              'Try again - may be temporary network issue'
+            ]
+          });
+        } else if (testResult.error?.includes('authentication') || testResult.error?.includes('EAUTH')) {
+          troubleshooting.push({
+            issue: 'Authentication Failed During Send',
+            steps: [
+              'Connection test passed but authentication failed when sending',
+              'Verify SMTP_PASSWORD is correct',
+              'For Gmail: May need App Password if 2FA is enabled',
+              'For Office365: Check if account has sending permissions'
+            ]
+          });
         }
+        
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Connection test passed but email sending failed',
+          connectionTest: connectionTest.diagnostics,
+          emailError: testResult.error,
+          emailDetails: testResult,
+          troubleshooting: troubleshooting.length > 0 ? troubleshooting : undefined,
+          config: {
+            host: process.env.SMTP_HOST || 'smtp.office365.com',
+            port: process.env.SMTP_PORT || '587',
+            provider: process.env.EMAIL_PROVIDER || 'smtp'
+          }
+        });
+      }
+    } else {
+      // Just return connection test results
+      return res.json({
+        success: connectionTest.success,
+        message: connectionTest.success 
+          ? 'SMTP connection test passed. Use ?send=true to send a test email.'
+          : 'SMTP connection test failed. Check diagnostics below.',
+        diagnostics: connectionTest.diagnostics
       });
     }
   } catch (error) {

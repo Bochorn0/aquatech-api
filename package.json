@@ -21,7 +21,10 @@
     "migrate:tiwater:products": "bash scripts/migrations/run-tiwater-migration.sh scripts/migrations/004_create_tiwater_products_table.sql",
     "migrate:tiwater:quotes": "bash scripts/migrations/run-tiwater-migration.sh scripts/migrations/005_create_tiwater_quotes_table.sql",
     "migrate:tiwater": "bash scripts/migrations/run-tiwater-migration.sh",
-    "verify:tiwater": "bash scripts/migrations/verify-tiwater-tables.sh"
+    "verify:tiwater": "bash scripts/migrations/verify-tiwater-tables.sh",
+    "test:email": "node scripts/test-email-debug.js",
+    "test:email:send": "node scripts/test-email-debug.js --test-send",
+    "test:email:simple": "node scripts/simple-email-example.js"
   },
   "dependencies": {
     "@tuya/tuya-connector-nodejs": "^2.1.2",
