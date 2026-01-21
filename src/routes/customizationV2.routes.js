@@ -162,22 +162,8 @@ router.delete('/cities/:id', removeCityV2);
  */
 router.post('/puntoVentas', addPuntoVentaV2);
 
-/**
- * @route   PATCH /api/v2.0/puntoVentas/:id
- * @desc    Update punto de venta (PostgreSQL)
- * @access  Private
- */
-router.patch('/puntoVentas/:id', updatePuntoVentaV2);
-
-/**
- * @route   DELETE /api/v2.0/puntoVentas/:id
- * @desc    Delete punto de venta (PostgreSQL)
- * @access  Private
- */
-router.delete('/puntoVentas/:id', removePuntoVentaV2);
-
 // ============================================================================
-// PUNTOVENTA SENSORS ROUTES
+// PUNTOVENTA SENSORS ROUTES (must come before /puntoVentas/:id routes)
 // ============================================================================
 
 /**
@@ -207,5 +193,19 @@ router.patch('/puntoVentas/:id/sensors/:sensorId', updatePuntoVentaSensorV2);
  * @access  Private
  */
 router.delete('/puntoVentas/:id/sensors/:sensorId', removePuntoVentaSensorV2);
+
+/**
+ * @route   PATCH /api/v2.0/puntoVentas/:id
+ * @desc    Update punto de venta (PostgreSQL)
+ * @access  Private
+ */
+router.patch('/puntoVentas/:id', updatePuntoVentaV2);
+
+/**
+ * @route   DELETE /api/v2.0/puntoVentas/:id
+ * @desc    Delete punto de venta (PostgreSQL)
+ * @access  Private
+ */
+router.delete('/puntoVentas/:id', removePuntoVentaV2);
 
 export default router;

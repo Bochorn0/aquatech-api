@@ -32,8 +32,9 @@ router.get('/puntoVentas/all', getPuntosVentaV2);
  * @desc    Get punto de venta detail with osmosis data from PostgreSQL
  * @access  Private
  * @param   id - Can be numeric ID or codigo_tienda
+ * NOTE: Using regex to prevent matching /puntoVentas/:id/sensors (sensors routes are in customizationV2Routes)
  */
-router.get('/puntoVentas/:id', getPuntoVentaDetalleV2);
+router.get('/puntoVentas/:id([^/]+)$', getPuntoVentaDetalleV2);
 
 /**
  * @route   GET /api/v2.0/sensors/timeseries

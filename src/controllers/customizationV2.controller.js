@@ -700,6 +700,7 @@ export const removePuntoVentaV2 = async (req, res) => {
  */
 export const getPuntoVentaSensorsV2 = async (req, res) => {
   try {
+    console.log('[getPuntoVentaSensorsV2] Request received:', req.params);
     const { id } = req.params;
     const puntoVentaId = parseInt(id, 10);
     
@@ -709,6 +710,8 @@ export const getPuntoVentaSensorsV2 = async (req, res) => {
         message: 'Invalid puntoVenta ID' 
       });
     }
+    
+    console.log('[getPuntoVentaSensorsV2] Fetching sensors for puntoVenta ID:', puntoVentaId);
 
     // Get all sensor configurations for this puntoVenta
     const sensors = await PuntoVentaSensorModel.findByPuntoVentaId(puntoVentaId);
@@ -729,21 +732,54 @@ export const getPuntoVentaSensorsV2 = async (req, res) => {
       sensors.map(async (sensor) => {
         try {
           // Get latest reading for this sensor type
-          const latestReadingQuery = `
-            SELECT * FROM sensores
-            WHERE codigoTienda = $1
-              AND type = $2
-              ${sensor.resourceId ? 'AND resourceId = $3' : 'AND (resourceId IS NULL OR resourceId = $3)'}
-              ${sensor.resourceType ? 'AND resourceType = $4' : 'AND (resourceType IS NULL OR resourceType = $4)'}
-            ORDER BY timestamp DESC
-            LIMIT 1
-          `;
+          let latestReadingQuery;
+          let params;
           
-          const params = [codigoTienda, sensor.sensorType];
-          if (sensor.resourceId) params.push(sensor.resourceId);
-          else params.push(null);
-          if (sensor.resourceType) params.push(sensor.resourceType);
-          else params.push(null);
+          if (sensor.resourceId && sensor.resourceType) {
+            latestReadingQuery = `
+              SELECT * FROM sensores
+              WHERE codigoTienda = $1
+                AND type = $2
+                AND resourceId = $3
+                AND resourceType = $4
+              ORDER BY timestamp DESC
+              LIMIT 1
+            `;
+            params = [codigoTienda, sensor.sensorType, sensor.resourceId, sensor.resourceType];
+          } else if (sensor.resourceId) {
+            latestReadingQuery = `
+              SELECT * FROM sensores
+              WHERE codigoTienda = $1
+                AND type = $2
+                AND resourceId = $3
+                AND (resourceType IS NULL OR resourceType = $4)
+              ORDER BY timestamp DESC
+              LIMIT 1
+            `;
+            params = [codigoTienda, sensor.sensorType, sensor.resourceId, sensor.resourceType || null];
+          } else if (sensor.resourceType) {
+            latestReadingQuery = `
+              SELECT * FROM sensores
+              WHERE codigoTienda = $1
+                AND type = $2
+                AND (resourceId IS NULL OR resourceId = $3)
+                AND resourceType = $4
+              ORDER BY timestamp DESC
+              LIMIT 1
+            `;
+            params = [codigoTienda, sensor.sensorType, sensor.resourceId || null, sensor.resourceType];
+          } else {
+            latestReadingQuery = `
+              SELECT * FROM sensores
+              WHERE codigoTienda = $1
+                AND type = $2
+                AND (resourceId IS NULL)
+                AND (resourceType IS NULL)
+              ORDER BY timestamp DESC
+              LIMIT 1
+            `;
+            params = [codigoTienda, sensor.sensorType];
+          }
 
           const readingResult = await query(latestReadingQuery, params);
           let latestReading = null;

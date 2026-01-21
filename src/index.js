@@ -99,10 +99,11 @@ app.use('/api/v1.0/sensor-data', authenticate, authorizeRoles('admin', 'cliente'
 app.use('/api/v2.0/tiwater/products', tiwaterProductRoutes);
 app.use('/api/v2.0/tiwater/quotes', tiwaterQuoteRoutes);
 
-// v2.0 API routes - PostgreSQL based (sensors - must come after tiwater routes)
-app.use('/api/v2.0/sensors', authenticate, authorizeRoles('admin', 'cliente'), sensorDataV2Routes);
-// v2.0 API routes - Customization (metrics, clients, cities, puntosVenta)
+// v2.0 API routes - Customization (metrics, clients, cities, puntosVenta, sensors)
+// IMPORTANT: customizationV2Routes must come before sensorDataV2Routes to handle /puntoVentas/:id/sensors
 app.use('/api/v2.0', authenticate, authorizeRoles('admin', 'cliente'), customizationV2Routes);
+// v2.0 API routes - PostgreSQL based (sensors - must come after customization routes)
+app.use('/api/v2.0/sensors', authenticate, authorizeRoles('admin', 'cliente'), sensorDataV2Routes);
 app.use('/api/v2.0', authenticate, authorizeRoles('admin', 'cliente'), sensorDataV2Routes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
