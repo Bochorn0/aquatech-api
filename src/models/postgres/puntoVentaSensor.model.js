@@ -1,11 +1,11 @@
 // src/models/postgres/puntoVentaSensor.model.js
-// PostgreSQL model for punto_venta_sensors table
+// PostgreSQL model for puntoventasensors table
 
 import { query } from '../../config/postgres.config.js';
 
 /**
  * PuntoVentaSensor Model
- * Handles all database operations for the punto_venta_sensors table
+ * Handles all database operations for the puntoventasensors table
  */
 class PuntoVentaSensorModel {
   /**
@@ -15,7 +15,7 @@ class PuntoVentaSensorModel {
    */
   static async findById(id) {
     const result = await query(
-      'SELECT * FROM punto_venta_sensors WHERE id = $1 LIMIT 1',
+      'SELECT * FROM puntoventasensors WHERE id = $1 LIMIT 1',
       [id]
     );
 
@@ -33,7 +33,7 @@ class PuntoVentaSensorModel {
    */
   static async findByPuntoVentaId(puntoVentaId) {
     const result = await query(
-      'SELECT * FROM punto_venta_sensors WHERE punto_venta_id = $1 ORDER BY sensor_name ASC',
+      'SELECT * FROM puntoventasensors WHERE punto_venta_id = $1 ORDER BY sensor_name ASC',
       [puntoVentaId]
     );
 
@@ -50,7 +50,7 @@ class PuntoVentaSensorModel {
    */
   static async findByPuntoVentaAndType(puntoVentaId, sensorType, resourceId = null, resourceType = null) {
     const result = await query(
-      `SELECT * FROM punto_venta_sensors 
+      `SELECT * FROM puntoventasensors 
        WHERE punto_venta_id = $1 
          AND sensor_type = $2 
          AND COALESCE(resource_id, '') = COALESCE($3, '')
@@ -87,7 +87,7 @@ class PuntoVentaSensorModel {
     } = data;
 
     const insertQuery = `
-      INSERT INTO punto_venta_sensors (
+      INSERT INTO puntoventasensors (
         punto_venta_id, sensor_name, sensor_type, resource_id, resource_type,
         label, unit, min_value, max_value, enabled, meta
       ) VALUES (
@@ -149,7 +149,7 @@ class PuntoVentaSensorModel {
     } = data;
 
     const updateQuery = `
-      UPDATE punto_venta_sensors
+      UPDATE puntoventasensors
       SET 
         sensor_name = COALESCE($1, sensor_name),
         label = COALESCE($2, label),
@@ -192,7 +192,7 @@ class PuntoVentaSensorModel {
    * @returns {Promise<Boolean>} True if deleted
    */
   static async delete(id) {
-    const deleteQuery = 'DELETE FROM punto_venta_sensors WHERE id = $1 RETURNING id';
+    const deleteQuery = 'DELETE FROM puntoventasensors WHERE id = $1 RETURNING id';
     try {
       const result = await query(deleteQuery, [id]);
       return result.rows.length > 0;

@@ -5,6 +5,9 @@ import MetricModel from '../models/postgres/metric.model.js';
 import ClientModel from '../models/postgres/client.model.js';
 import CityModel from '../models/postgres/city.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
+import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
+import SensoresModel from '../models/postgres/sensores.model.js';
+import { query } from '../config/postgres.config.js';
 
 // ============================================================================
 // METRICS CONTROLLERS
