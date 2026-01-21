@@ -47,6 +47,39 @@ app.get('/health', (req, res) => {
   res.json({ message: 'API Working' });
 });
 
+// Test SMTP connection endpoint (for debugging)
+app.get('/api/v1.0/test-smtp', async (req, res) => {
+  try {
+    const emailHelper = (await import('./utils/email.helper.js')).default;
+    const testResult = await emailHelper.sendEmail({
+      to: process.env.SMTP_USER || 'soporte@lcc.com.mx',
+      subject: 'Test Email from Aquatech API',
+      html: '<p>This is a test email to verify SMTP configuration.</p>',
+    });
+    
+    if (testResult.success) {
+      res.json({ 
+        success: true, 
+        message: 'SMTP connection successful! Test email sent.',
+        details: testResult 
+      });
+    } else {
+      res.status(500).json({ 
+        success: false, 
+        message: 'SMTP connection failed',
+        error: testResult.error,
+        details: testResult 
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error testing SMTP',
+      error: error.message 
+    });
+  }
+});
+
 // MQTT Status endpoint
 app.get('/api/v1.0/mqtt/status', (req, res) => {
   const status = mqttService.getConnectionStatus();

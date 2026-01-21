@@ -99,18 +99,20 @@ export const requestPasswordReset = [
   body('email').isEmail().withMessage('Correo electrónico debe ser una dirección de correo válida'),
   
   async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const { email } = req.body;
-
     try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { email } = req.body;
+      console.log('[requestPasswordReset] Request received for email:', email);
+
       const user = await User.findOne({ email });
       
       // Don't reveal if user exists or not (security best practice)
       if (!user) {
+        console.log('[requestPasswordReset] User not found');
         return res.json({ 
           success: true, 
           message: 'Si el correo existe, se enviará un enlace de recuperación' 
@@ -119,6 +121,7 @@ export const requestPasswordReset = [
 
       // Check if user is active
       if (user.status !== 'active') {
+        console.log('[requestPasswordReset] User not active:', user.status);
         return res.status(400).json({ 
           message: 'Tu cuenta no está activa. Contacta al administrador.' 
         });
@@ -133,6 +136,7 @@ export const requestPasswordReset = [
       user.resetToken = resetToken;
       user.resetTokenExpiry = resetTokenExpiry;
       await user.save();
+      console.log('[requestPasswordReset] Reset token saved for user:', user.email);
 
       // Send password reset email
       const emailResult = await emailHelper.sendPasswordResetEmail({
@@ -150,13 +154,14 @@ export const requestPasswordReset = [
         });
       }
 
+      console.log('[requestPasswordReset] Password reset email sent successfully');
       res.json({ 
         success: true, 
         message: 'Si el correo existe, se enviará un enlace de recuperación' 
       });
     } catch (error) {
-      console.error('Password Reset Request Error:', error);
-      res.status(500).json({ message: 'Server Error' });
+      console.error('[requestPasswordReset] Password Reset Request Error:', error);
+      res.status(500).json({ message: 'Server Error', error: error.message });
     }
   },
 ];

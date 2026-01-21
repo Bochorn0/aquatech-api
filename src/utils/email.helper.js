@@ -13,14 +13,23 @@ class EmailHelper {
   constructor() {
     // Email configuration from environment variables
     // All SMTP settings must be configured in .env file
+    // For lcc.com.mx, you might need to use a different SMTP server
+    // Common options:
+    // - smtp.office365.com (Microsoft 365/Outlook)
+    // - mail.lcc.com.mx (if they have their own mail server)
+    // - smtp.gmail.com (if using Gmail/Google Workspace)
     this.smtpConfig = {
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      host: process.env.SMTP_HOST || 'smtp.office365.com', // Changed default to Office365
       port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
       auth: {
         user: process.env.SMTP_USER || '',
         pass: process.env.SMTP_PASSWORD || '',
       },
+      // Add connection timeout settings
+      connectionTimeout: 10000, // 10 seconds
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
     };
 
     // Default sender email
@@ -36,16 +45,12 @@ class EmailHelper {
    */
   initializeTransporter() {
     try {
+      if (!this.smtpConfig.auth.user || !this.smtpConfig.auth.pass) {
+        console.warn('[EmailHelper] SMTP credentials not configured. Email sending will fail.');
+        console.warn('[EmailHelper] Please set SMTP_USER and SMTP_PASSWORD in .env file');
+      }
       this.transporter = nodemailer.createTransport(this.smtpConfig);
-      
-      // Verify connection (optional, can be done on first send)
-      // this.transporter.verify((error, success) => {
-      //   if (error) {
-      //     console.error('Email transporter verification failed:', error);
-      //   } else {
-      //     console.log('Email transporter ready');
-      //   }
-      // });
+      console.log('[EmailHelper] Email transporter initialized');
     } catch (error) {
       console.error('[EmailHelper] Error initializing transporter:', error);
       this.transporter = null;
