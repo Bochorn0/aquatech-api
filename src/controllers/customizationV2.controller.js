@@ -730,6 +730,9 @@ export const getPuntoVentaSensorsV2 = async (req, res) => {
 
     const codigoTienda = (puntoVenta.codigo_tienda || puntoVenta.code || '').toUpperCase();
 
+    // Track invalid timestamps for summary log (use array to track in async context)
+    const invalidTimestamps = [];
+
     // Get latest readings for each sensor
     const sensorsWithReadings = await Promise.all(
       sensors.map(async (sensor) => {
@@ -801,16 +804,17 @@ export const getPuntoVentaSensorsV2 = async (req, res) => {
                     formattedTimestamp = date.toISOString();
                   } else {
                     // Invalid year, use createdAt as fallback
-                    console.warn(`[getPuntoVentaSensorsV2] Invalid timestamp year ${year} for sensor ${sensor.id}, using createdAt`);
+                    invalidTimestamps.push(sensor.id);
                     formattedTimestamp = row.createdat ? new Date(row.createdat).toISOString() : null;
                   }
                 } else {
                   // Invalid date, use createdAt as fallback
-                  console.warn(`[getPuntoVentaSensorsV2] Invalid timestamp format for sensor ${sensor.id}, using createdAt`);
+                  invalidTimestamps.push(sensor.id);
                   formattedTimestamp = row.createdat ? new Date(row.createdat).toISOString() : null;
                 }
               } catch (error) {
-                console.warn(`[getPuntoVentaSensorsV2] Error formatting timestamp for sensor ${sensor.id}:`, error.message);
+                // Invalid date, use createdAt as fallback
+                invalidTimestamps.push(sensor.id);
                 formattedTimestamp = row.createdat ? new Date(row.createdat).toISOString() : null;
               }
             }
@@ -847,6 +851,11 @@ export const getPuntoVentaSensorsV2 = async (req, res) => {
         }
       })
     );
+
+    // Log summary if there were invalid timestamps (only once per request)
+    if (invalidTimestamps.length > 0) {
+      console.warn(`[getPuntoVentaSensorsV2] ${invalidTimestamps.length} sensor(s) had invalid timestamps, used createdAt as fallback`);
+    }
 
     res.json(sensorsWithReadings);
   } catch (error) {
