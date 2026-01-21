@@ -104,24 +104,15 @@ class MetricModel {
       conditions,
       enabled = true,
       read_only = false,
-      display_order = 0,
-      // Legacy fields for backward compatibility
-      tds_range,
-      production_volume_range,
-      rejected_volume_range,
-      flow_rate_speed_range,
-      active_time,
-      metrics_description
+      display_order = 0
     } = data;
 
     const insertQuery = `
       INSERT INTO metrics (
         clientid, punto_venta_id, metric_name, metric_type, sensor_type, sensor_unit,
-        rules, conditions, enabled, read_only, display_order,
-        tds_range, production_volume_range, rejected_volume_range,
-        flow_rate_speed_range, active_time, metrics_description
+        rules, conditions, enabled, read_only, display_order
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
       ) RETURNING *
     `;
 
@@ -136,14 +127,7 @@ class MetricModel {
       conditions ? JSON.stringify(conditions) : null,
       enabled,
       read_only,
-      display_order || 0,
-      // Legacy fields
-      tds_range !== undefined ? parseFloat(tds_range) : null,
-      production_volume_range !== undefined ? parseFloat(production_volume_range) : null,
-      rejected_volume_range !== undefined ? parseFloat(rejected_volume_range) : null,
-      flow_rate_speed_range !== undefined ? parseFloat(flow_rate_speed_range) : null,
-      active_time !== undefined ? parseFloat(active_time) : null,
-      metrics_description || null
+      display_order || 0
     ];
 
     try {
@@ -173,14 +157,7 @@ class MetricModel {
       conditions,
       enabled,
       read_only,
-      display_order,
-      // Legacy fields
-      tds_range,
-      production_volume_range,
-      rejected_volume_range,
-      flow_rate_speed_range,
-      active_time,
-      metrics_description
+      display_order
     } = data;
 
     const updateQuery = `
@@ -197,14 +174,8 @@ class MetricModel {
         enabled = COALESCE($9, enabled),
         read_only = COALESCE($10, read_only),
         display_order = COALESCE($11, display_order),
-        tds_range = COALESCE($12, tds_range),
-        production_volume_range = COALESCE($13, production_volume_range),
-        rejected_volume_range = COALESCE($14, rejected_volume_range),
-        flow_rate_speed_range = COALESCE($15, flow_rate_speed_range),
-        active_time = COALESCE($16, active_time),
-        metrics_description = COALESCE($17, metrics_description),
         updatedat = CURRENT_TIMESTAMP
-      WHERE id = $18
+      WHERE id = $12
       RETURNING *
     `;
 
@@ -220,13 +191,6 @@ class MetricModel {
       enabled !== undefined ? enabled : null,
       read_only !== undefined ? read_only : null,
       display_order !== undefined ? display_order : null,
-      // Legacy fields
-      tds_range !== undefined ? parseFloat(tds_range) : null,
-      production_volume_range !== undefined ? parseFloat(production_volume_range) : null,
-      rejected_volume_range !== undefined ? parseFloat(rejected_volume_range) : null,
-      flow_rate_speed_range !== undefined ? parseFloat(flow_rate_speed_range) : null,
-      active_time !== undefined ? parseFloat(active_time) : null,
-      metrics_description !== undefined ? metrics_description : null,
       id
     ];
 
@@ -291,13 +255,6 @@ class MetricModel {
       enabled: row.enabled !== undefined ? row.enabled : true,
       read_only: row.read_only !== undefined ? row.read_only : false,
       display_order: row.display_order || 0,
-      // Legacy fields
-      tds_range: row.tds_range !== null && row.tds_range !== undefined ? parseFloat(row.tds_range) : null,
-      production_volume_range: row.production_volume_range !== null && row.production_volume_range !== undefined ? parseFloat(row.production_volume_range) : null,
-      rejected_volume_range: row.rejected_volume_range !== null && row.rejected_volume_range !== undefined ? parseFloat(row.rejected_volume_range) : null,
-      flow_rate_speed_range: row.flow_rate_speed_range !== null && row.flow_rate_speed_range !== undefined ? parseFloat(row.flow_rate_speed_range) : null,
-      active_time: row.active_time !== null && row.active_time !== undefined ? parseFloat(row.active_time) : null,
-      metrics_description: row.metrics_description || null,
       createdAt: row.createdat || row.createdAt || null,
       updatedAt: row.updatedat || row.updatedAt || null
     };

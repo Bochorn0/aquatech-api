@@ -2,6 +2,7 @@
 // Controller for v2.0 API endpoints using PostgreSQL for customization data
 
 import MetricModel from '../models/postgres/metric.model.js';
+import MetricAlertModel from '../models/postgres/metricAlert.model.js';
 import ClientModel from '../models/postgres/client.model.js';
 import CityModel from '../models/postgres/city.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
@@ -224,6 +225,271 @@ export const removeMetricV2 = async (req, res) => {
     res.status(500).json({ 
       success: false,
       message: 'Error deleting metric',
+      error: error.message 
+    });
+  }
+};
+
+// ============================================================================
+// METRIC ALERTS CONTROLLERS
+// ============================================================================
+
+/**
+ * Get all alerts for a metric (v2.0 - PostgreSQL)
+ * @route   GET /api/v2.0/metrics/:id/alerts
+ * @desc    Get all alerts for a specific metric
+ * @access  Private
+ */
+export const getMetricAlertsV2 = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const metricId = parseInt(id, 10);
+    
+    if (isNaN(metricId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid metric ID' 
+      });
+    }
+    
+    const alerts = await MetricAlertModel.findByMetricId(metricId);
+    res.json(alerts);
+  } catch (error) {
+    console.error('Error getting metric alerts (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error getting metric alerts',
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * Add alert to metric (v2.0 - PostgreSQL)
+ * @route   POST /api/v2.0/metrics/:id/alerts
+ * @desc    Create a new alert for a metric
+ * @access  Private
+ */
+export const addMetricAlertV2 = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const metricId = parseInt(id, 10);
+    
+    if (isNaN(metricId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid metric ID' 
+      });
+    }
+    
+    const {
+      usuario,
+      correo,
+      celular,
+      celularAlert,
+      dashboardAlert,
+      emailAlert,
+      preventivo,
+      correctivo
+    } = req.body;
+    
+    // Validate required fields
+    if (!usuario || !correo) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Usuario y correo son requeridos' 
+      });
+    }
+    
+    // Validate that at least one alert type is enabled
+    if (!celularAlert && !dashboardAlert && !emailAlert) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Al menos un tipo de alerta debe estar habilitado' 
+      });
+    }
+    
+    // Validate that celular is provided if celularAlert is true
+    if (celularAlert && !celular) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Celular es requerido cuando celular_alert está habilitado' 
+      });
+    }
+    
+    // Validate that at least one alert type (preventivo or correctivo) is enabled
+    if (!preventivo && !correctivo) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Al menos uno de preventivo o correctivo debe estar habilitado' 
+      });
+    }
+    
+    const newAlert = await MetricAlertModel.create({
+      metricId,
+      usuario,
+      correo,
+      celular,
+      celularAlert: celularAlert || false,
+      dashboardAlert: dashboardAlert || false,
+      emailAlert: emailAlert || false,
+      preventivo: preventivo || false,
+      correctivo: correctivo || false
+    });
+    
+    res.status(201).json(newAlert);
+  } catch (error) {
+    console.error('Error creating metric alert (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error creating metric alert',
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * Update metric alert (v2.0 - PostgreSQL)
+ * @route   PATCH /api/v2.0/metrics/:id/alerts/:alertId
+ * @desc    Update a metric alert
+ * @access  Private
+ */
+export const updateMetricAlertV2 = async (req, res) => {
+  try {
+    const { id, alertId } = req.params;
+    const metricId = parseInt(id, 10);
+    const alertIdInt = parseInt(alertId, 10);
+    
+    if (isNaN(metricId) || isNaN(alertIdInt)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid ID' 
+      });
+    }
+    
+    // Verify alert belongs to metric
+    const existingAlert = await MetricAlertModel.findById(alertIdInt);
+    if (!existingAlert || parseInt(existingAlert.metricId, 10) !== metricId) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Alert no encontrado' 
+      });
+    }
+    
+    const {
+      usuario,
+      correo,
+      celular,
+      celularAlert,
+      dashboardAlert,
+      emailAlert,
+      preventivo,
+      correctivo
+    } = req.body;
+    
+    // Validate that at least one alert type is enabled
+    if (celularAlert !== undefined && dashboardAlert !== undefined && emailAlert !== undefined) {
+      if (!celularAlert && !dashboardAlert && !emailAlert) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Al menos un tipo de alerta debe estar habilitado' 
+        });
+      }
+    }
+    
+    // Validate that celular is provided if celularAlert is being set to true
+    if (celularAlert === true && !celular && !existingAlert.celular) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Celular es requerido cuando celular_alert está habilitado' 
+      });
+    }
+    
+    // Validate that at least one alert type (preventivo or correctivo) is enabled
+    if (preventivo !== undefined && correctivo !== undefined) {
+      if (!preventivo && !correctivo) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Al menos uno de preventivo o correctivo debe estar habilitado' 
+        });
+      }
+    }
+    
+    const updatedAlert = await MetricAlertModel.update(alertIdInt, {
+      usuario,
+      correo,
+      celular,
+      celularAlert,
+      dashboardAlert,
+      emailAlert,
+      preventivo,
+      correctivo
+    });
+    
+    if (!updatedAlert) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Alert no encontrado' 
+      });
+    }
+    
+    res.json(updatedAlert);
+  } catch (error) {
+    console.error('Error updating metric alert (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error updating metric alert',
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * Delete metric alert (v2.0 - PostgreSQL)
+ * @route   DELETE /api/v2.0/metrics/:id/alerts/:alertId
+ * @desc    Delete a metric alert
+ * @access  Private
+ */
+export const removeMetricAlertV2 = async (req, res) => {
+  try {
+    const { id, alertId } = req.params;
+    const metricId = parseInt(id, 10);
+    const alertIdInt = parseInt(alertId, 10);
+    
+    if (isNaN(metricId) || isNaN(alertIdInt)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid ID' 
+      });
+    }
+    
+    // Verify alert belongs to metric
+    const existingAlert = await MetricAlertModel.findById(alertIdInt);
+    if (!existingAlert || parseInt(existingAlert.metricId, 10) !== metricId) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Alert no encontrado' 
+      });
+    }
+    
+    const deleted = await MetricAlertModel.delete(alertIdInt);
+    
+    if (!deleted) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Alert no encontrado' 
+      });
+    }
+    
+    res.json({ 
+      success: true,
+      message: 'Alert eliminado exitosamente' 
+    });
+  } catch (error) {
+    console.error('Error deleting metric alert (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error deleting metric alert',
       error: error.message 
     });
   }

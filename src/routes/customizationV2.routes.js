@@ -9,6 +9,11 @@ import {
   addMetricV2,
   updateMetricV2,
   removeMetricV2,
+  // Metric Alerts
+  getMetricAlertsV2,
+  addMetricAlertV2,
+  updateMetricAlertV2,
+  removeMetricAlertV2,
   // Clients
   getClientsV2,
   getClientByIdV2,
@@ -46,11 +51,39 @@ const router = express.Router();
 router.get('/metrics', getMetricsV2);
 
 /**
+ * @route   GET /api/v2.0/metrics/:id/alerts
+ * @desc    Get all alerts for a metric (PostgreSQL)
+ * @access  Private
+ */
+router.get('/metrics/:id/alerts', getMetricAlertsV2);
+
+/**
+ * @route   POST /api/v2.0/metrics/:id/alerts
+ * @desc    Add alert to metric (PostgreSQL)
+ * @access  Private
+ */
+router.post('/metrics/:id/alerts', addMetricAlertV2);
+
+/**
+ * @route   PATCH /api/v2.0/metrics/:id/alerts/:alertId
+ * @desc    Update metric alert (PostgreSQL)
+ * @access  Private
+ */
+router.patch('/metrics/:id/alerts/:alertId', updateMetricAlertV2);
+
+/**
+ * @route   DELETE /api/v2.0/metrics/:id/alerts/:alertId
+ * @desc    Delete metric alert (PostgreSQL)
+ * @access  Private
+ */
+router.delete('/metrics/:id/alerts/:alertId', removeMetricAlertV2);
+
+/**
  * @route   GET /api/v2.0/metrics/:id
  * @desc    Get metric by ID (PostgreSQL)
  * @access  Private
  */
-router.get('/metrics/:id', getMetricByIdV2);
+router.get('/metrics/:id([^/]+)$', getMetricByIdV2);
 
 /**
  * @route   POST /api/v2.0/metrics
@@ -64,14 +97,14 @@ router.post('/metrics', addMetricV2);
  * @desc    Update metric (PostgreSQL)
  * @access  Private
  */
-router.patch('/metrics/:id', updateMetricV2);
+router.patch('/metrics/:id([^/]+)$', updateMetricV2);
 
 /**
  * @route   DELETE /api/v2.0/metrics/:id
  * @desc    Delete metric (PostgreSQL)
  * @access  Private
  */
-router.delete('/metrics/:id', removeMetricV2);
+router.delete('/metrics/:id([^/]+)$', removeMetricV2);
 
 // ============================================================================
 // CLIENTS ROUTES
