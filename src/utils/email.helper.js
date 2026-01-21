@@ -15,11 +15,12 @@ class EmailHelper {
     // All SMTP settings must be configured in .env file
     // For lcc.com.mx, you might need to use a different SMTP server
     // Common options:
-    // - smtp.office365.com (Microsoft 365/Outlook)
-    // - mail.lcc.com.mx (if they have their own mail server)
+    // - smtp.office365.com (Microsoft 365/Outlook) - MOST LIKELY for lcc.com.mx
+    // - mail.lcc.com.mx or smtp.lcc.com.mx (if they have their own mail server)
     // - smtp.gmail.com (if using Gmail/Google Workspace)
+    // IMPORTANT: Set SMTP_HOST in .env file to match your email provider!
     this.smtpConfig = {
-      host: process.env.SMTP_HOST || 'smtp.office365.com', // Changed default to Office365
+      host: process.env.SMTP_HOST || 'smtp.office365.com', // Default to Office365 (most common for business emails)
       port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
       auth: {
