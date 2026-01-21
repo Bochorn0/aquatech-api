@@ -788,14 +788,41 @@ export const getPuntoVentaSensorsV2 = async (req, res) => {
           let latestReading = null;
           if (readingResult.rows.length > 0) {
             const row = readingResult.rows[0];
+            
+            // Format timestamp - handle invalid dates
+            let formattedTimestamp = row.timestamp;
+            if (row.timestamp) {
+              try {
+                const date = new Date(row.timestamp);
+                // Check if date is valid and year is reasonable
+                if (!isNaN(date.getTime())) {
+                  const year = date.getFullYear();
+                  if (year >= 1900 && year <= 2100) {
+                    formattedTimestamp = date.toISOString();
+                  } else {
+                    // Invalid year, use createdAt as fallback
+                    console.warn(`[getPuntoVentaSensorsV2] Invalid timestamp year ${year} for sensor ${sensor.id}, using createdAt`);
+                    formattedTimestamp = row.createdat ? new Date(row.createdat).toISOString() : null;
+                  }
+                } else {
+                  // Invalid date, use createdAt as fallback
+                  console.warn(`[getPuntoVentaSensorsV2] Invalid timestamp format for sensor ${sensor.id}, using createdAt`);
+                  formattedTimestamp = row.createdat ? new Date(row.createdat).toISOString() : null;
+                }
+              } catch (error) {
+                console.warn(`[getPuntoVentaSensorsV2] Error formatting timestamp for sensor ${sensor.id}:`, error.message);
+                formattedTimestamp = row.createdat ? new Date(row.createdat).toISOString() : null;
+              }
+            }
+            
             latestReading = {
               id: row.id,
               name: row.name,
               value: row.value !== null ? parseFloat(row.value) : null,
               type: row.type,
-              timestamp: row.timestamp,
-              createdAt: row.createdat,
-              updatedAt: row.updatedat,
+              timestamp: formattedTimestamp,
+              createdAt: row.createdat ? new Date(row.createdat).toISOString() : null,
+              updatedAt: row.updatedat ? new Date(row.updatedat).toISOString() : null,
               meta: typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta,
               resourceId: row.resourceid,
               resourceType: row.resourcetype,
