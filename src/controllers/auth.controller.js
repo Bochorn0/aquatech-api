@@ -1,8 +1,10 @@
 import User from '../models/user.model.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import config from '../config/config.js';
 import { body, validationResult } from 'express-validator';  // Using express-validator for input validation
+import emailHelper from '../utils/email.helper.js';
 
 const SECRET_KEY = config.SECRET_KEY; // Store in env
 
@@ -87,6 +89,153 @@ export const loginUser = [
       res.json({ token, user });
     } catch (error) {
       console.error('Login Error:', error);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+];
+
+// Request password reset
+export const requestPasswordReset = [
+  body('email').isEmail().withMessage('Correo electrónico debe ser una dirección de correo válida'),
+  
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { email } = req.body;
+
+    try {
+      const user = await User.findOne({ email });
+      
+      // Don't reveal if user exists or not (security best practice)
+      if (!user) {
+        return res.json({ 
+          success: true, 
+          message: 'Si el correo existe, se enviará un enlace de recuperación' 
+        });
+      }
+
+      // Check if user is active
+      if (user.status !== 'active') {
+        return res.status(400).json({ 
+          message: 'Tu cuenta no está activa. Contacta al administrador.' 
+        });
+      }
+
+      // Generate reset token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const resetTokenExpiry = new Date();
+      resetTokenExpiry.setHours(resetTokenExpiry.getHours() + 1); // Token expires in 1 hour
+
+      // Save reset token to user
+      user.resetToken = resetToken;
+      user.resetTokenExpiry = resetTokenExpiry;
+      await user.save();
+
+      // Send password reset email
+      const emailResult = await emailHelper.sendPasswordResetEmail({
+        to: user.email,
+        resetToken,
+        userName: user.nombre || user.email,
+      });
+
+      if (!emailResult.success) {
+        console.error('[requestPasswordReset] Error sending email:', emailResult.error);
+        // Still return success to user (don't reveal email issues)
+        return res.json({ 
+          success: true, 
+          message: 'Si el correo existe, se enviará un enlace de recuperación' 
+        });
+      }
+
+      res.json({ 
+        success: true, 
+        message: 'Si el correo existe, se enviará un enlace de recuperación' 
+      });
+    } catch (error) {
+      console.error('Password Reset Request Error:', error);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+];
+
+// Verify reset token
+export const verifyResetToken = [
+  body('token').notEmpty().withMessage('Token es requerido'),
+  
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { token } = req.body;
+
+    try {
+      const user = await User.findOne({
+        resetToken: token,
+        resetTokenExpiry: { $gt: new Date() }, // Token not expired
+      });
+
+      if (!user) {
+        return res.status(400).json({ 
+          message: 'Token inválido o expirado' 
+        });
+      }
+
+      res.json({ 
+        success: true, 
+        message: 'Token válido',
+        email: user.email 
+      });
+    } catch (error) {
+      console.error('Verify Reset Token Error:', error);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+];
+
+// Reset password
+export const resetPassword = [
+  body('token').notEmpty().withMessage('Token es requerido'),
+  body('password')
+    .isLength({ min: 6 })
+    .withMessage('La contraseña debe tener al menos 6 caracteres'),
+  
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { token, password } = req.body;
+
+    try {
+      const user = await User.findOne({
+        resetToken: token,
+        resetTokenExpiry: { $gt: new Date() }, // Token not expired
+      });
+
+      if (!user) {
+        return res.status(400).json({ 
+          message: 'Token inválido o expirado' 
+        });
+      }
+
+      // Update password (will be hashed by pre-save hook)
+      user.password = password;
+      user.resetToken = null;
+      user.resetTokenExpiry = null;
+      await user.save();
+
+      res.json({ 
+        success: true, 
+        message: 'Contraseña restablecida exitosamente' 
+      });
+    } catch (error) {
+      console.error('Reset Password Error:', error);
       res.status(500).json({ message: 'Server Error' });
     }
   },

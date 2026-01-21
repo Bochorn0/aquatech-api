@@ -14,7 +14,10 @@ const UserSchema = new mongoose.Schema({
   nombre: { type: String, default: '' },
   puesto: { type: String, default: '' },
   user_description: { type: String, default: '' },
-  mqtt_zip_password: { type: String, default: '' } // Contraseña para el ZIP del certificado MQTT
+  mqtt_zip_password: { type: String, default: '' }, // Contraseña para el ZIP del certificado MQTT
+  // Password reset fields
+  resetToken: { type: String, default: null },
+  resetTokenExpiry: { type: Date, default: null }
 }, { timestamps: true });
 
 // Hash password before saving
