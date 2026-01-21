@@ -24,7 +24,8 @@
     "verify:tiwater": "bash scripts/migrations/verify-tiwater-tables.sh",
     "test:email": "node scripts/test-email-debug.js",
     "test:email:send": "node scripts/test-email-debug.js --test-send",
-    "test:email:simple": "node scripts/simple-email-example.js"
+    "test:email:simple": "node scripts/simple-email-example.js",
+    "test:email:connectivity": "bash scripts/test-smtp-connectivity.sh"
   },
   "dependencies": {
     "@tuya/tuya-connector-nodejs": "^2.1.2",
