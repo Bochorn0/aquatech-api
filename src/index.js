@@ -30,6 +30,7 @@ import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoute
 import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoutes
 import { authenticate, authorizeRoles } from './middlewares/auth.middleware.js';  // Import the authentication and authorization middleware
 import mqttService from './services/mqtt.service.js';  // Import MQTT service
+import emailHelper from './utils/email.helper.js';  // Import email helper for test endpoint
 
 const app = express();
 app.use(bodyParser.json({ limit: '5mb' }));
@@ -50,7 +51,6 @@ app.get('/health', (req, res) => {
 // Test SMTP connection endpoint (for debugging)
 app.get('/api/v1.0/test-smtp', async (req, res) => {
   try {
-    const emailHelper = (await import('./utils/email.helper.js')).default;
     const testResult = await emailHelper.sendEmail({
       to: process.env.SMTP_USER || 'soporte@lcc.com.mx',
       subject: 'Test Email from Aquatech API',
