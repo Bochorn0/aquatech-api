@@ -17,6 +17,7 @@ import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import emailHelper from '../src/utils/email.helper.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -36,21 +37,41 @@ console.log();
 console.log('📋 Step 1: Checking Environment Variables');
 console.log('-'.repeat(60));
 
+const emailProvider = process.env.EMAIL_PROVIDER || 'smtp';
+
+// Check variables based on provider
 const requiredVars = {
-  SMTP_HOST: process.env.SMTP_HOST,
-  SMTP_PORT: process.env.SMTP_PORT,
-  SMTP_USER: process.env.SMTP_USER,
-  SMTP_PASSWORD: process.env.SMTP_PASSWORD ? '***' : undefined,
-  SMTP_SECURE: process.env.SMTP_SECURE,
-  EMAIL_PROVIDER: process.env.EMAIL_PROVIDER || 'smtp',
+  EMAIL_PROVIDER: emailProvider,
 };
+
+// Add provider-specific variables
+if (emailProvider === 'mailgun') {
+  requiredVars.MAILGUN_API_KEY = process.env.MAILGUN_API_KEY ? '***' : undefined;
+  requiredVars.MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN;
+  requiredVars.MAILGUN_FROM_EMAIL = process.env.MAILGUN_FROM_EMAIL || process.env.SMTP_USER;
+} else if (emailProvider === 'sendgrid') {
+  requiredVars.SENDGRID_API_KEY = process.env.SENDGRID_API_KEY ? '***' : undefined;
+  requiredVars.SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || process.env.SMTP_USER;
+} else if (emailProvider === 'resend') {
+  requiredVars.RESEND_API_KEY = process.env.RESEND_API_KEY ? '***' : undefined;
+  requiredVars.RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || process.env.SMTP_USER;
+} else {
+  // SMTP provider
+  requiredVars.SMTP_HOST = process.env.SMTP_HOST;
+  requiredVars.SMTP_PORT = process.env.SMTP_PORT;
+  requiredVars.SMTP_USER = process.env.SMTP_USER;
+  requiredVars.SMTP_PASSWORD = process.env.SMTP_PASSWORD ? '***' : undefined;
+  requiredVars.SMTP_SECURE = process.env.SMTP_SECURE;
+}
 
 let configValid = true;
 
 Object.entries(requiredVars).forEach(([key, value]) => {
   const status = value !== undefined && value !== '' ? '✅' : '❌';
   console.log(`${status} ${key}: ${value || 'NOT SET'}`);
-  if (!value && (key !== 'SMTP_SECURE' && key !== 'EMAIL_PROVIDER')) {
+  // Don't mark as invalid for optional fields
+  const optionalFields = ['SMTP_SECURE', 'EMAIL_PROVIDER', 'MAILGUN_FROM_EMAIL', 'SENDGRID_FROM_EMAIL', 'RESEND_FROM_EMAIL'];
+  if (!value && !optionalFields.includes(key)) {
     configValid = false;
   }
 });
@@ -196,44 +217,171 @@ if (hostIssue) {
 }
 console.log();
 
-// Step 4: Test SMTP Connection
+// Step 4: Test Email Connection
 if (configValid) {
-  console.log('🔌 Step 4: Testing SMTP Connection');
-  console.log('-'.repeat(60));
+  const emailProvider = process.env.EMAIL_PROVIDER || 'smtp';
   
-  try {
-    const transporter = nodemailer.createTransport(currentConfig);
+  // Check if using API provider (not SMTP)
+  if (emailProvider === 'mailgun' || emailProvider === 'sendgrid' || emailProvider === 'resend') {
+    console.log(`🔌 Step 4: Testing ${emailProvider.toUpperCase()} API Connection`);
+    console.log('-'.repeat(60));
     
-    // Test connection
-    console.log('Testing connection to', currentConfig.host, ':', currentConfig.port);
-    await transporter.verify();
-    console.log('✅ SMTP Connection: SUCCESS');
-    console.log('   Server is ready to accept messages');
-    console.log();
+    // Check API provider configuration
+    if (emailProvider === 'mailgun') {
+      const mailgunApiKey = process.env.MAILGUN_API_KEY || '';
+      const mailgunDomain = process.env.MAILGUN_DOMAIN || '';
+      if (!mailgunApiKey || !mailgunDomain) {
+        console.log('❌ Mailgun Configuration: INCOMPLETE');
+        console.log('   Missing MAILGUN_API_KEY or MAILGUN_DOMAIN');
+        console.log('   Please set these in your .env file');
+        console.log();
+      } else {
+        console.log('✅ Mailgun Configuration: Complete');
+        console.log(`   Domain: ${mailgunDomain}`);
+        console.log('   API Key: Set');
+        console.log();
+        
+        // Test connection by sending email
+        if (testSend) {
+          console.log('📤 Step 5: Sending Test Email via Mailgun');
+          console.log('-'.repeat(60));
+          
+          const result = await emailHelper.sendEmail({
+            to: smtpUser,
+            subject: 'Test Email from Aquatech Debug Script',
+            html: `
+              <h2>✅ Email Configuration Test</h2>
+              <p>This is a test email to verify your Mailgun configuration is working correctly.</p>
+              <p><strong>Configuration Details:</strong></p>
+              <ul>
+                <li>Provider: Mailgun</li>
+                <li>Domain: ${mailgunDomain}</li>
+                <li>Sent at: ${new Date().toISOString()}</li>
+              </ul>
+              <p>If you received this email, your configuration is correct! 🎉</p>
+            `,
+          });
+          
+          if (result.success) {
+            console.log('✅ Test Email Sent Successfully!');
+            console.log('   Message ID:', result.messageId);
+            console.log('   Provider:', result.provider);
+            console.log('   Check your inbox:', smtpUser);
+            console.log('   ⚠️  Note: Sandbox domain can only send to verified recipients!');
+            console.log('   Make sure you verified the recipient in Mailgun Dashboard.');
+          } else {
+            console.log('❌ Test Email Failed');
+            console.log('   Error:', result.error);
+            if (result.error.includes('unverified')) {
+              console.log('   💡 Solution: Verify recipient email in Mailgun Dashboard → Authorized Recipients');
+            }
+          }
+          console.log();
+        } else {
+          console.log('💡 To send a test email, run: node scripts/test-email-debug.js --test-send');
+          console.log('   ⚠️  Remember: Sandbox domain requires verified recipients!');
+          console.log();
+        }
+      }
+    } else if (emailProvider === 'sendgrid') {
+      const sendGridApiKey = process.env.SENDGRID_API_KEY || '';
+      if (!sendGridApiKey) {
+        console.log('❌ SendGrid Configuration: INCOMPLETE');
+        console.log('   Missing SENDGRID_API_KEY');
+        console.log();
+      } else {
+        console.log('✅ SendGrid Configuration: Complete');
+        console.log('   API Key: Set');
+        console.log();
+        
+        if (testSend) {
+          console.log('📤 Step 5: Sending Test Email via SendGrid');
+          console.log('-'.repeat(60));
+          const result = await emailHelper.sendEmail({
+            to: smtpUser,
+            subject: 'Test Email from Aquatech Debug Script',
+            html: '<h2>✅ Email Configuration Test</h2><p>This is a test email via SendGrid.</p>',
+          });
+          
+          if (result.success) {
+            console.log('✅ Test Email Sent Successfully!');
+            console.log('   Message ID:', result.messageId);
+            console.log('   Provider:', result.provider);
+          } else {
+            console.log('❌ Test Email Failed:', result.error);
+          }
+          console.log();
+        }
+      }
+    } else if (emailProvider === 'resend') {
+      const resendApiKey = process.env.RESEND_API_KEY || '';
+      if (!resendApiKey) {
+        console.log('❌ Resend Configuration: INCOMPLETE');
+        console.log('   Missing RESEND_API_KEY');
+        console.log();
+      } else {
+        console.log('✅ Resend Configuration: Complete');
+        console.log('   API Key: Set');
+        console.log();
+        
+        if (testSend) {
+          console.log('📤 Step 5: Sending Test Email via Resend');
+          console.log('-'.repeat(60));
+          const result = await emailHelper.sendEmail({
+            to: smtpUser,
+            subject: 'Test Email from Aquatech Debug Script',
+            html: '<h2>✅ Email Configuration Test</h2><p>This is a test email via Resend.</p>',
+          });
+          
+          if (result.success) {
+            console.log('✅ Test Email Sent Successfully!');
+            console.log('   Message ID:', result.messageId);
+            console.log('   Provider:', result.provider);
+          } else {
+            console.log('❌ Test Email Failed:', result.error);
+          }
+          console.log();
+        }
+      }
+    }
+  } else {
+    // SMTP provider
+    console.log('🔌 Step 4: Testing SMTP Connection');
+    console.log('-'.repeat(60));
     
-    // Step 5: Send Test Email (if requested)
-    if (testSend) {
-      console.log('📤 Step 5: Sending Test Email');
-      console.log('-'.repeat(60));
+    try {
+      const transporter = nodemailer.createTransport(currentConfig);
       
-      const testEmail = {
-        from: `"Aquatech Test" <${smtpUser}>`,
-        to: smtpUser, // Send to self
-        subject: 'Test Email from Aquatech Debug Script',
-        html: `
-          <h2>✅ Email Configuration Test</h2>
-          <p>This is a test email to verify your SMTP configuration is working correctly.</p>
-          <p><strong>Configuration Details:</strong></p>
-          <ul>
-            <li>Host: ${currentConfig.host}</li>
-            <li>Port: ${currentConfig.port}</li>
-            <li>Secure: ${currentConfig.secure}</li>
-            <li>Provider: ${detectedProvider}</li>
-          </ul>
-          <p>If you received this email, your configuration is correct! 🎉</p>
-          <p><small>Sent at ${new Date().toISOString()}</small></p>
-        `,
-        text: `
+      // Test connection
+      console.log('Testing connection to', currentConfig.host, ':', currentConfig.port);
+      await transporter.verify();
+      console.log('✅ SMTP Connection: SUCCESS');
+      console.log('   Server is ready to accept messages');
+      console.log();
+      
+      // Step 5: Send Test Email (if requested)
+      if (testSend) {
+        console.log('📤 Step 5: Sending Test Email');
+        console.log('-'.repeat(60));
+        
+        const testEmail = {
+          from: `"Aquatech Test" <${smtpUser}>`,
+          to: smtpUser, // Send to self
+          subject: 'Test Email from Aquatech Debug Script',
+          html: `
+            <h2>✅ Email Configuration Test</h2>
+            <p>This is a test email to verify your SMTP configuration is working correctly.</p>
+            <p><strong>Configuration Details:</strong></p>
+            <ul>
+              <li>Host: ${currentConfig.host}</li>
+              <li>Port: ${currentConfig.port}</li>
+              <li>Secure: ${currentConfig.secure}</li>
+              <li>Provider: ${detectedProvider}</li>
+            </ul>
+            <p>If you received this email, your configuration is correct! 🎉</p>
+            <p><small>Sent at ${new Date().toISOString()}</small></p>
+          `,
+          text: `
 Email Configuration Test
 
 This is a test email to verify your SMTP configuration is working correctly.
@@ -247,18 +395,18 @@ Configuration Details:
 If you received this email, your configuration is correct! 🎉
 
 Sent at ${new Date().toISOString()}
-        `
-      };
-      
-      const info = await transporter.sendMail(testEmail);
-      console.log('✅ Test Email Sent Successfully!');
-      console.log('   Message ID:', info.messageId);
-      console.log('   Check your inbox:', smtpUser);
-      console.log();
-    } else {
-      console.log('💡 To send a test email, run: node scripts/test-email-debug.js --test-send');
-      console.log();
-    }
+          `
+        };
+        
+        const info = await transporter.sendMail(testEmail);
+        console.log('✅ Test Email Sent Successfully!');
+        console.log('   Message ID:', info.messageId);
+        console.log('   Check your inbox:', smtpUser);
+        console.log();
+      } else {
+        console.log('💡 To send a test email, run: node scripts/test-email-debug.js --test-send');
+        console.log();
+      }
     
   } catch (error) {
     console.log('❌ SMTP Connection: FAILED');
