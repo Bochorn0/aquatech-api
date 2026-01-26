@@ -20,18 +20,18 @@ class EmailHelper {
     // SendGrid configuration
     this.sendGridApiKey = process.env.SENDGRID_API_KEY || '';
     this.sendGridFromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.SMTP_USER || 'soporte@lcc.com.mx';
-    this.sendGridFromName = process.env.SENDGRID_FROM_NAME || 'Aquatech';
+    this.sendGridFromName = process.env.SENDGRID_FROM_NAME || 'TI Water';
     
     // Mailgun configuration
     this.mailgunApiKey = process.env.MAILGUN_API_KEY || '';
     this.mailgunDomain = process.env.MAILGUN_DOMAIN || '';
     this.mailgunFromEmail = process.env.MAILGUN_FROM_EMAIL || process.env.SMTP_USER || 'soporte@lcc.com.mx';
-    this.mailgunFromName = process.env.MAILGUN_FROM_NAME || 'Aquatech';
+    this.mailgunFromName = process.env.MAILGUN_FROM_NAME || 'TI Water';
     
     // Resend configuration
     this.resendApiKey = process.env.RESEND_API_KEY || '';
     this.resendFromEmail = process.env.RESEND_FROM_EMAIL || process.env.SMTP_USER || 'soporte@lcc.com.mx';
-    this.resendFromName = process.env.RESEND_FROM_NAME || 'Aquatech';
+    this.resendFromName = process.env.RESEND_FROM_NAME || 'TI Water';
     
     // SMTP configuration (fallback if SendGrid not configured)
     // Email configuration from environment variables
@@ -494,7 +494,7 @@ class EmailHelper {
 
     try {
       const mailOptions = {
-        from: `"Aquatech" <${from}>`,
+        from: `"TI Water" <${from}>`,
         to: Array.isArray(to) ? to.join(', ') : to,
         subject,
         html: html || text,
@@ -543,10 +543,10 @@ class EmailHelper {
     } = options;
 
     // Generate reset URL if not provided
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://www.lcc.com.mx';
     const finalResetUrl = resetUrl || `${frontendUrl}/reset-password?token=${resetToken}`;
 
-    const subject = 'Recuperación de Contraseña - Aquatech';
+    const subject = 'Recuperación de Contraseña - TI Water';
     const html = `
       <!DOCTYPE html>
       <html>
@@ -611,7 +611,7 @@ class EmailHelper {
       <body>
         <div class="container">
           <div class="header">
-            <h1>Aquatech</h1>
+            <h1>TI Water</h1>
           </div>
           <div class="content">
             <p>Hola ${userName},</p>
@@ -633,7 +633,7 @@ class EmailHelper {
           </div>
           <div class="footer">
             <p>Este es un correo automático, por favor no respondas.</p>
-            <p>&copy; ${new Date().getFullYear()} Aquatech. Todos los derechos reservados.</p>
+            <p>&copy; ${new Date().getFullYear()} TI Water. Todos los derechos reservados.</p>
           </div>
         </div>
       </body>
@@ -670,7 +670,7 @@ class EmailHelper {
     const alertColor = alertType === 'preventivo' ? '#FFFF00' : '#EE0000';
     const alertBgColor = alertType === 'preventivo' ? '#fff3cd' : '#f8d7da';
 
-    const subject = `Alerta ${alertTypeLabel}: ${metricName} - Aquatech`;
+    const subject = `Alerta ${alertTypeLabel}: ${metricName} - TI Water`;
     const html = `
       <!DOCTYPE html>
       <html>
@@ -721,7 +721,7 @@ class EmailHelper {
       </head>
       <body>
         <div class="container">
-          <h1>Aquatech - Alerta del Sistema</h1>
+          <h1>TI Water - Alerta del Sistema</h1>
           <div class="alert-box">
             <div class="alert-title">Alerta ${alertTypeLabel}</div>
             <p><strong>Métrica:</strong> ${metricName}</p>
@@ -739,7 +739,7 @@ class EmailHelper {
             </table>
           ` : ''}
           <p style="margin-top: 20px; color: #666; font-size: 12px;">
-            Este es un correo automático del sistema de alertas de Aquatech.
+            Este es un correo automático del sistema de alertas de TI Water.
           </p>
         </div>
       </body>
@@ -799,7 +799,7 @@ class EmailHelper {
       </head>
       <body>
         <div class="container">
-          <h1>Aquatech</h1>
+          <h1>TI Water</h1>
           <div class="content">
             <h2>${title}</h2>
             <p>${message}</p>
