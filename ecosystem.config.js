@@ -10,7 +10,7 @@ export default {
       instances: 1,
       exec_mode: 'fork',
       watch: false,
-      max_memory_restart: '1G',
+      max_memory_restart: '400M',  // Reducido para sistemas con poca RAM (1.7GB total)
       env: {
         NODE_ENV: 'production',
       },
