@@ -21,6 +21,10 @@ import { query } from '../config/postgres.config.js';
  * @access  Private
  */
 export const getMetricsV2 = async (req, res) => {
+  let metrics = [];
+  let clientMap = new Map();
+  let puntoVentaMap = new Map();
+  
   try {
     // Extract query parameters for filtering
     const { punto_venta_id, clientId } = req.query;
@@ -50,7 +54,17 @@ export const getMetricsV2 = async (req, res) => {
     console.log(`[getMetricsV2] Fetching Metrics from PostgreSQL (v2.0) with filters:`, filters);
     
     // Fetch metrics with filters (limit to reasonable amount)
-    const metrics = await MetricModel.find(filters, { limit: 500, offset: 0 });
+    try {
+      metrics = await MetricModel.find(filters, { limit: 500, offset: 0 });
+      console.log(`[getMetricsV2] Found ${metrics.length} metrics`);
+    } catch (dbError) {
+      console.error('[getMetricsV2] ❌ Database error fetching metrics:', dbError);
+      return res.status(500).json({ 
+        success: false,
+        message: 'Database error fetching metrics',
+        error: process.env.NODE_ENV === 'development' ? dbError.message : 'Internal server error'
+      });
+    }
     
     if (metrics.length === 0) {
       console.log(`[getMetricsV2] No metrics found with filters:`, filters);
@@ -61,22 +75,27 @@ export const getMetricsV2 = async (req, res) => {
     const clientIds = [...new Set(metrics.map(m => m.clientId).filter(Boolean))];
     const puntoVentaIds = [...new Set(metrics.map(m => m.punto_venta_id).filter(Boolean))];
     
+    console.log(`[getMetricsV2] Need to fetch ${clientIds.length} clients and ${puntoVentaIds.length} puntos de venta`);
+    
     // Only fetch clients and puntos de venta that are actually needed
     // Use Promise.all with individual findById calls (safe for limited number of IDs)
-    let clientMap = new Map();
-    let puntoVentaMap = new Map();
     
     // Fetch clients in parallel (limit to prevent too many concurrent queries)
     if (clientIds.length > 0 && clientIds.length <= 100) {
       try {
-        const clients = await Promise.all(
-          clientIds.map(id => ClientModel.findById(id).catch(() => null))
+        const clientPromises = clientIds.map(id => 
+          ClientModel.findById(id).catch(err => {
+            console.warn(`[getMetricsV2] Error fetching client ${id}:`, err.message);
+            return null;
+          })
         );
+        const clients = await Promise.all(clientPromises);
         clientMap = new Map(
           clients.filter(c => c !== null).map(c => [String(c.id), c.name])
         );
+        console.log(`[getMetricsV2] Successfully fetched ${clientMap.size} clients`);
       } catch (err) {
-        console.warn('[getMetricsV2] Error fetching clients:', err.message);
+        console.error('[getMetricsV2] ❌ Error fetching clients:', err);
         // Continue without client names if there's an error
       }
     } else if (clientIds.length > 100) {
@@ -86,14 +105,19 @@ export const getMetricsV2 = async (req, res) => {
     // Fetch puntos de venta in parallel (limit to prevent too many concurrent queries)
     if (puntoVentaIds.length > 0 && puntoVentaIds.length <= 100) {
       try {
-        const puntosVenta = await Promise.all(
-          puntoVentaIds.map(id => PuntoVentaModel.findById(id).catch(() => null))
+        const puntoVentaPromises = puntoVentaIds.map(id => 
+          PuntoVentaModel.findById(id).catch(err => {
+            console.warn(`[getMetricsV2] Error fetching punto venta ${id}:`, err.message);
+            return null;
+          })
         );
+        const puntosVenta = await Promise.all(puntoVentaPromises);
         puntoVentaMap = new Map(
           puntosVenta.filter(pv => pv !== null).map(pv => [String(pv.id), pv.name])
         );
+        console.log(`[getMetricsV2] Successfully fetched ${puntoVentaMap.size} puntos de venta`);
       } catch (err) {
-        console.warn('[getMetricsV2] Error fetching puntos de venta:', err.message);
+        console.error('[getMetricsV2] ❌ Error fetching puntos de venta:', err);
         // Continue without punto venta names if there's an error
       }
     } else if (puntoVentaIds.length > 100) {
@@ -101,22 +125,35 @@ export const getMetricsV2 = async (req, res) => {
     }
     
     // Map metrics with client names and punto venta names
-    const mappedResults = metrics.map(metric => ({
-      ...metric,
-      client_name: metric.clientId ? (clientMap.get(String(metric.clientId)) || '') : '',
-      punto_venta_name: metric.punto_venta_id ? (puntoVentaMap.get(String(metric.punto_venta_id)) || '') : ''
-    }));
-    
-    console.log(`[getMetricsV2] ✅ Found ${mappedResults.length} metrics from PostgreSQL`);
-    res.json(mappedResults);
-  } catch (error) {
-    console.error('[getMetricsV2] ❌ Error fetching metrics from PostgreSQL (v2.0):', error);
-    // Don't expose internal error details in production
-    res.status(500).json({ 
-      success: false,
-      message: 'Error fetching metrics',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    const mappedResults = metrics.map(metric => {
+      try {
+        return {
+          ...metric,
+          client_name: metric.clientId ? (clientMap.get(String(metric.clientId)) || '') : '',
+          punto_venta_name: metric.punto_venta_id ? (puntoVentaMap.get(String(metric.punto_venta_id)) || '') : ''
+        };
+      } catch (mapError) {
+        console.warn(`[getMetricsV2] Error mapping metric ${metric.id}:`, mapError.message);
+        return metric; // Return metric without mapped names if mapping fails
+      }
     });
+    
+    console.log(`[getMetricsV2] ✅ Successfully returning ${mappedResults.length} metrics`);
+    return res.json(mappedResults);
+  } catch (error) {
+    console.error('[getMetricsV2] ❌ Unexpected error fetching metrics from PostgreSQL (v2.0):', error);
+    console.error('[getMetricsV2] Error stack:', error.stack);
+    
+    // Ensure response is sent even if there's an error
+    if (!res.headersSent) {
+      return res.status(500).json({ 
+        success: false,
+        message: 'Error fetching metrics',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    } else {
+      console.error('[getMetricsV2] Response already sent, cannot send error response');
+    }
   }
 };
 

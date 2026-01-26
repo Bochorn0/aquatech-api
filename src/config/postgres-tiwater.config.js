@@ -24,9 +24,19 @@ const pool = new Pool({
 });
 
 // Handle pool errors
+// Don't exit the process - let PM2 handle restarts if needed
+// The pool will automatically try to reconnect
 pool.on('error', (err, client) => {
-  console.error('[PostgreSQL TI_water] Unexpected error on idle client', err);
-  process.exit(-1);
+  console.error('[PostgreSQL TI_water] ⚠️  Unexpected error on idle client:', err.message);
+  console.error('[PostgreSQL TI_water] Error details:', {
+    code: err.code,
+    errno: err.errno,
+    syscall: err.syscall,
+    address: err.address,
+    port: err.port
+  });
+  // Don't exit - let the application continue and the pool will handle reconnection
+  // PM2 will restart if there's a fatal error, but connection errors should be handled gracefully
 });
 
 // Test connection on startup (non-blocking)
