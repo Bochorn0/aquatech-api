@@ -299,18 +299,49 @@ if command -v pm2 &> /dev/null; then
     
     # Recargar configuración
     if [ -f "$ECOSYSTEM_FILE" ]; then
+        # Verificar si el archivo usa ES Modules (export default)
+        if grep -q "export default" "$ECOSYSTEM_FILE"; then
+            print_warning "ecosystem.config.js usa ES Modules, PM2 requiere CommonJS"
+            print_info "Convirtiendo a CommonJS..."
+            
+            # Crear backup
+            cp "$ECOSYSTEM_FILE" "$ECOSYSTEM_FILE.backup.esm.$(date +%Y%m%d_%H%M%S)"
+            
+            # Convertir export default a module.exports
+            sed -i.tmp 's/export default/module.exports =/' "$ECOSYSTEM_FILE"
+            rm -f "$ECOSYSTEM_FILE.tmp" 2>/dev/null || true
+            
+            print_success "Archivo convertido a CommonJS"
+        fi
+        
         print_info "Recargando configuración desde ecosystem.config.js..."
         cd "$PROJECT_DIR"
         pm2 delete all 2>/dev/null || true
         sleep 2
-        pm2 start ecosystem.config.js
-        pm2 save
-        print_success "PM2 reiniciado con nueva configuración"
         
-        # Mostrar estado
-        echo ""
-        print_info "Estado actual de PM2:"
-        pm2 list
+        # Intentar iniciar PM2 y capturar errores
+        if pm2 start ecosystem.config.js 2>&1; then
+            pm2 save
+            print_success "PM2 reiniciado con nueva configuración"
+            
+            # Mostrar estado
+            echo ""
+            print_info "Estado actual de PM2:"
+            pm2 list
+        else
+            PM2_ERROR=$?
+            print_error "Error al iniciar PM2 con ecosystem.config.js"
+            print_info "Verificando sintaxis del archivo..."
+            
+            # Verificar si Node.js puede cargar el archivo
+            if node -e "require('$ECOSYSTEM_FILE')" 2>/dev/null; then
+                print_info "El archivo es válido, pero PM2 tuvo un error"
+                print_info "Intenta manualmente: pm2 start ecosystem.config.js"
+            else
+                print_error "El archivo tiene errores de sintaxis"
+                print_info "Revisa el archivo: $ECOSYSTEM_FILE"
+            fi
+        fi
     else
         print_warning "No se encontró ecosystem.config.js, PM2 no se reinició"
     fi

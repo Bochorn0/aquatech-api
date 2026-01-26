@@ -1,7 +1,8 @@
 // ecosystem.config.js
 // Configuración PM2 para Aquatech API
+// Nota: PM2 requiere CommonJS (module.exports), no ES Modules
 
-export default {
+module.exports = {
   apps: [
     {
       name: 'api-aquatech',
