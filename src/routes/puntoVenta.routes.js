@@ -5,7 +5,8 @@ import {
   getPuntoVentaById,
   addPuntoVenta,
   updatePuntoVenta,
-  deletePuntoVenta
+  deletePuntoVenta,
+  generateDailyData
 } from '../controllers/puntoVenta.controller.js';
 import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';
 
@@ -28,5 +29,8 @@ router.patch('/:id', authenticate, authorizeRoles('admin', 'cliente'), updatePun
 
 // 🔹 Eliminar un punto de venta (solo admin)
 router.delete('/:id', authenticate, authorizeRoles('admin'), deletePuntoVenta);
+
+// 🔹 Generar datos diarios simulados (solo admin, modo dev)
+router.post('/:id/generate-daily-data', authenticate, authorizeRoles('admin'), generateDailyData);
 
 export default router;

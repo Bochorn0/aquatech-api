@@ -5,6 +5,7 @@ import Controller from '../models/controller.model.js';
 import City from '../models/city.model.js';
 import { generateProductLogsReport } from './report.controller.js';
 import moment from 'moment';
+import mqttService from '../services/mqtt.service.js';
 
 // Obtener todos los puntos de venta
 export const getPuntosVenta = async (req, res) => {
@@ -57,25 +58,28 @@ export const getPuntosVentaFiltered = async (req, res) => {
     const now = Date.now();
     const ONLINE_THRESHOLD_MS = 5000;
 
-    const puntosConEstado = puntos.map(pv => {
+    let puntosConEstado = puntos.map(pv => {
       const tieneControladorOnline = pv.controladores?.some(
         ctrl => ctrl.last_time_active && (now - ctrl.last_time_active <= ONLINE_THRESHOLD_MS)
       );
+
       return {
         ...pv.toObject(),
         online: tieneControladorOnline,
       };
     });
 
-    // Si se solicita filtrar por online
-    const puntosFiltrados = online
-      ? puntosConEstado.filter(pv => pv.online === (online === 'true'))
-      : puntosConEstado;
+    // Filtrar por online si se especifica
+    if (online === 'true') {
+      puntosConEstado = puntosConEstado.filter(pv => pv.online);
+    } else if (online === 'false') {
+      puntosConEstado = puntosConEstado.filter(pv => !pv.online);
+    }
 
-    res.json(puntosFiltrados);
+    res.json(puntosConEstado);
   } catch (error) {
-    console.error('Error filtering puntos de venta:', error);
-    res.status(500).json({ message: 'Error filtering puntos de venta' });
+    console.error('Error fetching filtered puntos de venta:', error);
+    res.status(500).json({ message: 'Error fetching filtered puntos de venta' });
   }
 };
 
@@ -83,6 +87,7 @@ export const getPuntosVentaFiltered = async (req, res) => {
 export const getPuntoVentaById = async (req, res) => {
   try {
     const { id } = req.params;
+    console.log(`Fetching Punto de Venta by ID: ${id}`);
 
     const punto = await PuntoVenta.findById(id)
       .populate('cliente')
@@ -94,188 +99,271 @@ export const getPuntoVentaById = async (req, res) => {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }
 
-    // Calcular online según controladores
     const now = Date.now();
     const ONLINE_THRESHOLD_MS = 5000;
+
     const tieneControladorOnline = punto.controladores?.some(
       ctrl => ctrl.last_time_active && (now - ctrl.last_time_active <= ONLINE_THRESHOLD_MS)
     );
 
-    // 🧩 Lista configurable de productos especiales (ósmosis, etc.)
-    const PRODUCTOS_ESPECIALES = [
-      'ebf9738480d78e0132gnru',
-      'ebea4ffa2ab1483940nrqn'
-      // puedes agregar más IDs aquí
-    ];
-
-    // Aplicar la lógica de conversión para productos especiales y agregar histórico a productos Nivel
-    const productosModificados = await Promise.all(punto.productos?.map(async (product) => {
-      if (!product?.status) return product;
-
-      // Convertir a objeto plano para poder agregar propiedades
-      const productObj = product.toObject ? product.toObject() : { ...product };
-
-      // Aplicar transformaciones de status
-      productObj.status = productObj.status.map(stat => {
-        const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
-        const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
-        const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
-
-        const esEspecial = PRODUCTOS_ESPECIALES.includes(productObj.id);
-
-        // 🔹 Caso especial: productos de ósmosis u otros con calibración diferente
-        if (esEspecial && flujos_codes.includes(stat.code)) {
-          stat.value = (stat.value * 1.6).toFixed(2);
-          if (flujos_total_codes.includes(stat.code)) {
-            stat.value = (stat.value / 10).toFixed(2);
-          }
-        }
-
-        // 🔹 Conversión general para flujos instantáneos
-        if (arrayCodes.includes(stat.code) && stat.value > 0) {
-          stat.value = (stat.value / 10).toFixed(2);
-        }
-
-        return stat;
-      });
-
-      // 🔹 Si es producto tipo Nivel, agregar histórico del día actual
-      if (productObj.product_type === 'Nivel') {
-        try {
-          const today = moment().format('YYYY-MM-DD');
-          // Usar último valor en lugar de promedio para la gráfica del punto de venta detalle
-          const reportResult = await generateProductLogsReport(productObj.id, today, product, true);
-          
-          if (reportResult.success) {
-            // Filtrar solo los datos esenciales: hora, total_logs y estadísticas
-            const historicoSimplificado = {
-              product: reportResult.data.product,
-              date: reportResult.data.date,
-              total_logs: reportResult.data.total_logs,
-              hours_with_data: reportResult.data.hours_with_data.map(hourData => ({
-                hora: hourData.hora,
-                total_logs: hourData.total_logs,
-                estadisticas: hourData.estadisticas
-              }))
-            };
-            
-            productObj.historico = historicoSimplificado;
-            console.log(`📊 Histórico agregado para producto Nivel: ${productObj.id} (${historicoSimplificado.hours_with_data.length} horas)`);
-          } else {
-            console.warn(`⚠️ No se pudo generar histórico para ${productObj.id}:`, reportResult.error);
-            productObj.historico = null;
-          }
-        } catch (error) {
-          console.error(`❌ Error generando histórico para ${productObj.id}:`, error.message);
-          productObj.historico = null;
-        }
-      }
-
-      return productObj;
-    }) || []);
-
-    const safePunto = {
+    const puntoConEstado = {
       ...punto.toObject(),
-      productos: productosModificados,
       online: tieneControladorOnline,
     };
 
-    res.json(safePunto);
+    res.json(puntoConEstado);
   } catch (error) {
-    console.error('Error fetching punto de venta:', error);
+    console.error('Error fetching punto de venta by ID:', error);
     res.status(500).json({ message: 'Error fetching punto de venta' });
   }
 };
 
-// Crear nuevo punto de venta
-// Crear nuevo punto de venta
+// Crear un nuevo punto de venta
 export const addPuntoVenta = async (req, res) => {
   try {
-    const puntoData = req.body;
-    delete puntoData._id;
+    const { name, cliente, city, productos, controladores, lat, long, codigo_tienda } = req.body;
 
-    // ✅ Validar cliente
-    const cliente = await Client.findById(puntoData.cliente);
-    if (!cliente) return res.status(400).json({ message: 'Cliente no válido' });
-
-    // ✅ Validar ciudad
-    const ciudad = await City.findById(puntoData.city);
-    if (!ciudad) return res.status(400).json({ message: 'Ciudad no válida' });
-
-    // ✅ Validar productos y controladores (opcionales)
-    if (puntoData.productos?.length) {
-      const productos = await Product.find({ _id: { $in: puntoData.productos } });
-      if (productos.length !== puntoData.productos.length) {
-        return res.status(400).json({ message: 'Uno o más productos no existen' });
+    // Validar que el código_tienda sea único si se proporciona
+    if (codigo_tienda) {
+      const existingPunto = await PuntoVenta.findOne({ codigo_tienda });
+      if (existingPunto) {
+        return res.status(400).json({ message: 'El código de tienda ya existe' });
       }
     }
 
-    if (puntoData.controladores?.length) {
-      const controladores = await Controller.find({ _id: { $in: puntoData.controladores } });
-      if (controladores.length !== puntoData.controladores.length) {
-        return res.status(400).json({ message: 'Uno o más controladores no existen' });
-      }
-    }
+    const nuevoPunto = new PuntoVenta({
+      name,
+      cliente,
+      city,
+      productos: productos || [],
+      controladores: controladores || [],
+      lat,
+      long,
+      codigo_tienda,
+    });
 
-    // ✅ Crear nuevo registro
-    const nuevoPunto = new PuntoVenta(puntoData);
-    await nuevoPunto.save();
+    const puntoGuardado = await nuevoPunto.save();
+    await puntoGuardado.populate('cliente');
+    await puntoGuardado.populate('city');
+    await puntoGuardado.populate('productos');
+    await puntoGuardado.populate('controladores');
 
-    // ✅ Popular relaciones correctamente (en una sola llamada)
-    await nuevoPunto.populate([
-      { path: 'cliente', select: 'name email phone' },
-      { path: 'city', select: 'city state' },
-      { path: 'productos', select: 'name product_type' },
-      { path: 'controladores', select: 'name ip online' },
-    ]);
-
-    res.status(201).json(nuevoPunto);
+    res.status(201).json(puntoGuardado);
   } catch (error) {
-    console.error('Error adding punto de venta:', error);
-    res.status(500).json({ message: 'Error adding punto de venta', error: error.message });
+    console.error('Error creating punto de venta:', error);
+    res.status(500).json({ message: 'Error creating punto de venta', error: error.message });
   }
 };
 
-
-// Actualizar punto de venta
+// Actualizar un punto de venta
 export const updatePuntoVenta = async (req, res) => {
   try {
     const { id } = req.params;
-    const data = req.body;
+    const updates = req.body;
 
-    const punto = await PuntoVenta.findById(id);
-    if (!punto) return res.status(404).json({ message: 'Punto de venta no encontrado' });
+    // Si se actualiza codigo_tienda, validar que sea único
+    if (updates.codigo_tienda) {
+      const existingPunto = await PuntoVenta.findOne({ 
+        codigo_tienda: updates.codigo_tienda,
+        _id: { $ne: id }
+      });
+      if (existingPunto) {
+        return res.status(400).json({ message: 'El código de tienda ya existe' });
+      }
+    }
 
-    punto.set(data);
-    await punto.save();
-
-    const updated = await PuntoVenta.findById(id)
+    const puntoActualizado = await PuntoVenta.findByIdAndUpdate(
+      id,
+      { $set: updates },
+      { new: true, runValidators: true }
+    )
       .populate('cliente')
       .populate('city')
       .populate('productos')
       .populate('controladores');
 
-    res.json(updated);
+    if (!puntoActualizado) {
+      return res.status(404).json({ message: 'Punto de venta no encontrado' });
+    }
+
+    res.json(puntoActualizado);
   } catch (error) {
     console.error('Error updating punto de venta:', error);
-    res.status(500).json({ message: 'Error updating punto de venta' });
+    res.status(500).json({ message: 'Error updating punto de venta', error: error.message });
   }
 };
 
-
-// Eliminar punto de venta
+// Eliminar un punto de venta
 export const deletePuntoVenta = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const punto = await PuntoVenta.findById(id);
-    if (!punto) return res.status(404).json({ message: 'Punto de venta no encontrado' });
+    const puntoEliminado = await PuntoVenta.findByIdAndDelete(id);
 
-    await PuntoVenta.deleteOne({ _id: id });
+    if (!puntoEliminado) {
+      return res.status(404).json({ message: 'Punto de venta no encontrado' });
+    }
 
-    res.json({ message: 'Punto de venta eliminado', punto });
+    res.json({ message: 'Punto de venta eliminado exitosamente', punto: puntoEliminado });
   } catch (error) {
     console.error('Error deleting punto de venta:', error);
-    res.status(500).json({ message: 'Error deleting punto de venta' });
+    res.status(500).json({ message: 'Error deleting punto de venta', error: error.message });
+  }
+};
+
+// Generar datos diarios simulados (24 mensajes MQTT)
+export const generateDailyData = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log(`[Generate Daily Data] Iniciando generación de datos diarios para punto de venta: ${id}`);
+
+    // Obtener punto de venta
+    const punto = await PuntoVenta.findById(id)
+      .populate('productos');
+    
+    if (!punto) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Punto de venta no encontrado' 
+      });
+    }
+
+    // Verificar que tenga código de tienda
+    if (!punto.codigo_tienda) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'El punto de venta no tiene código de tienda configurado' 
+      });
+    }
+
+    // Verificar que MQTT esté conectado
+    if (!mqttService.isConnected) {
+      console.log('[Generate Daily Data] MQTT no conectado, intentando conectar...');
+      mqttService.connect();
+      
+      // Esperar un poco para que se conecte
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      if (!mqttService.isConnected) {
+        return res.status(503).json({ 
+          success: false, 
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.' 
+        });
+      }
+    }
+
+    // Generar 24 mensajes (uno por cada hora del día)
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const topic = `tiwater/${punto.codigo_tienda}/data`;
+    
+    const messages = [];
+    let publishedCount = 0;
+    let errorCount = 0;
+
+    // Valores iniciales para simular comportamiento realista
+    let nivelPurificada = 40 + Math.random() * 20; // 40-60%
+    let nivelCruda = 35 + Math.random() * 15; // 35-50%
+    let caudalPurificada = 0.3 + Math.random() * 0.4; // 0.3-0.7 L/min
+    let caudalRecuperacion = 2.0 + Math.random() * 2.0; // 2.0-4.0 L/min
+    let eficiencia = 50 + Math.random() * 10; // 50-60%
+
+    for (let hour = 0; hour < 24; hour++) {
+      const timestamp = new Date(startOfDay);
+      timestamp.setHours(hour, 0, 0, 0);
+
+      // Simular comportamiento realista: niveles que suben y bajan
+      // Durante el día (6am-10pm): más consumo, niveles bajan
+      // Durante la noche (10pm-6am): menos consumo, niveles suben
+      const isDayTime = hour >= 6 && hour < 22;
+      
+      if (isDayTime) {
+        // Durante el día: consumo activo, niveles tienden a bajar
+        nivelPurificada = Math.max(20, nivelPurificada - (2 + Math.random() * 3));
+        nivelCruda = Math.max(25, nivelCruda - (1.5 + Math.random() * 2));
+        caudalPurificada = 0.4 + Math.random() * 0.6; // Mayor caudal durante el día
+        caudalRecuperacion = 2.5 + Math.random() * 2.5;
+        eficiencia = 52 + Math.random() * 8;
+      } else {
+        // Durante la noche: menos consumo, niveles se recuperan
+        nivelPurificada = Math.min(90, nivelPurificada + (1 + Math.random() * 2));
+        nivelCruda = Math.min(85, nivelCruda + (1 + Math.random() * 1.5));
+        caudalPurificada = 0.1 + Math.random() * 0.3; // Menor caudal durante la noche
+        caudalRecuperacion = 1.5 + Math.random() * 1.5;
+        eficiencia = 48 + Math.random() * 7;
+      }
+
+      // Generar datos TIWATER según el formato del ESP32
+      const tiwaterData = {
+        "CAUDAL PURIFICADA": parseFloat(caudalPurificada.toFixed(2)),
+        "CAUDAL RECUPERACION": parseFloat(caudalRecuperacion.toFixed(2)),
+        "CAUDAL RECHAZO": parseFloat((0.1 + Math.random() * 0.3).toFixed(2)),
+        "NIVEL PURIFICADA": parseFloat(nivelPurificada.toFixed(2)),
+        "NIVEL CRUDA": parseFloat(nivelCruda.toFixed(2)),
+        "CAUDAL CRUDA": parseFloat((1.5 + Math.random() * 2.0).toFixed(2)),
+        "ACUMULADO CRUDA": parseFloat((2000.0 + Math.random() * 50.0).toFixed(1)),
+        "vida": Math.floor(Math.random() * 100),
+        "PRESION CO2": parseFloat((300.0 + Math.random() * 5.0).toFixed(2)),
+        "ch1": parseFloat((2.5 + Math.random() * 1.5).toFixed(2)),
+        "ch2": parseFloat((2.5 + Math.random() * 1.5).toFixed(2)),
+        "ch3": parseFloat((1.0 + Math.random() * 0.5).toFixed(2)),
+        "ch4": parseFloat((2.0 + Math.random() * 1.0).toFixed(2)),
+        "EFICIENCIA": parseFloat(eficiencia.toFixed(1)),
+        "PORCENTAJE NIVEL PURIFICADA": parseFloat((nivelPurificada / 10).toFixed(1)),
+        "PORCENTAJE NIVEL CRUDA": parseFloat((nivelCruda / 10).toFixed(1)),
+        "CAUDAL CRUDA L/min": parseFloat((20.0 + Math.random() * 5.0).toFixed(3))
+      };
+
+      const message = JSON.stringify(tiwaterData);
+      
+      try {
+        // Publicar mensaje con delay pequeño entre mensajes
+        await mqttService.publish(topic, message);
+        publishedCount++;
+        
+        messages.push({
+          hour,
+          timestamp: timestamp.toISOString(),
+          topic,
+          success: true
+        });
+
+        // Pequeño delay entre mensajes (100ms)
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (error) {
+        errorCount++;
+        console.error(`[Generate Daily Data] Error publicando mensaje hora ${hour}:`, error);
+        messages.push({
+          hour,
+          timestamp: timestamp.toISOString(),
+          topic,
+          success: false,
+          error: error.message
+        });
+      }
+    }
+
+    console.log(`[Generate Daily Data] Completado: ${publishedCount} publicados, ${errorCount} errores`);
+
+    res.json({
+      success: true,
+      message: `Generados ${publishedCount} de 24 mensajes MQTT`,
+      data: {
+        puntoVentaId: id,
+        codigoTienda: punto.codigo_tienda,
+        topic,
+        published: publishedCount,
+        errors: errorCount,
+        messages: messages
+      }
+    });
+  } catch (error) {
+    console.error('[Generate Daily Data] Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error generando datos diarios', 
+      error: error.message 
+    });
   }
 };

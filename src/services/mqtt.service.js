@@ -817,6 +817,33 @@ class MQTTService {
       authenticated: !!(MQTT_USERNAME && MQTT_PASSWORD)
     };
   }
+
+  // Publicar mensaje MQTT (para modo pruebas/dev)
+  publish(topic, message, options = {}) {
+    return new Promise((resolve, reject) => {
+      if (!this.client || !this.isConnected) {
+        reject(new Error('MQTT client no está conectado'));
+        return;
+      }
+
+      const publishOptions = {
+        qos: options.qos || 0,
+        retain: options.retain || false,
+        ...options
+      };
+
+      this.client.publish(topic, message, publishOptions, (error) => {
+        if (error) {
+          console.error(`[MQTT Publisher] ❌ Error publicando en ${topic}:`, error);
+          reject(error);
+        } else {
+          console.log(`[MQTT Publisher] ✅ Publicado en ${topic}: ${message.substring(0, 100)}...`);
+          this.logMessageToFile(topic, message);
+          resolve(true);
+        }
+      });
+    });
+  }
 }
 
 // Crear instancia singleton
