@@ -17,7 +17,7 @@ const __dirname = path.dirname(__filename);
 // Configuración MQTT desde variables de entorno
 const MQTT_BROKER = process.env.MQTT_BROKER || '146.190.143.141';
 const MQTT_PORT = parseInt(process.env.MQTT_PORT) || 1883;
-const MQTT_CLIENT_ID = process.env.MQTT_CLIENT_ID || 'aquatech-api-consumer';
+const MQTT_CLIENT_ID = process.env.MQTT_CLIENT_ID || 'tiwater-api-consumer';
 const MQTT_USE_TLS = process.env.MQTT_USE_TLS === 'true' || MQTT_PORT === 8883;
 const MQTT_USERNAME = process.env.MQTT_USERNAME || null;
 const MQTT_PASSWORD = process.env.MQTT_PASSWORD || null;
@@ -65,17 +65,10 @@ if (!fs.existsSync(MQTT_LOG_DIR)) {
 }
 
 // Topics a los que nos suscribimos
-// Estructura: aquatech/{codigo_tienda}/{equipo_id}/data
-// Usando wildcards (+) para recibir mensajes de cualquier tienda/equipo
+// Estructura: tiwater/{codigo_tienda}/data
+// Usando wildcards (+) para recibir mensajes de cualquier tienda
 const TOPICS = {
-  TIWATER_DATA: 'tiwater/+/data',              // Nuevo formato: tiwater/CODIGO_TIENDA_001/data
-  TIENDA_EQUIPO_DATA: 'aquatech/+/+/data',      // Datos de sensores: aquatech/{codigo_tienda}/{equipo_id}/data
-  TIENDA_EQUIPO_STATUS: 'aquatech/+/+/status',  // Estado: aquatech/{codigo_tienda}/{equipo_id}/status
-  // Mantener compatibilidad con topics antiguos
-  LEGACY_GATEWAY_DATA: 'aquatech/gateway/+/data',
-  LEGACY_GATEWAY_STATUS: 'aquatech/gateway/+/status',
-  LEGACY_DATA: 'aquatech/data',
-  LEGACY_STATUS: 'aquatech/status'
+  TIWATER_DATA: 'tiwater/+/data'  // Formato principal: tiwater/CODIGO_TIENDA_001/data
 };
 
 class MQTTService {
@@ -241,36 +234,13 @@ class MQTTService {
       // Guardar mensaje en archivo de log
       this.logMessageToFile(topic, message);
 
-      // Parsear topic: aquatech/{codigo_tienda}/{equipo_id}/data o /status
+      // Parsear topic: tiwater/{codigo_tienda}/data
       const topicParts = topic.split('/');
       
-      // Detectar tipo de topic usando patrones
+      // Formato principal: tiwater/CODIGO_TIENDA_001/data
       if (topicParts.length === 3 && topicParts[0] === 'tiwater' && topicParts[2] === 'data') {
-        // Nuevo formato: tiwater/CODIGO_TIENDA_001/data
         const codigo_tienda = topicParts[1];
         this.handleTiwaterData(codigo_tienda, message);
-      } else if (topicParts.length === 4 && topicParts[0] === 'aquatech' && topicParts[3] === 'data') {
-        // Nuevo formato: aquatech/{codigo_tienda}/{equipo_id}/data
-        const codigo_tienda = topicParts[1];
-        const equipo_id = topicParts[2];
-        this.handleTiendaEquipoData(codigo_tienda, equipo_id, message);
-      } else if (topicParts.length === 4 && topicParts[0] === 'aquatech' && topicParts[3] === 'status') {
-        // Nuevo formato: aquatech/{codigo_tienda}/{equipo_id}/status
-        const codigo_tienda = topicParts[1];
-        const equipo_id = topicParts[2];
-        this.handleTiendaEquipoStatus(codigo_tienda, equipo_id, message);
-      } else if (topic.includes('/gateway/') && topic.endsWith('/data')) {
-        // Formato legacy: aquatech/gateway/{gateway_id}/data
-        this.handleGatewayData(topic, message);
-      } else if (topic.includes('/gateway/') && topic.endsWith('/status')) {
-        // Formato legacy: aquatech/gateway/{gateway_id}/status
-        this.handleGatewayStatus(topic, message);
-      } else if (topic === 'aquatech/data' || (topicParts.length === 2 && topicParts[1] === 'data')) {
-        // Formato legacy o compatible
-        this.handleData(message);
-      } else if (topic === 'aquatech/status' || (topicParts.length === 2 && topicParts[1] === 'status')) {
-        // Formato legacy o compatible
-        this.handleStatus(message);
       } else {
         console.log(`[MQTT] ⚠️  Topic desconocido: ${topic}`);
       }
@@ -345,7 +315,7 @@ class MQTTService {
   // Manejar datos del gateway (nuevo formato)
   async handleGatewayData(topic, message) {
     try {
-      // Extraer gateway_id del topic: aquatech/gateway/{gateway_id}/data
+      // Extraer gateway_id del topic: tiwater/gateway/{gateway_id}/data
       const topicParts = topic.split('/');
       const gatewayId = topicParts[2]; // Índice 2 es el gateway_id
       
