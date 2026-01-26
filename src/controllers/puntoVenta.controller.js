@@ -218,14 +218,40 @@ export const generateDailyData = async (req, res) => {
     
     console.log(`[Generate Daily Data] Iniciando generación de datos diarios para punto de venta: ${id}`);
 
-    // Obtener punto de venta
-    const punto = await PuntoVenta.findById(id)
-      .populate('productos');
+    // Intentar obtener punto de venta por ID (ObjectId) o por código de tienda
+    let punto = null;
+    
+    // Verificar si es un ObjectId válido (24 caracteres hexadecimales)
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+    
+    if (isValidObjectId) {
+      // Buscar por ObjectId
+      punto = await PuntoVenta.findById(id).populate('productos');
+    } else {
+      // Si no es ObjectId válido, intentar buscar por código de tienda
+      // Mapeo conocido para IDs numéricos a códigos de tienda
+      const codigoTiendaMap = {
+        '166': 'CODIGO_TIENDA_TEST_TIWATER'
+      };
+      
+      // Primero intentar con el mapeo
+      const codigoTienda = codigoTiendaMap[id];
+      if (codigoTienda) {
+        punto = await PuntoVenta.findOne({ codigo_tienda: codigoTienda }).populate('productos');
+        console.log(`[Generate Daily Data] Buscando por código de tienda mapeado: ${codigoTienda}`);
+      }
+      
+      // Si no se encontró con el mapeo, intentar usar el ID directamente como código de tienda
+      if (!punto) {
+        punto = await PuntoVenta.findOne({ codigo_tienda: id.toUpperCase() }).populate('productos');
+        console.log(`[Generate Daily Data] Buscando por código de tienda directo: ${id.toUpperCase()}`);
+      }
+    }
     
     if (!punto) {
       return res.status(404).json({ 
         success: false, 
-        message: 'Punto de venta no encontrado' 
+        message: `Punto de venta no encontrado con ID/código: ${id}` 
       });
     }
 
