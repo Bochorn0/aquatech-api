@@ -26,7 +26,8 @@
     "test:email:send": "node scripts/test-email-debug.js --test-send",
     "test:email:simple": "node scripts/simple-email-example.js",
     "test:email:connectivity": "bash scripts/test-smtp-connectivity.sh",
-    "recover:services": "sudo bash scripts/services_recover.sh"
+    "recover:services": "sudo bash scripts/services_recover.sh",
+    "diagnose:pm2": "sudo bash scripts/diagnose_pm2_kill.sh"
   },
   "dependencies": {
     "@tuya/tuya-connector-nodejs": "^2.1.2",
