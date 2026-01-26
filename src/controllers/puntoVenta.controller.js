@@ -218,50 +218,51 @@ export const generateDailyData = async (req, res) => {
     
     console.log(`[Generate Daily Data] Iniciando generación de datos diarios para punto de venta: ${id}`);
 
-    // Intentar obtener punto de venta por ID (ObjectId) o por código de tienda
     let punto = null;
+    let codigoTienda = null;
     
-    // Verificar si es un ObjectId válido (24 caracteres hexadecimales)
+    // Verificar si es un ID numérico (PostgreSQL v2) o ObjectId (MongoDB v1)
+    const isNumericId = /^\d+$/.test(id);
     const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
     
-    console.log(`[Generate Daily Data] ID recibido: ${id}, es ObjectId válido: ${isValidObjectId}`);
+    console.log(`[Generate Daily Data] ID recibido: ${id}, es numérico: ${isNumericId}, es ObjectId: ${isValidObjectId}`);
     
-    if (isValidObjectId) {
-      // Buscar por ObjectId
+    if (isNumericId) {
+      // Buscar en PostgreSQL (v2.0)
+      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+      
+      // Intentar buscar por ID numérico
+      punto = await PuntoVentaModel.findById(parseInt(id, 10));
+      console.log(`[Generate Daily Data] Búsqueda en PostgreSQL por ID: ${punto ? 'encontrado' : 'no encontrado'}`);
+      
+      // Si no se encuentra por ID, intentar por código de tienda
+      if (!punto) {
+        punto = await PuntoVentaModel.findByCode(id);
+        console.log(`[Generate Daily Data] Búsqueda en PostgreSQL por código: ${punto ? 'encontrado' : 'no encontrado'}`);
+      }
+      
+      if (punto) {
+        codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
+        console.log(`[Generate Daily Data] ✅ Punto encontrado en PostgreSQL: ${punto.name} (codigo_tienda: ${codigoTienda})`);
+      }
+    } else if (isValidObjectId) {
+      // Buscar en MongoDB (v1.0)
       punto = await PuntoVenta.findById(id).populate('productos');
-      console.log(`[Generate Daily Data] Búsqueda por ObjectId: ${punto ? 'encontrado' : 'no encontrado'}`);
+      console.log(`[Generate Daily Data] Búsqueda en MongoDB por ObjectId: ${punto ? 'encontrado' : 'no encontrado'}`);
+      
+      if (punto) {
+        codigoTienda = punto.codigo_tienda;
+        console.log(`[Generate Daily Data] ✅ Punto encontrado en MongoDB: ${punto.name} (codigo_tienda: ${codigoTienda})`);
+      }
     } else {
-      // Si no es ObjectId válido, intentar buscar por código de tienda
-      // Mapeo conocido para IDs numéricos a códigos de tienda
-      const codigoTiendaMap = {
-        '166': 'CODIGO_TIENDA_TEST_TIWATER'
-      };
+      // Intentar buscar por código de tienda en MongoDB
+      const codigoDirecto = id.toUpperCase();
+      console.log(`[Generate Daily Data] Buscando por código de tienda en MongoDB: ${codigoDirecto}`);
+      punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
+      console.log(`[Generate Daily Data] Resultado búsqueda por código: ${punto ? 'encontrado' : 'no encontrado'}`);
       
-      // Primero intentar con el mapeo
-      const codigoTienda = codigoTiendaMap[id];
-      if (codigoTienda) {
-        console.log(`[Generate Daily Data] Buscando por código de tienda mapeado: ${codigoTienda}`);
-        punto = await PuntoVenta.findOne({ codigo_tienda: codigoTienda }).populate('productos');
-        console.log(`[Generate Daily Data] Resultado búsqueda mapeada: ${punto ? 'encontrado' : 'no encontrado'}`);
-        if (punto) {
-          console.log(`[Generate Daily Data] Punto encontrado: ${punto.name}, codigo_tienda: ${punto.codigo_tienda}`);
-        }
-      }
-      
-      // Si no se encontró con el mapeo, intentar usar el ID directamente como código de tienda
-      if (!punto) {
-        const codigoDirecto = id.toUpperCase();
-        console.log(`[Generate Daily Data] Buscando por código de tienda directo: ${codigoDirecto}`);
-        punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
-        console.log(`[Generate Daily Data] Resultado búsqueda directa: ${punto ? 'encontrado' : 'no encontrado'}`);
-      }
-      
-      // Si aún no se encuentra, listar todos los códigos de tienda disponibles para debugging
-      if (!punto) {
-        const todosLosPuntos = await PuntoVenta.find({}, { codigo_tienda: 1, name: 1, _id: 1 }).limit(10);
-        console.log(`[Generate Daily Data] Puntos de venta disponibles (primeros 10):`, 
-          todosLosPuntos.map(p => ({ id: p._id, name: p.name, codigo_tienda: p.codigo_tienda }))
-        );
+      if (punto) {
+        codigoTienda = punto.codigo_tienda;
       }
     }
     
@@ -272,11 +273,9 @@ export const generateDailyData = async (req, res) => {
         message: `Punto de venta no encontrado con ID/código: ${id}` 
       });
     }
-    
-    console.log(`[Generate Daily Data] ✅ Punto de venta encontrado: ${punto.name} (${punto.codigo_tienda})`);
 
     // Verificar que tenga código de tienda
-    if (!punto.codigo_tienda) {
+    if (!codigoTienda) {
       return res.status(400).json({ 
         success: false, 
         message: 'El punto de venta no tiene código de tienda configurado' 
@@ -302,7 +301,7 @@ export const generateDailyData = async (req, res) => {
     // Generar 24 mensajes (uno por cada hora del día)
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    const topic = `tiwater/${punto.codigo_tienda}/data`;
+    const topic = `tiwater/${codigoTienda}/data`;
     
     const messages = [];
     let publishedCount = 0;
@@ -397,7 +396,7 @@ export const generateDailyData = async (req, res) => {
       message: `Generados ${publishedCount} de 24 mensajes MQTT`,
       data: {
         puntoVentaId: id,
-        codigoTienda: punto.codigo_tienda,
+        codigoTienda: codigoTienda,
         topic,
         published: publishedCount,
         errors: errorCount,
