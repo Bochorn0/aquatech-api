@@ -449,7 +449,11 @@ class MQTTService {
         
         // Metadatos
         source: 'tiwater',
-        timestamp: new Date(),
+        // Usar timestamp del mensaje si está disponible (mantener como número Unix en segundos para PostgreSQL)
+        // Si viene como número, usarlo directamente; si viene como Date, convertirlo a Unix timestamp
+        timestamp: data.timestamp 
+          ? (typeof data.timestamp === 'number' ? data.timestamp : (data.timestamp instanceof Date ? Math.floor(data.timestamp.getTime() / 1000) : Math.floor(Date.now() / 1000)))
+          : Math.floor(Date.now() / 1000),
         metadata: {
           original_payload: data,
           topic_format: 'tiwater'

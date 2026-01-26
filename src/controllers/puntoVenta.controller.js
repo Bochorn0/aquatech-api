@@ -340,6 +340,9 @@ export const generateDailyData = async (req, res) => {
       }
 
       // Generar datos TIWATER según el formato del ESP32
+      // Incluir timestamp en formato Unix (segundos) para que el servicio MQTT lo use
+      const timestampUnix = Math.floor(timestamp.getTime() / 1000);
+      
       const tiwaterData = {
         "CAUDAL PURIFICADA": parseFloat(caudalPurificada.toFixed(2)),
         "CAUDAL RECUPERACION": parseFloat(caudalRecuperacion.toFixed(2)),
@@ -357,7 +360,8 @@ export const generateDailyData = async (req, res) => {
         "EFICIENCIA": parseFloat(eficiencia.toFixed(1)),
         "PORCENTAJE NIVEL PURIFICADA": parseFloat((nivelPurificada / 10).toFixed(1)),
         "PORCENTAJE NIVEL CRUDA": parseFloat((nivelCruda / 10).toFixed(1)),
-        "CAUDAL CRUDA L/min": parseFloat((20.0 + Math.random() * 5.0).toFixed(3))
+        "CAUDAL CRUDA L/min": parseFloat((20.0 + Math.random() * 5.0).toFixed(3)),
+        "timestamp": timestampUnix  // Timestamp en formato Unix (segundos) para que el servicio MQTT lo use
       };
 
       const message = JSON.stringify(tiwaterData);

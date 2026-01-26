@@ -169,9 +169,21 @@ class PostgresService {
       }
 
       const sensors = [];
-      const timestamp = mqttData.timestamp 
-        ? new Date(mqttData.timestamp * 1000) 
-        : (mqttData.timestamp ? new Date(mqttData.timestamp) : new Date());
+      // Manejar timestamp: puede venir como número Unix (segundos), Date, o string ISO
+      let timestamp;
+      if (mqttData.timestamp) {
+        if (typeof mqttData.timestamp === 'number') {
+          // Si es número, asumir que es Unix timestamp en segundos
+          timestamp = new Date(mqttData.timestamp * 1000);
+        } else if (mqttData.timestamp instanceof Date) {
+          timestamp = mqttData.timestamp;
+        } else {
+          // Intentar parsear como string ISO
+          timestamp = new Date(mqttData.timestamp);
+        }
+      } else {
+        timestamp = new Date();
+      }
 
       // Extract individual sensor values and create separate records
       // Incluir todos los tipos de sensores del formato tiwater
