@@ -224,9 +224,12 @@ export const generateDailyData = async (req, res) => {
     // Verificar si es un ObjectId válido (24 caracteres hexadecimales)
     const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
     
+    console.log(`[Generate Daily Data] ID recibido: ${id}, es ObjectId válido: ${isValidObjectId}`);
+    
     if (isValidObjectId) {
       // Buscar por ObjectId
       punto = await PuntoVenta.findById(id).populate('productos');
+      console.log(`[Generate Daily Data] Búsqueda por ObjectId: ${punto ? 'encontrado' : 'no encontrado'}`);
     } else {
       // Si no es ObjectId válido, intentar buscar por código de tienda
       // Mapeo conocido para IDs numéricos a códigos de tienda
@@ -237,23 +240,40 @@ export const generateDailyData = async (req, res) => {
       // Primero intentar con el mapeo
       const codigoTienda = codigoTiendaMap[id];
       if (codigoTienda) {
-        punto = await PuntoVenta.findOne({ codigo_tienda: codigoTienda }).populate('productos');
         console.log(`[Generate Daily Data] Buscando por código de tienda mapeado: ${codigoTienda}`);
+        punto = await PuntoVenta.findOne({ codigo_tienda: codigoTienda }).populate('productos');
+        console.log(`[Generate Daily Data] Resultado búsqueda mapeada: ${punto ? 'encontrado' : 'no encontrado'}`);
+        if (punto) {
+          console.log(`[Generate Daily Data] Punto encontrado: ${punto.name}, codigo_tienda: ${punto.codigo_tienda}`);
+        }
       }
       
       // Si no se encontró con el mapeo, intentar usar el ID directamente como código de tienda
       if (!punto) {
-        punto = await PuntoVenta.findOne({ codigo_tienda: id.toUpperCase() }).populate('productos');
-        console.log(`[Generate Daily Data] Buscando por código de tienda directo: ${id.toUpperCase()}`);
+        const codigoDirecto = id.toUpperCase();
+        console.log(`[Generate Daily Data] Buscando por código de tienda directo: ${codigoDirecto}`);
+        punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
+        console.log(`[Generate Daily Data] Resultado búsqueda directa: ${punto ? 'encontrado' : 'no encontrado'}`);
+      }
+      
+      // Si aún no se encuentra, listar todos los códigos de tienda disponibles para debugging
+      if (!punto) {
+        const todosLosPuntos = await PuntoVenta.find({}, { codigo_tienda: 1, name: 1, _id: 1 }).limit(10);
+        console.log(`[Generate Daily Data] Puntos de venta disponibles (primeros 10):`, 
+          todosLosPuntos.map(p => ({ id: p._id, name: p.name, codigo_tienda: p.codigo_tienda }))
+        );
       }
     }
     
     if (!punto) {
+      console.log(`[Generate Daily Data] ❌ Punto de venta no encontrado con ID/código: ${id}`);
       return res.status(404).json({ 
         success: false, 
         message: `Punto de venta no encontrado con ID/código: ${id}` 
       });
     }
+    
+    console.log(`[Generate Daily Data] ✅ Punto de venta encontrado: ${punto.name} (${punto.codigo_tienda})`);
 
     // Verificar que tenga código de tienda
     if (!punto.codigo_tienda) {
