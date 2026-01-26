@@ -22,17 +22,83 @@ import { query } from '../config/postgres.config.js';
  */
 export const getMetricsV2 = async (req, res) => {
   try {
-    console.log('Fetching Metrics from PostgreSQL (v2.0)...');
+    // Extract query parameters for filtering
+    const { punto_venta_id, clientId } = req.query;
     
-    const metrics = await MetricModel.find({}, { limit: 1000, offset: 0 });
+    // Build filters object
+    const filters = {};
+    if (clientId) {
+      filters.clientId = parseInt(clientId, 10);
+      if (isNaN(filters.clientId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid clientId parameter'
+        });
+      }
+    }
     
-    // Get clients to populate client_name
-    const clients = await ClientModel.find({}, { limit: 1000, offset: 0 });
-    const clientMap = new Map(clients.map(c => [String(c.id), c.name]));
+    if (punto_venta_id) {
+      filters.puntoVentaId = parseInt(punto_venta_id, 10);
+      if (isNaN(filters.puntoVentaId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid punto_venta_id parameter'
+        });
+      }
+    }
     
-    // Get puntos de venta to populate punto_venta_name
-    const puntosVenta = await PuntoVentaModel.find({}, { limit: 1000, offset: 0 });
-    const puntoVentaMap = new Map(puntosVenta.map(pv => [String(pv.id), pv.name]));
+    console.log(`[getMetricsV2] Fetching Metrics from PostgreSQL (v2.0) with filters:`, filters);
+    
+    // Fetch metrics with filters (limit to reasonable amount)
+    const metrics = await MetricModel.find(filters, { limit: 500, offset: 0 });
+    
+    if (metrics.length === 0) {
+      console.log(`[getMetricsV2] No metrics found with filters:`, filters);
+      return res.json([]);
+    }
+    
+    // Collect unique client IDs and punto venta IDs from metrics
+    const clientIds = [...new Set(metrics.map(m => m.clientId).filter(Boolean))];
+    const puntoVentaIds = [...new Set(metrics.map(m => m.punto_venta_id).filter(Boolean))];
+    
+    // Only fetch clients and puntos de venta that are actually needed
+    // Use Promise.all with individual findById calls (safe for limited number of IDs)
+    let clientMap = new Map();
+    let puntoVentaMap = new Map();
+    
+    // Fetch clients in parallel (limit to prevent too many concurrent queries)
+    if (clientIds.length > 0 && clientIds.length <= 100) {
+      try {
+        const clients = await Promise.all(
+          clientIds.map(id => ClientModel.findById(id).catch(() => null))
+        );
+        clientMap = new Map(
+          clients.filter(c => c !== null).map(c => [String(c.id), c.name])
+        );
+      } catch (err) {
+        console.warn('[getMetricsV2] Error fetching clients:', err.message);
+        // Continue without client names if there's an error
+      }
+    } else if (clientIds.length > 100) {
+      console.warn(`[getMetricsV2] Too many client IDs (${clientIds.length}), skipping client name population`);
+    }
+    
+    // Fetch puntos de venta in parallel (limit to prevent too many concurrent queries)
+    if (puntoVentaIds.length > 0 && puntoVentaIds.length <= 100) {
+      try {
+        const puntosVenta = await Promise.all(
+          puntoVentaIds.map(id => PuntoVentaModel.findById(id).catch(() => null))
+        );
+        puntoVentaMap = new Map(
+          puntosVenta.filter(pv => pv !== null).map(pv => [String(pv.id), pv.name])
+        );
+      } catch (err) {
+        console.warn('[getMetricsV2] Error fetching puntos de venta:', err.message);
+        // Continue without punto venta names if there's an error
+      }
+    } else if (puntoVentaIds.length > 100) {
+      console.warn(`[getMetricsV2] Too many punto venta IDs (${puntoVentaIds.length}), skipping punto venta name population`);
+    }
     
     // Map metrics with client names and punto venta names
     const mappedResults = metrics.map(metric => ({
@@ -44,11 +110,12 @@ export const getMetricsV2 = async (req, res) => {
     console.log(`[getMetricsV2] ✅ Found ${mappedResults.length} metrics from PostgreSQL`);
     res.json(mappedResults);
   } catch (error) {
-    console.error('Error fetching metrics from PostgreSQL (v2.0):', error);
+    console.error('[getMetricsV2] ❌ Error fetching metrics from PostgreSQL (v2.0):', error);
+    // Don't expose internal error details in production
     res.status(500).json({ 
       success: false,
       message: 'Error fetching metrics',
-      error: error.message 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };

@@ -173,13 +173,37 @@ class PostgresService {
       let timestamp;
       if (mqttData.timestamp) {
         if (typeof mqttData.timestamp === 'number') {
-          // Si es número, asumir que es Unix timestamp en segundos
-          timestamp = new Date(mqttData.timestamp * 1000);
+          // Si es número, verificar si es Unix timestamp en segundos o milisegundos
+          // Si es menor que un timestamp razonable en segundos (año 2000), asumir que es en segundos
+          const year2000Unix = 946684800; // Unix timestamp para 2000-01-01
+          if (mqttData.timestamp < year2000Unix) {
+            // Probablemente es un timestamp en milisegundos, usar directamente
+            timestamp = new Date(mqttData.timestamp);
+          } else {
+            // Probablemente es un timestamp en segundos, convertir a milisegundos
+            timestamp = new Date(mqttData.timestamp * 1000);
+          }
+          
+          // Validar que la fecha sea razonable (entre 2000 y 3000)
+          if (timestamp.getFullYear() < 2000 || timestamp.getFullYear() > 3000) {
+            console.warn(`[PostgresService] Timestamp inválido generado desde número ${mqttData.timestamp}, usando fecha actual`);
+            timestamp = new Date();
+          }
         } else if (mqttData.timestamp instanceof Date) {
           timestamp = mqttData.timestamp;
+          // Validar que la fecha sea razonable
+          if (timestamp.getFullYear() < 2000 || timestamp.getFullYear() > 3000) {
+            console.warn(`[PostgresService] Timestamp Date inválido (año ${timestamp.getFullYear()}), usando fecha actual`);
+            timestamp = new Date();
+          }
         } else {
           // Intentar parsear como string ISO
           timestamp = new Date(mqttData.timestamp);
+          // Validar que la fecha sea razonable
+          if (isNaN(timestamp.getTime()) || timestamp.getFullYear() < 2000 || timestamp.getFullYear() > 3000) {
+            console.warn(`[PostgresService] Timestamp string inválido: ${mqttData.timestamp}, usando fecha actual`);
+            timestamp = new Date();
+          }
         }
       } else {
         timestamp = new Date();
