@@ -29,7 +29,8 @@
     "recover:services": "sudo bash scripts/services_recover.sh",
     "diagnose:pm2": "sudo bash scripts/diagnose_pm2_kill.sh",
     "fix:pm2": "sudo bash scripts/fix_pm2_issues.sh",
-    "check:resources": "bash scripts/check_system_resources.sh"
+    "check:resources": "bash scripts/check_system_resources.sh",
+    "fix:codigo-tienda-index": "node scripts/fix-codigo-tienda-index.js"
   },
   "dependencies": {
     "@tuya/tuya-connector-nodejs": "^2.1.2",

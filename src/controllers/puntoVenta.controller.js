@@ -164,16 +164,25 @@ export const addPuntoVenta = async (req, res) => {
       }
     }
 
-    const nuevoPunto = new PuntoVenta({
+    // Build the document object, only including codigo_tienda if it's provided
+    const puntoData = {
       name,
       cliente,
       city,
       productos: normalizedProductos,
       controladores: controladores || [],
-      lat,
-      long,
-      codigo_tienda,
-    });
+    };
+
+    // Only include codigo_tienda if it's provided and not empty
+    if (codigo_tienda && codigo_tienda.trim() !== '') {
+      puntoData.codigo_tienda = codigo_tienda.trim().toUpperCase();
+    }
+
+    // Include lat/long if provided
+    if (lat !== undefined) puntoData.lat = lat;
+    if (long !== undefined) puntoData.long = long;
+
+    const nuevoPunto = new PuntoVenta(puntoData);
 
     const puntoGuardado = await nuevoPunto.save();
     await puntoGuardado.populate('cliente');

@@ -18,7 +18,7 @@ const PuntoVentaSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
       index: true,
-      default: null,
+      // No usar default: null - esto fuerza el campo a existir incluso cuando no se proporciona
       // Validación solo si el valor existe
       validate: {
         validator: function(v) {
