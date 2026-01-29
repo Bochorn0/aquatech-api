@@ -222,10 +222,13 @@ app.get('/api/v1.0/test-smtp', testSmtpHandler);
 app.post('/api/v1.0/test-smtp', testSmtpHandler);
 
 // MQTT Status endpoint
+// NOTA: Este endpoint solo verifica el estado, no inicia MQTT
+// MQTT corre como proceso separado (mqtt-consumer.js) en PM2
 app.get('/api/v1.0/mqtt/status', (req, res) => {
   const status = mqttService.getConnectionStatus();
   res.json({
-    message: 'MQTT Service Status',
+    message: 'MQTT Service Status (MQTT corre como proceso separado)',
+    note: 'MQTT consumer se ejecuta como instancia separada en PM2',
     ...status
   });
 });
@@ -301,8 +304,10 @@ mongoose
   .then(() => {
     console.log('Connected to MongoDB');
     
-    // Iniciar servicio MQTT después de conectar a MongoDB
-    mqttService.connect();
+    // NOTA: MQTT ahora corre como proceso separado (mqtt-consumer.js)
+    // No iniciar MQTT aquí para evitar duplicados
+    // El consumidor MQTT se ejecuta como instancia separada en PM2
+    console.log('ℹ️  MQTT se ejecuta como proceso separado (mqtt-consumer)');
   })
   .catch((err) => console.error('MongoDB connection error:', err));
 
@@ -315,7 +320,7 @@ app.listen(PORT, () => {
 // Manejar cierre graceful
 process.on('SIGINT', () => {
   console.log('\nCerrando servidor...');
-  mqttService.disconnect();
+  // No desconectar MQTT aquí - corre como proceso separado
   mongoose.connection.close();
   process.exit(0);
 });

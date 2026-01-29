@@ -131,11 +131,44 @@ export const addPuntoVenta = async (req, res) => {
       }
     }
 
+    // Normalize productos: ensure it's an array of ObjectId strings
+    let normalizedProductos = [];
+    if (productos) {
+      if (Array.isArray(productos)) {
+        normalizedProductos = productos
+          .map(p => {
+            // If it's an object with _id, extract the _id
+            if (typeof p === 'object' && p !== null && p._id) {
+              return p._id;
+            }
+            // If it's already a string (ObjectId), use it
+            if (typeof p === 'string' && p.trim() !== '') {
+              return p.trim();
+            }
+            return null;
+          })
+          .filter(id => id !== null && id !== '');
+      } else if (typeof productos === 'string') {
+        // If it's a string, try to parse it (shouldn't happen, but defensive)
+        try {
+          const parsed = JSON.parse(productos);
+          if (Array.isArray(parsed)) {
+            normalizedProductos = parsed
+              .map(p => (typeof p === 'object' && p?._id ? p._id : p))
+              .filter(id => id && typeof id === 'string');
+          }
+        } catch (e) {
+          // If parsing fails, treat as invalid
+          normalizedProductos = [];
+        }
+      }
+    }
+
     const nuevoPunto = new PuntoVenta({
       name,
       cliente,
       city,
-      productos: productos || [],
+      productos: normalizedProductos,
       controladores: controladores || [],
       lat,
       long,
@@ -170,6 +203,42 @@ export const updatePuntoVenta = async (req, res) => {
       if (existingPunto) {
         return res.status(400).json({ message: 'El código de tienda ya existe' });
       }
+    }
+
+    // Normalize productos if it's being updated
+    if (updates.productos !== undefined) {
+      let normalizedProductos = [];
+      if (updates.productos) {
+        if (Array.isArray(updates.productos)) {
+          normalizedProductos = updates.productos
+            .map(p => {
+              // If it's an object with _id, extract the _id
+              if (typeof p === 'object' && p !== null && p._id) {
+                return p._id;
+              }
+              // If it's already a string (ObjectId), use it
+              if (typeof p === 'string' && p.trim() !== '') {
+                return p.trim();
+              }
+              return null;
+            })
+            .filter(id => id !== null && id !== '');
+        } else if (typeof updates.productos === 'string') {
+          // If it's a string, try to parse it (shouldn't happen, but defensive)
+          try {
+            const parsed = JSON.parse(updates.productos);
+            if (Array.isArray(parsed)) {
+              normalizedProductos = parsed
+                .map(p => (typeof p === 'object' && p?._id ? p._id : p))
+                .filter(id => id && typeof id === 'string');
+            }
+          } catch (e) {
+            // If parsing fails, treat as invalid
+            normalizedProductos = [];
+          }
+        }
+      }
+      updates.productos = normalizedProductos;
     }
 
     const puntoActualizado = await PuntoVenta.findByIdAndUpdate(
@@ -282,9 +351,11 @@ export const generateDailyData = async (req, res) => {
       });
     }
 
-    // Verificar que MQTT esté conectado
+    // Verificar que MQTT esté conectado para publicar
+    // NOTA: Esto conecta MQTT solo para publicar (no para consumir)
+    // El consumo de mensajes lo hace el proceso separado mqtt-consumer.js
     if (!mqttService.isConnected) {
-      console.log('[Generate Daily Data] MQTT no conectado, intentando conectar...');
+      console.log('[Generate Daily Data] MQTT no conectado, intentando conectar para publicar...');
       mqttService.connect();
       
       // Esperar un poco para que se conecte
