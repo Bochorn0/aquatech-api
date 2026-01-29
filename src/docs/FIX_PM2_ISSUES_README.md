@@ -36,7 +36,7 @@ sudo bash scripts/fix_pm2_issues.sh
 
 ### 3. **Optimiza Límites de Memoria PM2**
 - Detecta memoria total del sistema
-- Ajusta `max_memory_restart` en `ecosystem.config.js`:
+- Ajusta `max_memory_restart` en `ecosystem.config.cjs`:
   - **< 2GB RAM**: 400M para API, 200M para MQTT
   - **2-4GB RAM**: 600M para API, 300M para MQTT
   - **> 4GB RAM**: 800M para API, 400M para MQTT
@@ -51,7 +51,7 @@ sudo bash scripts/fix_pm2_issues.sh
 
 ### 5. **Reinicia PM2**
 - Guarda estado actual de PM2
-- Recarga configuración desde `ecosystem.config.js`
+- Recarga configuración desde `ecosystem.config.cjs`
 - Muestra estado final
 
 ## ⚠️ Importante
@@ -118,7 +118,7 @@ El script muestra:
 
 ## 📝 Archivos Modificados
 
-- `ecosystem.config.js` - Límites de memoria optimizados
+- `ecosystem.config.cjs` - Límites de memoria optimizados
 - `/swapfile` - Archivo de swap creado
 - `/etc/fstab` - Swap agregado para persistencia
 - `/root/.pm2/` - Permisos y contexto SELinux ajustados
@@ -143,5 +143,5 @@ R: Sí, es idempotente. Si el swap ya existe, no lo recrea. Si los límites ya e
 **P: ¿El script afecta otros servicios?**  
 R: No, solo modifica configuración de PM2, crea swap, y verifica estado de bases de datos.
 
-**P: ¿Qué pasa si ecosystem.config.js usa ES Modules?**  
+**P: ¿Qué pasa si ecosystem.config.cjs usa ES Modules?**  
 R: El script detecta automáticamente si usa `export default` y lo convierte a `module.exports` (CommonJS) que es lo que PM2 requiere. Crea un backup antes de convertir.

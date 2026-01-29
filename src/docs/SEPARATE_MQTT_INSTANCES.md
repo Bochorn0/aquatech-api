@@ -13,7 +13,7 @@
 
 ## 📋 Current PM2 Configuration
 
-Your `ecosystem.config.js` already has both processes configured:
+Your `ecosystem.config.cjs` already has both processes configured:
 
 ```javascript
 {
@@ -37,7 +37,7 @@ pm2 delete all
 
 ### Step 2: Start with New Configuration
 ```bash
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 ```
 
 ### Step 3: Save Configuration

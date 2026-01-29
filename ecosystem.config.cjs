@@ -1,4 +1,4 @@
-// ecosystem.config.js
+// ecosystem.config.cjs
 // Configuración PM2 para Aquatech API
 // Nota: PM2 requiere CommonJS (module.exports), no ES Modules
 // Optimizado para servidor con 2GB RAM - ENFOQUE: Prevenir kills, no restarts frecuentes

@@ -48,10 +48,10 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
 ### 4. **Reload PM2 with New Config**
 ```bash
-pm2 reload ecosystem.config.js
+pm2 reload ecosystem.config.cjs
 # or if that doesn't work:
 pm2 delete all
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 pm2 save
 ```
 

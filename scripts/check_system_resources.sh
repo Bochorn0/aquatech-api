@@ -158,7 +158,7 @@ if command -v pm2 &> /dev/null; then
             
             if [ "$PM2_MEM_INT" -gt 600 ]; then
                 print_warning "⚠️  PM2 usa mucha memoria (${PM2_MEM_INT}MB)"
-                print_info "Considera reducir max_memory_restart en ecosystem.config.js"
+                print_info "Considera reducir max_memory_restart en ecosystem.config.cjs"
             else
                 print_success "Memoria de PM2 dentro de límites razonables"
             fi
@@ -209,7 +209,7 @@ if [ "$RECOMMENDED_APP_MEM" -lt 500 ]; then
     print_warning "Con ${TOTAL_MEM}MB RAM, el espacio para apps es limitado"
     print_info "Memoria recomendada para apps Node.js: ~${RECOMMENDED_APP_MEM}MB"
     echo ""
-    print_info "Configuración actual en ecosystem.config.js:"
+    print_info "Configuración actual en ecosystem.config.cjs:"
     echo "  - api-aquatech: 300M (max-old-space-size: 300)"
     echo "  - mqtt-consumer: 200M (max-old-space-size: 200)"
     echo "  - Total: 500M"

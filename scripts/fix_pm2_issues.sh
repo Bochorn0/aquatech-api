@@ -193,7 +193,7 @@ print_info "3. Optimizando configuración de PM2..."
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ECOSYSTEM_FILE="$PROJECT_DIR/ecosystem.config.js"
+ECOSYSTEM_FILE="$PROJECT_DIR/ecosystem.config.cjs"
 
 if [ -f "$ECOSYSTEM_FILE" ]; then
     # Hacer backup
@@ -222,8 +222,8 @@ if [ -f "$ECOSYSTEM_FILE" ]; then
         print_info "Sistema con memoria suficiente, usando límites estándar"
     fi
     
-    # Actualizar ecosystem.config.js
-    print_info "Actualizando límites de memoria en ecosystem.config.js..."
+    # Actualizar ecosystem.config.cjs
+    print_info "Actualizando límites de memoria en ecosystem.config.cjs..."
     print_info "  - api-aquatech: $API_MEM_LIMIT (antes: 1G)"
     print_info "  - mqtt-consumer: $MQTT_MEM_LIMIT (sin cambios)"
     
@@ -234,7 +234,7 @@ if [ -f "$ECOSYSTEM_FILE" ]; then
     
     print_success "Configuración de PM2 actualizada"
 else
-    print_warning "No se encontró ecosystem.config.js en $ECOSYSTEM_FILE"
+    print_warning "No se encontró ecosystem.config.cjs en $ECOSYSTEM_FILE"
 fi
 
 echo ""
@@ -298,10 +298,20 @@ if command -v pm2 &> /dev/null; then
     fi
     
     # Recargar configuración
+    # Verificar si el archivo existe (puede ser .js o .cjs)
+    if [ ! -f "$ECOSYSTEM_FILE" ]; then
+        # Intentar con .js como fallback
+        ECOSYSTEM_FILE_JS="$PROJECT_DIR/ecosystem.config.js"
+        if [ -f "$ECOSYSTEM_FILE_JS" ]; then
+            print_warning "ecosystem.config.js encontrado, pero debería ser .cjs"
+            print_info "Renombrando a ecosystem.config.cjs..."
+            mv "$ECOSYSTEM_FILE_JS" "$ECOSYSTEM_FILE"
+        fi
+    fi
+    
     if [ -f "$ECOSYSTEM_FILE" ]; then
-        # Verificar si el archivo usa ES Modules (export default)
         if grep -q "export default" "$ECOSYSTEM_FILE"; then
-            print_warning "ecosystem.config.js usa ES Modules, PM2 requiere CommonJS"
+            print_warning "ecosystem.config.cjs usa ES Modules, PM2 requiere CommonJS"
             print_info "Convirtiendo a CommonJS..."
             
             # Crear backup
@@ -314,13 +324,13 @@ if command -v pm2 &> /dev/null; then
             print_success "Archivo convertido a CommonJS"
         fi
         
-        print_info "Recargando configuración desde ecosystem.config.js..."
+        print_info "Recargando configuración desde ecosystem.config.cjs..."
         cd "$PROJECT_DIR"
         pm2 delete all 2>/dev/null || true
         sleep 2
         
         # Intentar iniciar PM2 y capturar errores
-        if pm2 start ecosystem.config.js 2>&1; then
+        if pm2 start ecosystem.config.cjs 2>&1; then
             pm2 save
             print_success "PM2 reiniciado con nueva configuración"
             
@@ -330,20 +340,20 @@ if command -v pm2 &> /dev/null; then
             pm2 list
         else
             PM2_ERROR=$?
-            print_error "Error al iniciar PM2 con ecosystem.config.js"
+            print_error "Error al iniciar PM2 con ecosystem.config.cjs"
             print_info "Verificando sintaxis del archivo..."
             
             # Verificar si Node.js puede cargar el archivo
             if node -e "require('$ECOSYSTEM_FILE')" 2>/dev/null; then
                 print_info "El archivo es válido, pero PM2 tuvo un error"
-                print_info "Intenta manualmente: pm2 start ecosystem.config.js"
+                print_info "Intenta manualmente: pm2 start ecosystem.config.cjs"
             else
                 print_error "El archivo tiene errores de sintaxis"
                 print_info "Revisa el archivo: $ECOSYSTEM_FILE"
             fi
         fi
     else
-        print_warning "No se encontró ecosystem.config.js, PM2 no se reinició"
+        print_warning "No se encontró ecosystem.config.cjs, PM2 no se reinició"
     fi
 else
     print_error "PM2 no está instalado o no está en PATH"

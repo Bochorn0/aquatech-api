@@ -87,7 +87,7 @@ npm run fix:pm2
 
 **Solución Manual:**
 1. Crear swap (ver sección "Si es OOM Killer")
-2. Reducir `max_memory_restart` en `ecosystem.config.js` a 400M
+2. Reducir `max_memory_restart` en `ecosystem.config.cjs` a 400M
 3. Reiniciar PM2: `pm2 restart all`
 
 ### 2. Problemas de SELinux
@@ -128,7 +128,7 @@ sudo systemctl start mongod.service
 
 **Síntomas:**
 - `Error [ERR_REQUIRE_ESM]: require() of ES Module ecosystem.config.js not supported`
-- PM2 no puede cargar `ecosystem.config.js`
+- PM2 no puede cargar `ecosystem.config.js` (solución: renombrar a `ecosystem.config.cjs`)
 - El archivo usa `export default` en lugar de `module.exports`
 
 **Solución:**
@@ -137,8 +137,9 @@ sudo systemctl start mongod.service
 npm run fix:pm2
 
 # Opción 2: Manual - convertir export default a module.exports
-sed -i 's/export default/module.exports =/' ecosystem.config.js
-pm2 start ecosystem.config.js
+# Si el archivo es .js y tienes "type": "module" en package.json, renómbralo a .cjs:
+# mv ecosystem.config.js ecosystem.config.cjs
+pm2 start ecosystem.config.cjs
 ```
 
 **Nota:** PM2 requiere CommonJS (`module.exports`), no ES Modules (`export default`) en archivos de configuración.
@@ -160,7 +161,7 @@ sudo chmod 600 /swapfile
 sudo mkswap /swapfile
 sudo swapon /swapfile
 
-# 4. Reducir max_memory_restart en ecosystem.config.js
+# 4. Reducir max_memory_restart en ecosystem.config.cjs
 # Cambiar de 1G a 500M por ejemplo
 ```
 
@@ -217,7 +218,7 @@ chmod +x /usr/local/bin/check_memory.sh
 */5 * * * * /usr/local/bin/check_memory.sh
 ```
 
-### 3. Optimizar ecosystem.config.js
+### 3. Optimizar ecosystem.config.cjs
 
 ```javascript
 {
@@ -275,7 +276,7 @@ pm2 kill
 pm2 resurrect
 # O
 cd /ruta/a/Aquatech_api
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 
 # Ver estado completo
 pm2 status

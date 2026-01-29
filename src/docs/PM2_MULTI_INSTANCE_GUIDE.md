@@ -49,7 +49,7 @@
 
 ## 🔧 Configuration
 
-See `ecosystem.config.js` for the updated configuration with:
+See `ecosystem.config.cjs` for the updated configuration with:
 - API: Multiple instances (configurable)
 - MQTT: Single instance (enforced)
 
