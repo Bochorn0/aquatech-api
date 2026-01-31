@@ -8,7 +8,7 @@ import {
   deleteProduct,
   getProductStats
 } from '../controllers/tiwater-product.controller.js';
-import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';
+import { authenticate, requirePermission } from '../middlewares/auth.middleware.js';
 import { validateTiWaterApiKey, validateTiWaterApiKeyOrAuth } from '../middlewares/tiwater-api-key.middleware.js';
 
 const router = Router();
@@ -26,14 +26,10 @@ router.get('/code/:code', validateTiWaterApiKeyOrAuth, getProductByCode);
 // Get specific product by ID
 router.get('/:productId', validateTiWaterApiKeyOrAuth, getProductById);
 
-// Create new product (admin only)
-router.post('/', authenticate, authorizeRoles('admin'), createProduct);
-
-// Update specific product by ID (admin only)
-router.patch('/:productId', authenticate, authorizeRoles('admin'), updateProduct);
-router.put('/:productId', authenticate, authorizeRoles('admin'), updateProduct);
-
-// Delete specific product by ID (admin only - soft delete)
-router.delete('/:productId', authenticate, authorizeRoles('admin'), deleteProduct);
+// Write: require /tiwater-catalog
+router.post('/', authenticate, requirePermission('/tiwater-catalog'), createProduct);
+router.patch('/:productId', authenticate, requirePermission('/tiwater-catalog'), updateProduct);
+router.put('/:productId', authenticate, requirePermission('/tiwater-catalog'), updateProduct);
+router.delete('/:productId', authenticate, requirePermission('/tiwater-catalog'), deleteProduct);
 
 export default router;

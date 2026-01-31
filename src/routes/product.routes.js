@@ -1,7 +1,7 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
 import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, updateProduct } from '../controllers/product.controller.js'; // Named imports
-import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';
+import { authenticate, requirePermission } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
@@ -14,8 +14,8 @@ router.get('/mocked', authenticate, generateAllProducts);
 // Get specific product by ID
 router.get('/:id', authenticate, getProductById);
 
-// Update product (cliente, city, product_type) - for Equipos / personalización
-router.patch('/:id', authenticate, authorizeRoles('admin', 'cliente'), updateProduct);
+// Update product (cliente, city, product_type) - for Equipos / personalización (access by permission at mount)
+router.patch('/:id', authenticate, updateProduct);
 
 // Get specific product logs by ID
 router.get('/:id/logs', authenticate, getProductLogsById);
@@ -23,14 +23,10 @@ router.get('/:id/logs', authenticate, getProductLogsById);
 // Get product metrics
 router.get('/:id/metrics', authenticate, getProductMetrics);
 
-// Get product metrics
-router.post('/sendCommand', authenticate, authorizeRoles('admin'), sendDeviceCommands);
-
-// storage All products
-router.post('/saveAllProducts', authenticate, authorizeRoles('admin'), saveAllProducts);
-
-// Test ESP32 DAta
-router.post('/componentInput', authenticate, authorizeRoles('admin'), componentInput);
+// Write / commands: require /equipos
+router.post('/sendCommand', authenticate, requirePermission('/equipos'), sendDeviceCommands);
+router.post('/saveAllProducts', authenticate, requirePermission('/equipos'), saveAllProducts);
+router.post('/componentInput', authenticate, requirePermission('/equipos'), componentInput);
 
 // Fetch logs routine - Manual trigger endpoint
 router.post('/fetchLogsRoutine', authenticate, fetchLogsRoutine);

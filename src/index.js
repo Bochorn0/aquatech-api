@@ -28,7 +28,7 @@ import tiwaterProductRoutes from './routes/tiwater-product.routes.js';  // Use `
 import tiwaterQuoteRoutes from './routes/tiwater-quote.routes.js';  // Use `import` for TI Water quote routes (v2.0)
 import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoutes
 import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoutes
-import { authenticate, authorizeRoles } from './middlewares/auth.middleware.js';  // Import the authentication and authorization middleware
+import { authenticate, requirePermission } from './middlewares/auth.middleware.js';
 import mqttService from './services/mqtt.service.js';  // Import MQTT service
 import emailHelper from './utils/email.helper.js';  // Import email helper for test endpoint
 
@@ -233,55 +233,28 @@ app.get('/api/v1.0/mqtt/status', (req, res) => {
   });
 });
 
-// Apply authentication middleware to any route that needs protection
-// Example: Protect the `/api/v1.0/dashboard` route
-app.use('/api/v1.0/dashboard', authenticate, authorizeRoles('admin', 'cliente'), dashboardRoutes);
+// API access uses Role.permissions (same as frontend menu). requirePermission('/') = dashboard access (clients, products, metrics, cities, notifications, dashboard, reportes). requirePermission('/puntoVenta') = puntoVentas. requirePermission('/usuarios') = users/roles. requirePermission('/controladores') = controllers. Backward compat: roles with no permissions allow admin and cliente by name.
+app.use('/api/v1.0/dashboard', authenticate, requirePermission('/'), dashboardRoutes);
+app.use('/api/v1.0/notifications', authenticate, requirePermission('/'), notificationRoutes);
+app.use('/api/v1.0/products', authenticate, requirePermission('/', '/equipos'), productRoutes);
+app.use('/api/v1.0/users', authenticate, requirePermission('/usuarios'), userRoutes);
+app.use('/api/v1.0/roles', authenticate, requirePermission('/usuarios'), roleRoutes);
+app.use('/api/v1.0/clients', authenticate, requirePermission('/'), clientRoutes);
+app.use('/api/v1.0/reportes', authenticate, requirePermission('/'), reportRoutes);
+app.use('/api/v1.0/metrics', authenticate, requirePermission('/'), metricRoutes);
+app.use('/api/v1.0/cities', authenticate, requirePermission('/'), cityRoutes);
+app.use('/api/v1.0/controllers', authenticate, requirePermission('/controladores'), controllerRoutes);
+app.use('/api/v1.0/puntoVentas', authenticate, requirePermission('/puntoVenta'), puntoVentaRoutes);
+app.use('/api/v1.0/sensor-data', authenticate, requirePermission('/'), sensorDataRoutes);
 
-// Example: Protect the `/api/v1.0/dashboard` route
-app.use('/api/v1.0/notifications', authenticate, authorizeRoles('admin', 'cliente'), notificationRoutes);
-
-// Example: Protect the `/api/v1.0/products` route for both 'admin' and 'manager' roles
-app.use('/api/v1.0/products', authenticate, authorizeRoles('admin', 'cliente'), productRoutes);
-
-// Example: Protect the `/api/v1.0/users` route for 'admin' only
-app.use('/api/v1.0/users', authenticate, authorizeRoles('admin', 'cliente'), userRoutes);
-
-// Example: Protect the `/api/v1.0/roles` route for 'admin' only
-app.use('/api/v1.0/roles', authenticate, authorizeRoles('admin', 'cliente'), roleRoutes);
-
-// Example: Protect the `/api/v1.0/users` route for 'admin' only
-app.use('/api/v1.0/clients', authenticate, authorizeRoles('admin', 'cliente'), clientRoutes);
-
-// Example: Protect the `/api/v1.0/reportes` route for both 'admin' and 'manager' roles
-app.use('/api/v1.0/reportes', authenticate, authorizeRoles('admin', 'cliente'), reportRoutes);
-
-// Example: Protect the `/api/v1.0/metrics` route for 'admin' only
-app.use('/api/v1.0/metrics', authenticate, authorizeRoles('admin', 'cliente'), metricRoutes);
-
-// Example: Protect the `/api/v1.0/cities` route for 'admin' only
-app.use('/api/v1.0/cities', authenticate, authorizeRoles('admin', 'cliente'), cityRoutes);
-
-// Example: Protect the `/api/v1.0/controller` route for 'admin' only
-app.use('/api/v1.0/controllers', authenticate, authorizeRoles('admin', 'cliente'), controllerRoutes);
-
-// Example: Protect the `/api/v1.0/puntoVenta` route for 'admin' only
-app.use('/api/v1.0/puntoVentas', authenticate, authorizeRoles('admin', 'cliente'), puntoVentaRoutes);
-
-// Example: Protect the `/api/v1.0/sensor-data` route for 'admin' and 'cliente'
-app.use('/api/v1.0/sensor-data', authenticate, authorizeRoles('admin', 'cliente'), sensorDataRoutes);
-
-// v2.0 API routes - PostgreSQL based
-// IMPORTANT: TI Water routes must come BEFORE the generic /api/v2.0 route
-// Otherwise /api/v2.0 will catch /api/v2.0/tiwater requests first
+// v2.0 API routes - PostgreSQL based (TI Water - no auth on these or add if needed)
 app.use('/api/v2.0/tiwater/products', tiwaterProductRoutes);
 app.use('/api/v2.0/tiwater/quotes', tiwaterQuoteRoutes);
 
-// v2.0 API routes - Customization (metrics, clients, cities, puntosVenta, sensors)
-// IMPORTANT: customizationV2Routes must come before sensorDataV2Routes to handle /puntoVentas/:id/sensors
-app.use('/api/v2.0', authenticate, authorizeRoles('admin', 'cliente'), customizationV2Routes);
-// v2.0 API routes - PostgreSQL based (sensors - must come after customization routes)
-app.use('/api/v2.0/sensors', authenticate, authorizeRoles('admin', 'cliente'), sensorDataV2Routes);
-app.use('/api/v2.0', authenticate, authorizeRoles('admin', 'cliente'), sensorDataV2Routes);
+// v2.0 API routes - Customization and sensors (require dashboard or puntoVenta/personalizacion access)
+app.use('/api/v2.0', authenticate, requirePermission('/', '/puntoVenta', '/personalizacion'), customizationV2Routes);
+app.use('/api/v2.0/sensors', authenticate, requirePermission('/', '/puntoVenta', '/personalizacion'), sensorDataV2Routes);
+app.use('/api/v2.0', authenticate, requirePermission('/', '/puntoVenta', '/personalizacion'), sensorDataV2Routes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/auth', authRoutes);

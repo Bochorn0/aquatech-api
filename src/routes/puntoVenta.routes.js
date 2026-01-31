@@ -8,29 +8,19 @@ import {
   deletePuntoVenta,
   generateDailyData
 } from '../controllers/puntoVenta.controller.js';
-import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';
+import { authenticate, requirePermission } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
-// 🔹 Obtener todos los puntos de venta (solo admin)
-router.get('/all', authenticate, authorizeRoles('admin', 'cliente'), getPuntosVenta);
+// Read/update access by requirePermission('/puntoVenta') at mount
+router.get('/all', authenticate, getPuntosVenta);
+router.get('/', authenticate, getPuntosVentaFiltered);
+router.get('/:id', authenticate, getPuntoVentaById);
+router.patch('/:id', authenticate, updatePuntoVenta);
 
-// 🔹 Obtener puntos de venta filtrados (admin y cliente)
-router.get('/', authenticate, authorizeRoles('admin', 'cliente'), getPuntosVentaFiltered);
-
-// 🔹 Obtener un punto de venta por ID (admin y cliente)
-router.get('/:id', authenticate, authorizeRoles('admin', 'cliente'), getPuntoVentaById);
-
-// 🔹 Crear un nuevo punto de venta (solo admin)
-router.post('/', authenticate, authorizeRoles('admin'), addPuntoVenta);
-
-// 🔹 Actualizar un punto de venta (admin y cliente)
-router.patch('/:id', authenticate, authorizeRoles('admin', 'cliente'), updatePuntoVenta);
-
-// 🔹 Eliminar un punto de venta (solo admin)
-router.delete('/:id', authenticate, authorizeRoles('admin'), deletePuntoVenta);
-
-// 🔹 Generar datos diarios simulados (solo admin, modo dev)
-router.post('/:id/generate-daily-data', authenticate, authorizeRoles('admin'), generateDailyData);
+// Write: require /puntoVenta
+router.post('/', authenticate, requirePermission('/puntoVenta'), addPuntoVenta);
+router.delete('/:id', authenticate, requirePermission('/puntoVenta'), deletePuntoVenta);
+router.post('/:id/generate-daily-data', authenticate, requirePermission('/puntoVenta'), generateDailyData);
 
 export default router;

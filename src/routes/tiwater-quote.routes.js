@@ -7,7 +7,7 @@ import {
   deleteQuote,
   getQuoteStats
 } from '../controllers/tiwater-quote.controller.js';
-import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';
+import { authenticate, requirePermission } from '../middlewares/auth.middleware.js';
 import { validateTiWaterApiKey } from '../middlewares/tiwater-api-key.middleware.js';
 
 const router = Router();
@@ -30,7 +30,7 @@ router.get('/:quoteId', authenticate, getQuoteById);
 router.patch('/:quoteId', authenticate, updateQuote);
 router.put('/:quoteId', authenticate, updateQuote);
 
-// Delete specific quote by ID (admin only)
-router.delete('/:quoteId', authenticate, authorizeRoles('admin'), deleteQuote);
+// Delete: require /tiwater-catalog
+router.delete('/:quoteId', authenticate, requirePermission('/tiwater-catalog'), deleteQuote);
 
 export default router;
