@@ -74,6 +74,7 @@ else
     print_success "MongoDB detenido correctamente"
     
     # Verificar que existe el archivo de configuración
+    # Para acceso solo vía SSH tunnel, en /etc/mongod.conf usar: net.bindIp: 127.0.0.1
     if [ ! -f /etc/mongod.conf ]; then
         print_error "Archivo de configuración /etc/mongod.conf no encontrado"
         print_warning "Saltando reinicio de MongoDB"
@@ -85,22 +86,44 @@ else
             chown mongod:mongod /var/log/mongodb 2>/dev/null || true
         fi
         
-        # Iniciar MongoDB en fork
-        print_info "Iniciando MongoDB..."
-        if mongod --config /etc/mongod.conf --fork --logpath /var/log/mongodb/mongod.log 2>/dev/null; then
+        # Directorio para PID file (evita "Cannot write pid file to /var/run/mongodb/mongod.pid: No such file or directory")
+        if [ ! -d /var/run/mongodb ]; then
+            print_info "Creando /var/run/mongodb para el archivo PID..."
+            mkdir -p /var/run/mongodb
+            chown mongod:mongod /var/run/mongodb 2>/dev/null || true
+        fi
+        
+        # Iniciar MongoDB en fork. Ejecutar como usuario mongod evita "child process failed, exited with 1" (mongod suele negarse a correr como root).
+        if id mongod &>/dev/null; then
+            print_info "Iniciando MongoDB como usuario mongod (fork)..."
+            MONGOD_CMD="sudo -u mongod mongod --config /etc/mongod.conf --fork --logpath /var/log/mongodb/mongod.log"
+        else
+            print_info "Iniciando MongoDB (fork)..."
+            MONGOD_CMD="mongod --config /etc/mongod.conf --fork --logpath /var/log/mongodb/mongod.log"
+        fi
+        
+        if $MONGOD_CMD 2>&1; then
             sleep 2
             
-            # Verificar estado
             if pgrep -f mongod > /dev/null; then
                 print_success "MongoDB iniciado correctamente"
                 print_info "PID: $(pgrep -f mongod | head -1)"
             else
                 print_error "MongoDB no inició correctamente"
-                print_info "Revisa los logs: tail -n 50 /var/log/mongodb/mongod.log"
+                if [ -f /var/log/mongodb/mongod.log ]; then
+                    print_info "Últimas líneas del log:"
+                    tail -n 25 /var/log/mongodb/mongod.log | sed 's/^/  /'
+                fi
+                print_info "Para ver el error en vivo (sin fork): sudo -u mongod mongod --config /etc/mongod.conf"
             fi
         else
             print_error "Error al iniciar MongoDB"
-            print_info "Revisa los logs: tail -n 50 /var/log/mongodb/mongod.log"
+            if [ -f /var/log/mongodb/mongod.log ]; then
+                print_info "Últimas líneas del log:"
+                tail -n 25 /var/log/mongodb/mongod.log | sed 's/^/  /'
+            fi
+            print_info "Prueba manual (con fork, como mongod): sudo -u mongod mongod --config /etc/mongod.conf --fork --logpath /var/log/mongodb/mongod.log"
+            print_info "Para ver el error en vivo (sin fork): sudo -u mongod mongod --config /etc/mongod.conf"
         fi
     fi
 fi
@@ -108,19 +131,38 @@ fi
 echo ""
 
 # ============================================================================
-# POSTGRESQL 15 RECOVERY
+# POSTGRESQL 15 RECOVERY (solo arrancar PostgreSQL 15; detener cualquier postgres en 5432)
 # ============================================================================
+PG_DATA_DIR="/var/lib/pgsql/15/data"
+PG_BIN_DIR="/usr/pgsql-15/bin"
+
 print_info "Reiniciando PostgreSQL 15..."
 
-# Matar procesos postgres si existen
+# 1. Detener cualquier postgres vía systemd (libera puerto 5432 para PG 15)
+if systemctl is-active --quiet postgresql-15 2>/dev/null; then
+    print_warning "Deteniendo postgresql-15 (systemd)..."
+    systemctl stop postgresql-15 2>/dev/null || true
+    sleep 2
+fi
+if systemctl is-active --quiet postgresql 2>/dev/null; then
+    print_warning "Deteniendo postgresql (systemd)..."
+    systemctl stop postgresql 2>/dev/null || true
+    sleep 2
+fi
+
+# 2. Si sigue corriendo algo, intentar pg_ctl stop para PG 15 (por si el PID file existe)
+if pgrep -f postgres > /dev/null && [ -f "$PG_BIN_DIR/pg_ctl" ] && [ -d "$PG_DATA_DIR" ]; then
+    print_warning "PostgreSQL en ejecución, intentando pg_ctl stop (PG 15)..."
+    sudo -u postgres "$PG_BIN_DIR/pg_ctl" stop -D "$PG_DATA_DIR" -m fast 2>/dev/null || true
+    sleep 2
+fi
+
+# 3. Si aún queda algún proceso, forzar cierre
 if pgrep -f postgres > /dev/null; then
-    print_warning "Procesos PostgreSQL detectados, deteniendo..."
+    print_warning "Procesos postgres aún activos, forzando cierre..."
     pkill -f postgres 2>/dev/null || true
     sleep 2
-    
-    # Verificar que se detuvieron
     if pgrep -f postgres > /dev/null; then
-        print_error "PostgreSQL no se detuvo correctamente, intentando kill -9..."
         pkill -9 -f postgres 2>/dev/null || true
         sleep 2
     fi
@@ -133,10 +175,6 @@ if pgrep -f postgres > /dev/null; then
 else
     print_success "PostgreSQL detenido correctamente"
     
-    # Verificar que existe el directorio de datos
-    PG_DATA_DIR="/var/lib/pgsql/15/data"
-    PG_BIN_DIR="/usr/pgsql-15/bin"
-    
     if [ ! -d "$PG_DATA_DIR" ]; then
         print_error "Directorio de datos PostgreSQL no encontrado: $PG_DATA_DIR"
         print_warning "Saltando reinicio de PostgreSQL"
@@ -146,20 +184,28 @@ else
     else
         # Iniciar PostgreSQL 15
         print_info "Iniciando PostgreSQL 15..."
-        if sudo -u postgres "$PG_BIN_DIR/pg_ctl" start -D "$PG_DATA_DIR" -l "$PG_DATA_DIR/logfile" 2>/dev/null; then
+        if sudo -u postgres "$PG_BIN_DIR/pg_ctl" start -D "$PG_DATA_DIR" -l "$PG_DATA_DIR/logfile" 2>&1; then
             sleep 2
             
-            # Verificar estado
             if pgrep -f postgres > /dev/null; then
                 print_success "PostgreSQL 15 iniciado correctamente"
                 print_info "PID: $(pgrep -f postgres | head -1)"
             else
                 print_error "PostgreSQL 15 no inició correctamente"
+                if [ -f "$PG_DATA_DIR/logfile" ]; then
+                    print_info "Últimas líneas del log:"
+                    tail -n 15 "$PG_DATA_DIR/logfile" | sed 's/^/  /'
+                fi
                 print_info "Revisa los logs: tail -n 50 $PG_DATA_DIR/logfile"
             fi
         else
             print_error "Error al iniciar PostgreSQL 15"
+            if [ -f "$PG_DATA_DIR/logfile" ]; then
+                print_info "Últimas líneas del log:"
+                tail -n 15 "$PG_DATA_DIR/logfile" | sed 's/^/  /'
+            fi
             print_info "Revisa los logs: tail -n 50 $PG_DATA_DIR/logfile"
+            print_info "Comando manual: sudo -u postgres $PG_BIN_DIR/pg_ctl start -D $PG_DATA_DIR -l $PG_DATA_DIR/logfile"
         fi
     fi
 fi
