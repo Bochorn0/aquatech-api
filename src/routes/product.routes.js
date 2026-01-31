@@ -1,6 +1,6 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha } from '../controllers/product.controller.js'; // Named imports
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, updateProduct } from '../controllers/product.controller.js'; // Named imports
 import { authenticate, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -13,6 +13,9 @@ router.get('/mocked', authenticate, generateAllProducts);
 
 // Get specific product by ID
 router.get('/:id', authenticate, getProductById);
+
+// Update product (cliente, city, product_type) - for Equipos / personalización
+router.patch('/:id', authenticate, authorizeRoles('admin', 'cliente'), updateProduct);
 
 // Get specific product logs by ID
 router.get('/:id/logs', authenticate, getProductLogsById);

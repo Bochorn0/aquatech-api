@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Product from '../models/product.model.js';
 import City from '../models/city.model.js';
 import User from '../models/user.model.js';
@@ -486,6 +487,29 @@ export const mockedProducts = async () => {
     return error;
   }
 }
+
+/**
+ * Update a product's cliente, city, and product_type (for Equipos / personalización).
+ * Params id can be MongoDB _id or Tuya device id.
+ */
+export const updateProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { cliente, city, product_type } = req.body;
+    const update = { ...(cliente != null && { cliente }), ...(city != null && { city }), ...(product_type != null && { product_type }) };
+    const isMongoId = mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === id;
+    const product = isMongoId
+      ? await Product.findByIdAndUpdate(id, update, { new: true, runValidators: true })
+      : await Product.findOneAndUpdate({ id }, update, { new: true, runValidators: true });
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    return res.status(200).json(product);
+  } catch (error) {
+    console.error('Error updating product:', error);
+    return res.status(500).json({ message: 'Error updating product' });
+  }
+};
 
 export const getProductById = async (req, res) => {
   try {
