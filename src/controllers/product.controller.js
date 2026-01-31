@@ -489,14 +489,19 @@ export const mockedProducts = async () => {
 }
 
 /**
- * Update a product's cliente, city, and product_type (for Equipos / personalización).
+ * Update a product's cliente, city, state, and product_type (for Equipos / personalización).
  * Params id can be MongoDB _id or Tuya device id.
  */
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { cliente, city, product_type } = req.body;
-    const update = { ...(cliente != null && { cliente }), ...(city != null && { city }), ...(product_type != null && { product_type }) };
+    const { cliente, city, state, product_type } = req.body;
+    const update = {
+      ...(cliente != null && { cliente }),
+      ...(city != null && { city }),
+      ...(state != null && { state }),
+      ...(product_type != null && { product_type }),
+    };
     const isMongoId = mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === id;
     const product = isMongoId
       ? await Product.findByIdAndUpdate(id, update, { new: true, runValidators: true })
