@@ -133,6 +133,29 @@ else
 fi
 
 # ============================================================================
+# 4b. SELinux (PM2 pid file - systemd Permission denied)
+# ============================================================================
+print_header "4b. SELinux (PM2 pid file access)"
+SELINUX_PM2_FOUND=0
+if command -v getenforce &>/dev/null && [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
+    print_info "SELinux is Enforcing - checking for PM2 pid file denials..."
+    if command -v journalctl &>/dev/null; then
+        if journalctl --since "24 hours ago" 2>/dev/null | grep -qE "pm2\.pid|PM2.*pid.*Permission denied|SELinux is preventing systemd.*pm2\.pid"; then
+            print_error "SELinux is blocking systemd from reading PM2 pid file - can cause restarts"
+            echo "   Recent journal lines:"
+            journalctl --since "24 hours ago" 2>/dev/null | grep -iE "pm2\.pid|selinux.*systemd.*pm2" | tail -5 | sed 's/^/   /'
+            SELINUX_PM2_FOUND=1
+            ACTION_ITEMS+=("Fix SELinux for PM2: see MANUAL_FIXES.md 'SELinux: PM2 pid file' (restorecon or audit2allow)")
+        fi
+    fi
+    if [ $SELINUX_PM2_FOUND -eq 0 ]; then
+        print_success "No PM2 pid file SELinux denials found in journal"
+    fi
+else
+    print_info "SELinux not enforcing or getenforce not available"
+fi
+
+# ============================================================================
 # 5. MEMORY & RESOURCES
 # ============================================================================
 print_header "5. Memory and resources"
