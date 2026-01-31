@@ -15,12 +15,12 @@ export const getRoles = async (req, res) => {
 // Add a new role
 export const addRole = async (req, res) => {
   try {
-    const { name, permissions } = req.body;
+    const { name, permissions, dashboardVersion } = req.body;
 
     const existingRole = await Role.findOne({ name });
     if (existingRole) return res.status(400).json({ message: 'Role already exists' });
 
-    const role = new Role({ name, permissions });
+    const role = new Role({ name, permissions, dashboardVersion });
     await role.save();
 
     res.status(201).json(role);
@@ -34,13 +34,14 @@ export const addRole = async (req, res) => {
 export const updateRole = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, permissions } = req.body;
+    const { name, permissions, dashboardVersion } = req.body;
 
     const role = await Role.findById(id);
     if (!role) return res.status(404).json({ message: 'Role not found' });
 
     role.name = name || role.name;
-    role.permissions = permissions || role.permissions;
+    role.permissions = permissions ?? role.permissions;
+    if (dashboardVersion !== undefined) role.dashboardVersion = dashboardVersion;
 
     await role.save();
     res.json(role);
