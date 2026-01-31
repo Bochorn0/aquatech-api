@@ -94,11 +94,13 @@ export const getClient = async () => {
   return client;
 };
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
+// Graceful shutdown (SIGINT = Ctrl+C, SIGTERM = PM2/systemd kill)
+const closePool = async () => {
   console.log('[PostgreSQL TI_water] Closing connection pool...');
   await pool.end();
   console.log('[PostgreSQL TI_water] Connection pool closed');
-});
+};
+process.on('SIGINT', closePool);
+process.on('SIGTERM', closePool);
 
 export default pool;

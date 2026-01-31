@@ -290,10 +290,15 @@ app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
-// Manejar cierre graceful
-process.on('SIGINT', () => {
-  console.log('\nCerrando servidor...');
-  // No desconectar MQTT aquí - corre como proceso separado
-  mongoose.connection.close();
-  process.exit(0);
-});
+// Graceful shutdown (SIGINT = Ctrl+C, SIGTERM = PM2/systemd kill)
+const shutdown = (signal) => {
+  console.log(`\nCerrando servidor... (${signal})`);
+  mongoose.connection.close().then(() => {
+    process.exit(0);
+  }).catch((err) => {
+    console.error('Error closing MongoDB:', err);
+    process.exit(1);
+  });
+};
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
