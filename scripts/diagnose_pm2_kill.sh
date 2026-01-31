@@ -145,7 +145,8 @@ if command -v getenforce &>/dev/null && [ "$(getenforce 2>/dev/null)" = "Enforci
             echo "   Recent journal lines:"
             journalctl --since "24 hours ago" 2>/dev/null | grep -iE "pm2\.pid|selinux.*systemd.*pm2" | tail -5 | sed 's/^/   /'
             SELINUX_PM2_FOUND=1
-            ACTION_ITEMS+=("Fix SELinux for PM2: see MANUAL_FIXES.md 'SELinux: PM2 pid file' (restorecon or audit2allow)")
+            # Prepend so it appears first (fix this before memory/systemd)
+            ACTION_ITEMS=("Fix SELinux for PM2 first: restorecon -Rv /root/.pm2/ then systemctl restart pm2-root (see MANUAL_FIXES.md §4)" "${ACTION_ITEMS[@]}")
         fi
     fi
     if [ $SELINUX_PM2_FOUND -eq 0 ]; then
