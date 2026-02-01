@@ -496,13 +496,13 @@ class MQTTService {
       flujo_rechazo: data['CAUDAL RECHAZO'] || data['caudal_rechazo'] || null,
       flujo_recuperacion: data['CAUDAL RECUPERACION'] || data['caudal_recuperacion'] || null,
       
-      // Niveles absolutos (valores pueden ser > 100)
-      nivel_purificada: data['NIVEL PURIFICADA'] || data['nivel_purificada'] || null,
-      nivel_cruda: data['NIVEL CRUDA'] || data['nivel_cruda'] || null,
-      
-      // Porcentajes (valores 0-100)
-      electronivel_purificada: data['PORCENTAJE NIVEL PURIFICADA'] || data['porcentaje_nivel_purificada'] || null,
-      electronivel_recuperada: data['PORCENTAJE NIVEL CRUDA'] || data['porcentaje_nivel_cruda'] || null,
+      // Niveles absolutos (valores pueden ser > 100). Para payloads parciales, usar porcentaje si no viene nivel.
+      nivel_purificada: data['NIVEL PURIFICADA'] ?? data['nivel_purificada'] ?? data['PORCENTAJE NIVEL PURIFICADA'] ?? data['porcentaje_nivel_purificada'] ?? null,
+      nivel_cruda: data['NIVEL CRUDA'] ?? data['nivel_cruda'] ?? data['PORCENTAJE NIVEL CRUDA'] ?? data['porcentaje_nivel_cruda'] ?? null,
+
+      // Porcentajes (valores 0-100). Para payloads parciales, usar nivel si no viene porcentaje.
+      electronivel_purificada: data['PORCENTAJE NIVEL PURIFICADA'] ?? data['porcentaje_nivel_purificada'] ?? data['NIVEL PURIFICADA'] ?? data['nivel_purificada'] ?? null,
+      electronivel_recuperada: data['PORCENTAJE NIVEL CRUDA'] ?? data['porcentaje_nivel_cruda'] ?? data['NIVEL CRUDA'] ?? data['nivel_cruda'] ?? null,
       
       caudal_cruda: data['CAUDAL CRUDA'] || data['caudal_cruda'] || null,
       caudal_cruda_lmin: data['CAUDAL CRUDA L/min'] || data['caudal_cruda_l_min'] || null,
