@@ -489,10 +489,114 @@ export const generateDailyData = async (req, res) => {
     });
   } catch (error) {
     console.error('[Generate Daily Data] Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error generando datos diarios', 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      message: 'Error generando datos diarios',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Simular bajo nivel de agua cruda (< 70%): publica un mensaje MQTT para que el nivel se actualice
+ * y se muestre la alerta en la sección Agua Cruda (y en Dashboard V2).
+ */
+export const simulateBajoNivelCruda = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    let punto = null;
+    let codigoTienda = null;
+
+    const isNumericId = /^\d+$/.test(id);
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+
+    if (isNumericId) {
+      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+      punto = await PuntoVentaModel.findById(parseInt(id, 10));
+      if (!punto) punto = await PuntoVentaModel.findByCode(id);
+      if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
+    } else if (isValidObjectId) {
+      punto = await PuntoVenta.findById(id).populate('productos');
+      if (punto) codigoTienda = punto.codigo_tienda;
+    } else {
+      const codigoDirecto = id.toUpperCase();
+      punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
+      if (punto) codigoTienda = punto.codigo_tienda;
+    }
+
+    if (!punto) {
+      return res.status(404).json({
+        success: false,
+        message: `Punto de venta no encontrado con ID/código: ${id}`
+      });
+    }
+
+    if (!codigoTienda) {
+      return res.status(400).json({
+        success: false,
+        message: 'El punto de venta no tiene código de tienda configurado'
+      });
+    }
+
+    if (!mqttService.isConnected) {
+      mqttService.connect();
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (!mqttService.isConnected) {
+        return res.status(503).json({
+          success: false,
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.'
+        });
+      }
+    }
+
+    const topic = `tiwater/${codigoTienda}/data`;
+    const timestampUnix = Math.floor(Date.now() / 1000);
+    // Nivel agua cruda bajo (< 70%): 65% para activar alerta
+    const nivelCrudaPercent = 65;
+
+    const tiwaterData = {
+      'CAUDAL PURIFICADA': 0.5,
+      'CAUDAL RECUPERACION': 2.0,
+      'CAUDAL RECHAZO': 0.2,
+      'NIVEL PURIFICADA': 80,
+      'NIVEL CRUDA': nivelCrudaPercent,
+      'PORCENTAJE NIVEL PURIFICADA': 8.0,
+      'PORCENTAJE NIVEL CRUDA': nivelCrudaPercent,
+      'CAUDAL CRUDA': 2.0,
+      'ACUMULADO CRUDA': 2000,
+      vida: 50,
+      'PRESION CO2': 300,
+      ch1: 2.5,
+      ch2: 2.5,
+      ch3: 1.0,
+      ch4: 2.0,
+      EFICIENCIA: 55,
+      'CAUDAL CRUDA L/min': 22.0,
+      timestamp: timestampUnix
+    };
+
+    const message = JSON.stringify(tiwaterData);
+    await mqttService.publish(topic, message);
+
+    console.log(`[Simulate Bajo Nivel Cruda] Publicado en ${topic}: nivel cruda ${nivelCrudaPercent}%`);
+
+    res.json({
+      success: true,
+      message: 'Mensaje MQTT enviado: nivel de agua cruda simulado bajo (< 70%)',
+      data: {
+        puntoVentaId: id,
+        codigoTienda,
+        topic,
+        nivelCrudaPercent
+      }
+    });
+  } catch (error) {
+    console.error('[Simulate Bajo Nivel Cruda] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al simular bajo nivel de agua cruda',
+      error: error.message
     });
   }
 };

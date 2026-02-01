@@ -233,8 +233,8 @@ app.get('/api/v1.0/mqtt/status', (req, res) => {
   });
 });
 
-// API access uses Role.permissions (same as frontend menu). requirePermission('/') = dashboard access (clients, products, metrics, cities, notifications, dashboard, reportes). requirePermission('/puntoVenta') = puntoVentas. requirePermission('/usuarios') = users/roles. requirePermission('/controladores') = controllers. Backward compat: roles with no permissions allow admin and cliente by name.
-app.use('/api/v1.0/dashboard', authenticate, requirePermission('/'), dashboardRoutes);
+// API access uses Role.permissions (same as frontend menu). requirePermission('/') = general access. /dashboard, /dashboard/v1, /dashboard/v2 = dashboard menu access. Backward compat: roles with no permissions allow admin and cliente by name.
+app.use('/api/v1.0/dashboard', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2'), dashboardRoutes);
 app.use('/api/v1.0/notifications', authenticate, requirePermission('/'), notificationRoutes);
 app.use('/api/v1.0/products', authenticate, requirePermission('/', '/equipos'), productRoutes);
 app.use('/api/v1.0/users', authenticate, requirePermission('/usuarios'), userRoutes);
@@ -252,9 +252,9 @@ app.use('/api/v2.0/tiwater/products', tiwaterProductRoutes);
 app.use('/api/v2.0/tiwater/quotes', tiwaterQuoteRoutes);
 
 // v2.0 API routes - Customization and sensors (require dashboard or puntoVenta/personalizacion access)
-app.use('/api/v2.0', authenticate, requirePermission('/', '/puntoVenta', '/personalizacion'), customizationV2Routes);
-app.use('/api/v2.0/sensors', authenticate, requirePermission('/', '/puntoVenta', '/personalizacion'), sensorDataV2Routes);
-app.use('/api/v2.0', authenticate, requirePermission('/', '/puntoVenta', '/personalizacion'), sensorDataV2Routes);
+app.use('/api/v2.0', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), customizationV2Routes);
+app.use('/api/v2.0/sensors', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), sensorDataV2Routes);
+app.use('/api/v2.0', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), sensorDataV2Routes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
 app.use('/api/v1.0/auth', authRoutes);

@@ -6,7 +6,8 @@ import {
   addPuntoVenta,
   updatePuntoVenta,
   deletePuntoVenta,
-  generateDailyData
+  generateDailyData,
+  simulateBajoNivelCruda
 } from '../controllers/puntoVenta.controller.js';
 import { authenticate, requirePermission } from '../middlewares/auth.middleware.js';
 
@@ -22,5 +23,6 @@ router.patch('/:id', authenticate, updatePuntoVenta);
 router.post('/', authenticate, requirePermission('/puntoVenta'), addPuntoVenta);
 router.delete('/:id', authenticate, requirePermission('/puntoVenta'), deletePuntoVenta);
 router.post('/:id/generate-daily-data', authenticate, requirePermission('/puntoVenta'), generateDailyData);
+router.post('/:id/simulate-bajo-nivel-cruda', authenticate, requirePermission('/puntoVenta'), simulateBajoNivelCruda);
 
 export default router;
