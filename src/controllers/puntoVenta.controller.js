@@ -3,10 +3,97 @@ import Client from '../models/client.model.js';
 import Product from '../models/product.model.js';
 import Controller from '../models/controller.model.js';
 import City from '../models/city.model.js';
+import { query } from '../config/postgres.config.js';
 import { generateProductLogsReport } from './report.controller.js';
 import moment from 'moment';
 import mqttService from '../services/mqtt.service.js';
 import PostgresService from '../services/postgres.service.js';
+
+/** Default full tiwater payload when no sensor data exists (same structure as generate-daily-data). */
+function getDefaultTiwaterPayload() {
+  const nivelPurificada = 40 + Math.random() * 20;
+  const nivelCruda = 50 + Math.random() * 20;
+  return {
+    'CAUDAL PURIFICADA': 0.4,
+    'CAUDAL RECUPERACION': 2.5,
+    'CAUDAL RECHAZO': 0.2,
+    'NIVEL PURIFICADA': nivelPurificada,
+    'PORCENTAJE NIVEL PURIFICADA': parseFloat((nivelPurificada / 10).toFixed(1)),
+    'NIVEL CRUDA': nivelCruda,
+    'PORCENTAJE NIVEL CRUDA': parseFloat((nivelCruda / 10).toFixed(1)),
+    'CAUDAL CRUDA': 2.0,
+    'ACUMULADO CRUDA': 2000,
+    'CAUDAL CRUDA L/min': 24,
+    vida: 80,
+    'PRESION CO2': 300,
+    ch1: 2.6,
+    ch2: 2.9,
+    ch3: 1.1,
+    ch4: 2.3,
+    EFICIENCIA: 51
+  };
+}
+
+/**
+ * Fetch latest tiwater sensor values from PostgreSQL and build full MQTT payload (all keys).
+ * Used by dev scenarios so we publish all data and only override nivel cruda.
+ */
+async function getLatestTiwaterPayloadForPublish(codigoTienda) {
+  const latestSensorsQuery = `
+    SELECT DISTINCT ON (name) name, value, type
+    FROM sensores
+    WHERE codigotienda = $1
+      AND resourcetype = 'tiwater'
+      AND (resourceid IS NULL OR resourceid = 'tiwater-system')
+    ORDER BY name, timestamp DESC
+  `;
+  try {
+    const result = await query(latestSensorsQuery, [codigoTienda.toUpperCase()]);
+    const rows = result.rows || [];
+    if (rows.length === 0) {
+      return getDefaultTiwaterPayload();
+    }
+    const payload = getDefaultTiwaterPayload();
+    const typeToMqtt = {
+      flujo_produccion: 'CAUDAL PURIFICADA',
+      flujo_rechazo: 'CAUDAL RECHAZO',
+      flujo_recuperacion: 'CAUDAL RECUPERACION',
+      electronivel_purificada: 'PORCENTAJE NIVEL PURIFICADA',
+      nivel_purificada: 'NIVEL PURIFICADA',
+      electronivel_cruda: 'PORCENTAJE NIVEL CRUDA',
+      nivel_cruda: 'NIVEL CRUDA',
+      electronivel_recuperada: 'PORCENTAJE NIVEL RECUPERADA',
+      caudal_cruda: 'CAUDAL CRUDA',
+      caudal_cruda_lmin: 'CAUDAL CRUDA L/min',
+      acumulado_cruda: 'ACUMULADO CRUDA',
+      presion_co2: 'PRESION CO2',
+      eficiencia: 'EFICIENCIA',
+      vida: 'vida',
+      corriente_ch1: 'ch1',
+      corriente_ch2: 'ch2',
+      corriente_ch3: 'ch3',
+      corriente_ch4: 'ch4'
+    };
+    for (const row of rows) {
+      const type = (row.type || '').trim();
+      const mqttKey = typeToMqtt[type];
+      if (mqttKey != null && row.value != null) {
+        const num = parseFloat(row.value);
+        if (!Number.isNaN(num)) payload[mqttKey] = num;
+      }
+    }
+    if (payload['PORCENTAJE NIVEL PURIFICADA'] == null && payload['NIVEL PURIFICADA'] != null) {
+      payload['PORCENTAJE NIVEL PURIFICADA'] = parseFloat((payload['NIVEL PURIFICADA'] / 10).toFixed(1));
+    }
+    if (payload['PORCENTAJE NIVEL CRUDA'] == null && payload['NIVEL CRUDA'] != null) {
+      payload['PORCENTAJE NIVEL CRUDA'] = parseFloat((payload['NIVEL CRUDA'] / 10).toFixed(1));
+    }
+    return payload;
+  } catch (err) {
+    console.warn('[getLatestTiwaterPayloadForPublish] Error:', err.message);
+    return getDefaultTiwaterPayload();
+  }
+}
 
 // Obtener todos los puntos de venta
 export const getPuntosVenta = async (req, res) => {
@@ -553,31 +640,31 @@ export const simulateBajoNivelCruda = async (req, res) => {
 
     const topic = `tiwater/${codigoTienda}/data`;
     const timestampUnix = Math.floor(Date.now() / 1000);
-    // Nivel agua cruda bajo (< 70%): only send the simulated fields, no full payload
     const nivelCrudaPercent = 65;
-    const payload = {
-      'NIVEL CRUDA': nivelCrudaPercent,
-      'PORCENTAJE NIVEL CRUDA': nivelCrudaPercent,
-      timestamp: timestampUnix
-    };
 
-    const message = JSON.stringify(payload);
+    // Send full sensor data (same as real device) and override only nivel cruda
+    const fullPayload = await getLatestTiwaterPayloadForPublish(codigoTienda);
+    fullPayload['NIVEL CRUDA'] = nivelCrudaPercent;
+    fullPayload['PORCENTAJE NIVEL CRUDA'] = nivelCrudaPercent;
+    fullPayload.timestamp = timestampUnix;
+
+    const message = JSON.stringify(fullPayload);
     await mqttService.publish(topic, message);
 
-    console.log(`[Simulate Bajo Nivel Cruda] Publicado en ${topic}: nivel cruda ${nivelCrudaPercent}%`);
+    console.log(`[Simulate Bajo Nivel Cruda] Publicado en ${topic}: nivel cruda ${nivelCrudaPercent}% (payload completo)`);
 
-    // Persist to PostgreSQL so detalle updates immediately
+    // Persist full payload to PostgreSQL so detalle updates immediately
     try {
-      const minimalPayload = {
+      const mapped = mqttService.mapTiwaterDataToStandard(fullPayload);
+      const persistPayload = {
+        ...mapped,
         codigo_tienda: codigoTienda,
-        nivel_cruda: nivelCrudaPercent,
-        electronivel_cruda: nivelCrudaPercent,
         timestamp: timestampUnix,
         source: 'tiwater',
         metadata: { topic_format: 'tiwater' }
       };
       const context = { codigo_tienda: codigoTienda, resource_type: 'tiwater' };
-      await PostgresService.saveMultipleSensorsFromMQTT(minimalPayload, context);
+      await PostgresService.saveMultipleSensorsFromMQTT(persistPayload, context);
       console.log(`[Simulate Bajo Nivel Cruda] Persistido en PostgreSQL para ${codigoTienda}`);
     } catch (pgErr) {
       console.warn('[Simulate Bajo Nivel Cruda] No se pudo persistir en PostgreSQL:', pgErr.message);
@@ -660,33 +747,29 @@ export const simulateNivelCrudaNormalizado = async (req, res) => {
     const timestampUnix = Math.floor(Date.now() / 1000);
     const nivelCrudaPercent = 85;
 
-    const payload = {
-      'NIVEL CRUDA': nivelCrudaPercent,
-      'PORCENTAJE NIVEL CRUDA': nivelCrudaPercent,
-      timestamp: timestampUnix
-    };
+    // Send full sensor data (same as real device) and override only nivel cruda
+    const fullPayload = await getLatestTiwaterPayloadForPublish(codigoTienda);
+    fullPayload['NIVEL CRUDA'] = nivelCrudaPercent;
+    fullPayload['PORCENTAJE NIVEL CRUDA'] = nivelCrudaPercent;
+    fullPayload.timestamp = timestampUnix;
 
-    const message = JSON.stringify(payload);
+    const message = JSON.stringify(fullPayload);
     await mqttService.publish(topic, message);
 
-    console.log(`[Simulate Nivel Cruda Normalizado] Publicado en ${topic}: nivel cruda ${nivelCrudaPercent}%`);
+    console.log(`[Simulate Nivel Cruda Normalizado] Publicado en ${topic}: nivel cruda ${nivelCrudaPercent}% (payload completo)`);
 
-    // Persist to PostgreSQL so detalle updates immediately (MQTT publish may not be consumed by same process)
+    // Persist full payload to PostgreSQL so detalle updates immediately
     try {
-      const timestampDate = new Date(timestampUnix * 1000);
-      const minimalPayload = {
+      const mapped = mqttService.mapTiwaterDataToStandard(fullPayload);
+      const persistPayload = {
+        ...mapped,
         codigo_tienda: codigoTienda,
-        nivel_cruda: nivelCrudaPercent,
-        electronivel_cruda: nivelCrudaPercent,
         timestamp: timestampUnix,
         source: 'tiwater',
         metadata: { topic_format: 'tiwater' }
       };
-      const context = {
-        codigo_tienda: codigoTienda,
-        resource_type: 'tiwater'
-      };
-      await PostgresService.saveMultipleSensorsFromMQTT(minimalPayload, context);
+      const context = { codigo_tienda: codigoTienda, resource_type: 'tiwater' };
+      await PostgresService.saveMultipleSensorsFromMQTT(persistPayload, context);
       console.log(`[Simulate Nivel Cruda Normalizado] Persistido en PostgreSQL para ${codigoTienda}`);
     } catch (pgErr) {
       console.warn('[Simulate Nivel Cruda Normalizado] No se pudo persistir en PostgreSQL:', pgErr.message);
