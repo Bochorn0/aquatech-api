@@ -672,11 +672,26 @@ export const simulateSensor = async (req, res) => {
     const topic = `tiwater/${codigoTienda}/data`;
     const timestampUnix = Math.floor(Date.now() / 1000);
 
-    // Send only the selected sensor key and timestamp (no full payload)
-    const payload = {
-      [sensorKey]: numValue,
-      timestamp: timestampUnix
-    };
+    // Build payload: for nivel cruda/purificada send both keys so DB and UI update
+    let payload;
+    if (sensorKey === 'NIVEL CRUDA' || sensorKey === 'PORCENTAJE NIVEL CRUDA') {
+      payload = {
+        'NIVEL CRUDA': numValue,
+        'PORCENTAJE NIVEL CRUDA': numValue,
+        timestamp: timestampUnix
+      };
+    } else if (sensorKey === 'NIVEL PURIFICADA' || sensorKey === 'PORCENTAJE NIVEL PURIFICADA') {
+      payload = {
+        'NIVEL PURIFICADA': numValue,
+        'PORCENTAJE NIVEL PURIFICADA': numValue,
+        timestamp: timestampUnix
+      };
+    } else {
+      payload = {
+        [sensorKey]: numValue,
+        timestamp: timestampUnix
+      };
+    }
 
     const message = JSON.stringify(payload);
     await mqttService.publish(topic, message);
