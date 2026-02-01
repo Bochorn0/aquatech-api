@@ -228,12 +228,23 @@ export const addMetricV2 = async (req, res) => {
     if (isNaN(puntoVentaId) && metricData.punto_venta_id) {
       return res.status(400).json({ message: 'Punto de Venta ID inválido' });
     }
-    
-    const newMetric = await MetricModel.create({
-      ...metricData,
-      clientId: clientId || metricData.clientId,
-      punto_venta_id: puntoVentaId || metricData.punto_venta_id
-    });
+
+    // Whitelist: only pass fields for a single new metric (never spread full body to avoid overwriting other metrics)
+    const createPayload = {
+      clientId: clientId ?? metricData.clientId ?? null,
+      punto_venta_id: puntoVentaId ?? metricData.punto_venta_id ?? null,
+      metric_name: metricData.metric_name ?? null,
+      metric_type: metricData.metric_type ?? null,
+      sensor_type: metricData.sensor_type ?? null,
+      sensor_unit: metricData.sensor_unit ?? null,
+      rules: metricData.rules ?? null,
+      conditions: metricData.conditions ?? null,
+      enabled: metricData.enabled !== undefined ? metricData.enabled : true,
+      read_only: metricData.read_only !== undefined ? metricData.read_only : false,
+      display_order: metricData.display_order ?? 0
+    };
+
+    const newMetric = await MetricModel.create(createPayload);
     
     res.status(201).json(newMetric);
   } catch (error) {
@@ -268,24 +279,34 @@ export const updateMetricV2 = async (req, res) => {
         }
       }
     }
-    
-    // Convert cliente to clientId if needed
-    if (metricData.cliente) {
-      const clientId = parseInt(metricData.cliente, 10);
-      if (!isNaN(clientId)) {
-        metricData.clientId = clientId;
-      }
-    }
-    
+
     // Convert punto_venta_id to integer if needed
-    if (metricData.punto_venta_id) {
-      const puntoVentaId = parseInt(metricData.punto_venta_id, 10);
-      if (!isNaN(puntoVentaId)) {
-        metricData.punto_venta_id = puntoVentaId;
-      }
+    let puntoVentaId = metricData.punto_venta_id;
+    if (puntoVentaId != null) {
+      const parsed = parseInt(puntoVentaId, 10);
+      if (!isNaN(parsed)) puntoVentaId = parsed;
     }
-    
-    const updatedMetric = await MetricModel.update(parseInt(id, 10), metricData);
+
+    // Whitelist: only pass updatable fields for this metric (never spread full body to avoid overwriting other metrics)
+    const updatePayload = {};
+    if (metricData.cliente !== undefined) {
+      const cId = parseInt(metricData.cliente, 10);
+      if (!isNaN(cId)) updatePayload.clientId = cId;
+    } else if (metricData.clientId !== undefined) {
+      updatePayload.clientId = metricData.clientId;
+    }
+    if (puntoVentaId !== undefined) updatePayload.punto_venta_id = puntoVentaId;
+    if (metricData.metric_name !== undefined) updatePayload.metric_name = metricData.metric_name;
+    if (metricData.metric_type !== undefined) updatePayload.metric_type = metricData.metric_type;
+    if (metricData.sensor_type !== undefined) updatePayload.sensor_type = metricData.sensor_type;
+    if (metricData.sensor_unit !== undefined) updatePayload.sensor_unit = metricData.sensor_unit;
+    if (metricData.rules !== undefined) updatePayload.rules = metricData.rules;
+    if (metricData.conditions !== undefined) updatePayload.conditions = metricData.conditions;
+    if (metricData.enabled !== undefined) updatePayload.enabled = metricData.enabled;
+    if (metricData.read_only !== undefined) updatePayload.read_only = metricData.read_only;
+    if (metricData.display_order !== undefined) updatePayload.display_order = metricData.display_order;
+
+    const updatedMetric = await MetricModel.update(parseInt(id, 10), updatePayload);
     
     if (!updatedMetric) {
       return res.status(404).json({ 
