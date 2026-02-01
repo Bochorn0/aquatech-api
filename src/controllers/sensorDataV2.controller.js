@@ -928,24 +928,24 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         if (resourceId === 'tiwater-system' && resourceType === 'tiwater') {
           // For tiwater systems without resourceId, search for NULL resourceId (case-insensitive codigotienda)
           latestSensorsQuery = `
-            SELECT DISTINCT ON (name) 
+            SELECT DISTINCT ON (type) 
               name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
             FROM sensores
             WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
               AND resourcetype = $2
               AND (resourceid IS NULL OR resourceid = 'tiwater-system')
-            ORDER BY name, timestamp DESC
+            ORDER BY type, timestamp DESC
           `;
           queryParams = [filters.codigoTienda, filters.resourceType];
         } else {
           latestSensorsQuery = `
-            SELECT DISTINCT ON (name) 
+            SELECT DISTINCT ON (type) 
               name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
             FROM sensores
             WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
               AND resourcetype = $2
               AND resourceid = $3
-            ORDER BY name, timestamp DESC
+            ORDER BY type, timestamp DESC
           `;
           queryParams = [filters.codigoTienda, filters.resourceType, resourceId];
         }
@@ -998,8 +998,8 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
             console.log(`[SensorDataV2] ⚡ Processing current sensor: name="${sensorName}", type="${sensorType}"`);
           }
           
-          // Try to match by name (label) first, then by type
-          switch (sensorName) {
+          // Try to match by type first (more reliable), then by name as fallback
+          switch (sensorType) {
             case 'Flujo Producción':
             case 'flujo_produccion':
               code = 'flowrate_speed_1';
@@ -1020,29 +1020,37 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
               code = 'tds_out';
               label = 'TDS';
               break;
-            case 'Nivel Purificada':
             case 'electronivel_purificada':
+              code = 'electronivel_purificada';
+              label = 'Nivel Purificada';
+              break;
+            case 'level_purificada':
               code = 'level_purificada';
               label = 'Nivel Purificada';
               break;
-            case 'Nivel Recuperada':
             case 'electronivel_recuperada':
+              code = 'electronivel_recuperada';
+              label = 'Nivel Recuperada';
+              break;
+            case 'level_recuperada':
               code = 'level_recuperada';
               label = 'Nivel Recuperada';
               break;
-            case 'Nivel Purificada (absoluto)':
             case 'nivel_purificada':
+            case 'nivel_purificada_absoluto':
               code = 'nivel_purificada_absoluto';
               label = 'Nivel Purificada (absoluto)';
               break;
-            case 'Nivel Cruda (%)':
             case 'electronivel_cruda':
+              code = 'electronivel_cruda';
+              label = 'Nivel Cruda';
+              break;
+            case 'level_cruda':
               code = 'level_cruda';
               label = 'Nivel Cruda';
               break;
-            case 'Nivel Cruda (absoluto)':
-            case 'Nivel Cruda':
             case 'nivel_cruda':
+            case 'nivel_cruda_absoluto':
               code = 'nivel_cruda_absoluto';
               label = 'Nivel Cruda (absoluto)';
               break;
