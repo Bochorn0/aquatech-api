@@ -440,13 +440,13 @@ export const getOsmosisSystemByPuntoVenta = async (req, res) => {
     
     // Query to get latest value for each sensor type
     const latestSensorsQuery = `
-      SELECT DISTINCT ON (name) 
+      SELECT DISTINCT ON (type) 
         name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda
       FROM sensores
       WHERE codigotienda = $1 
         AND resourcetype = $2
         ${resourceId ? 'AND resourceid = $3' : ''}
-      ORDER BY name, timestamp DESC
+      ORDER BY type, timestamp DESC
     `;
 
     const params = resourceId 
