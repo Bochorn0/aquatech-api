@@ -688,30 +688,13 @@ export const simulateSensor = async (req, res) => {
     const topic = `tiwater/${codigoTienda}/data`;
     const timestampUnix = Math.floor(Date.now() / 1000);
 
-    const tiwaterData = {
-      'CAUDAL PURIFICADA': 0.5,
-      'CAUDAL RECUPERACION': 2.0,
-      'CAUDAL RECHAZO': 0.2,
-      'NIVEL PURIFICADA': 80,
-      'NIVEL CRUDA': 65,
-      'PORCENTAJE NIVEL PURIFICADA': 8.0,
-      'PORCENTAJE NIVEL CRUDA': 65,
-      'CAUDAL CRUDA': 2.0,
-      'ACUMULADO CRUDA': 2000,
-      vida: 50,
-      'PRESION CO2': 300,
-      ch1: 2.5,
-      ch2: 2.5,
-      ch3: 1.0,
-      ch4: 2.0,
-      EFICIENCIA: 55,
-      'CAUDAL CRUDA L/min': 22.0,
+    // Send only the selected sensor key and timestamp (no full payload)
+    const payload = {
+      [sensorKey]: numValue,
       timestamp: timestampUnix
     };
 
-    tiwaterData[sensorKey] = numValue;
-
-    const message = JSON.stringify(tiwaterData);
+    const message = JSON.stringify(payload);
     await mqttService.publish(topic, message);
 
     console.log(`[Simulate Sensor] Publicado en ${topic}: ${sensorKey}=${numValue}`);
