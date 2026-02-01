@@ -229,7 +229,15 @@ export const addMetricV2 = async (req, res) => {
       return res.status(400).json({ message: 'Punto de Venta ID inválido' });
     }
 
-    // Whitelist: only pass fields for a single new metric (never spread full body to avoid overwriting other metrics)
+    // Whitelist: only pass fields for a single new metric. Ensure rules/conditions are stored in full.
+    const rulesForCreate = Array.isArray(metricData.rules)
+      ? metricData.rules
+      : (metricData.rules != null ? [metricData.rules] : null);
+    const conditionsForCreate =
+      metricData.conditions != null && typeof metricData.conditions === 'object'
+        ? metricData.conditions
+        : null;
+
     const createPayload = {
       clientId: clientId ?? metricData.clientId ?? null,
       punto_venta_id: puntoVentaId ?? metricData.punto_venta_id ?? null,
@@ -237,11 +245,11 @@ export const addMetricV2 = async (req, res) => {
       metric_type: metricData.metric_type ?? null,
       sensor_type: metricData.sensor_type ?? null,
       sensor_unit: metricData.sensor_unit ?? null,
-      rules: metricData.rules ?? null,
-      conditions: metricData.conditions ?? null,
+      rules: rulesForCreate,
+      conditions: conditionsForCreate,
       enabled: metricData.enabled !== undefined ? metricData.enabled : true,
       read_only: metricData.read_only !== undefined ? metricData.read_only : false,
-      display_order: metricData.display_order ?? 0
+      display_order: Number(metricData.display_order) || 0
     };
 
     const newMetric = await MetricModel.create(createPayload);
@@ -300,11 +308,21 @@ export const updateMetricV2 = async (req, res) => {
     if (metricData.metric_type !== undefined) updatePayload.metric_type = metricData.metric_type;
     if (metricData.sensor_type !== undefined) updatePayload.sensor_type = metricData.sensor_type;
     if (metricData.sensor_unit !== undefined) updatePayload.sensor_unit = metricData.sensor_unit;
-    if (metricData.rules !== undefined) updatePayload.rules = metricData.rules;
-    if (metricData.conditions !== undefined) updatePayload.conditions = metricData.conditions;
+    if (metricData.rules !== undefined) {
+      updatePayload.rules = Array.isArray(metricData.rules)
+        ? metricData.rules
+        : (metricData.rules != null ? [metricData.rules] : null);
+    }
+    if (metricData.conditions !== undefined) {
+      updatePayload.conditions =
+        metricData.conditions != null && typeof metricData.conditions === 'object'
+          ? metricData.conditions
+          : null;
+    }
     if (metricData.enabled !== undefined) updatePayload.enabled = metricData.enabled;
     if (metricData.read_only !== undefined) updatePayload.read_only = metricData.read_only;
-    if (metricData.display_order !== undefined) updatePayload.display_order = metricData.display_order;
+    if (metricData.display_order !== undefined)
+      updatePayload.display_order = Number(metricData.display_order) ?? metricData.display_order;
 
     const updatedMetric = await MetricModel.update(parseInt(id, 10), updatePayload);
     
