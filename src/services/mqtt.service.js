@@ -500,9 +500,10 @@ class MQTTService {
       nivel_purificada: data['NIVEL PURIFICADA'] ?? data['nivel_purificada'] ?? data['PORCENTAJE NIVEL PURIFICADA'] ?? data['porcentaje_nivel_purificada'] ?? null,
       nivel_cruda: data['NIVEL CRUDA'] ?? data['nivel_cruda'] ?? data['PORCENTAJE NIVEL CRUDA'] ?? data['porcentaje_nivel_cruda'] ?? null,
 
-      // Porcentajes (valores 0-100). Para payloads parciales, usar nivel si no viene porcentaje.
+      // Porcentajes (valores 0-100). Nivel cruda % y nivel recuperada por separado.
+      electronivel_cruda: data['PORCENTAJE NIVEL CRUDA'] ?? data['porcentaje_nivel_cruda'] ?? data['NIVEL CRUDA'] ?? data['nivel_cruda'] ?? null,
       electronivel_purificada: data['PORCENTAJE NIVEL PURIFICADA'] ?? data['porcentaje_nivel_purificada'] ?? data['NIVEL PURIFICADA'] ?? data['nivel_purificada'] ?? null,
-      electronivel_recuperada: data['PORCENTAJE NIVEL CRUDA'] ?? data['porcentaje_nivel_cruda'] ?? data['NIVEL CRUDA'] ?? data['nivel_cruda'] ?? null,
+      electronivel_recuperada: data['PORCENTAJE NIVEL RECUPERADA'] ?? data['porcentaje_nivel_recuperada'] ?? null,
       
       caudal_cruda: data['CAUDAL CRUDA'] || data['caudal_cruda'] || null,
       caudal_cruda_lmin: data['CAUDAL CRUDA L/min'] || data['caudal_cruda_l_min'] || null,

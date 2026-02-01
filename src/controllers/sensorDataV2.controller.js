@@ -1015,6 +1015,12 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
               code = 'nivel_purificada_absoluto';
               label = 'Nivel Purificada (absoluto)';
               break;
+            case 'Nivel Cruda (%)':
+            case 'electronivel_cruda':
+              code = 'level_cruda';
+              label = 'Nivel Cruda';
+              break;
+            case 'Nivel Cruda (absoluto)':
             case 'Nivel Cruda':
             case 'nivel_cruda':
               code = 'nivel_cruda_absoluto';
@@ -1122,6 +1128,10 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
                 case 'corriente_total':
                   code = 'corriente_total';
                   label = 'Corriente Total';
+                  break;
+                case 'electronivel_cruda':
+                  code = 'level_cruda';
+                  label = 'Nivel Cruda';
                   break;
                 default:
                   code = sensorName || sensorType || 'unknown';
@@ -1787,6 +1797,8 @@ function getUnitForSensor(sensorName) {
     'level_purificada': '%',
     'electronivel_recuperada': '%',
     'level_recuperada': '%',
+    'electronivel_cruda': '%',
+    'level_cruda': '%',
     // Niveles (absolutos)
     'nivel_purificada': 'mm',
     'nivel_purificada_absoluto': 'mm',

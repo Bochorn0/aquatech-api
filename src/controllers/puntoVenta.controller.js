@@ -6,6 +6,7 @@ import City from '../models/city.model.js';
 import { generateProductLogsReport } from './report.controller.js';
 import moment from 'moment';
 import mqttService from '../services/mqtt.service.js';
+import PostgresService from '../services/postgres.service.js';
 
 // Obtener todos los puntos de venta
 export const getPuntosVenta = async (req, res) => {
@@ -565,6 +566,23 @@ export const simulateBajoNivelCruda = async (req, res) => {
 
     console.log(`[Simulate Bajo Nivel Cruda] Publicado en ${topic}: nivel cruda ${nivelCrudaPercent}%`);
 
+    // Persist to PostgreSQL so detalle updates immediately
+    try {
+      const minimalPayload = {
+        codigo_tienda: codigoTienda,
+        nivel_cruda: nivelCrudaPercent,
+        electronivel_cruda: nivelCrudaPercent,
+        timestamp: timestampUnix,
+        source: 'tiwater',
+        metadata: { topic_format: 'tiwater' }
+      };
+      const context = { codigo_tienda: codigoTienda, resource_type: 'tiwater' };
+      await PostgresService.saveMultipleSensorsFromMQTT(minimalPayload, context);
+      console.log(`[Simulate Bajo Nivel Cruda] Persistido en PostgreSQL para ${codigoTienda}`);
+    } catch (pgErr) {
+      console.warn('[Simulate Bajo Nivel Cruda] No se pudo persistir en PostgreSQL:', pgErr.message);
+    }
+
     res.json({
       success: true,
       message: 'Mensaje MQTT enviado: nivel de agua cruda simulado bajo (< 70%)',
@@ -652,6 +670,27 @@ export const simulateNivelCrudaNormalizado = async (req, res) => {
     await mqttService.publish(topic, message);
 
     console.log(`[Simulate Nivel Cruda Normalizado] Publicado en ${topic}: nivel cruda ${nivelCrudaPercent}%`);
+
+    // Persist to PostgreSQL so detalle updates immediately (MQTT publish may not be consumed by same process)
+    try {
+      const timestampDate = new Date(timestampUnix * 1000);
+      const minimalPayload = {
+        codigo_tienda: codigoTienda,
+        nivel_cruda: nivelCrudaPercent,
+        electronivel_cruda: nivelCrudaPercent,
+        timestamp: timestampUnix,
+        source: 'tiwater',
+        metadata: { topic_format: 'tiwater' }
+      };
+      const context = {
+        codigo_tienda: codigoTienda,
+        resource_type: 'tiwater'
+      };
+      await PostgresService.saveMultipleSensorsFromMQTT(minimalPayload, context);
+      console.log(`[Simulate Nivel Cruda Normalizado] Persistido en PostgreSQL para ${codigoTienda}`);
+    } catch (pgErr) {
+      console.warn('[Simulate Nivel Cruda Normalizado] No se pudo persistir en PostgreSQL:', pgErr.message);
+    }
 
     res.json({
       success: true,
