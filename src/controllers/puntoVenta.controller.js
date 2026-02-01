@@ -585,6 +585,94 @@ export const simulateBajoNivelCruda = async (req, res) => {
   }
 };
 
+/**
+ * Simular nivel agua cruda normalizado: publica un mensaje MQTT con NIVEL CRUDA y PORCENTAJE NIVEL CRUDA
+ * en rango normal (ej. 85%) para que el punto de venta y la UI muestren nivel correcto.
+ */
+export const simulateNivelCrudaNormalizado = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    let punto = null;
+    let codigoTienda = null;
+
+    const isNumericId = /^\d+$/.test(id);
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+
+    if (isNumericId) {
+      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+      punto = await PuntoVentaModel.findById(parseInt(id, 10));
+      if (!punto) punto = await PuntoVentaModel.findByCode(id);
+      if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
+    } else if (isValidObjectId) {
+      punto = await PuntoVenta.findById(id).populate('productos');
+      if (punto) codigoTienda = punto.codigo_tienda;
+    } else {
+      const codigoDirecto = id.toUpperCase();
+      punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
+      if (punto) codigoTienda = punto.codigo_tienda;
+    }
+
+    if (!punto) {
+      return res.status(404).json({
+        success: false,
+        message: `Punto de venta no encontrado con ID/código: ${id}`
+      });
+    }
+
+    if (!codigoTienda) {
+      return res.status(400).json({
+        success: false,
+        message: 'El punto de venta no tiene código de tienda configurado'
+      });
+    }
+
+    if (!mqttService.isConnected) {
+      mqttService.connect();
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (!mqttService.isConnected) {
+        return res.status(503).json({
+          success: false,
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.'
+        });
+      }
+    }
+
+    const topic = `tiwater/${codigoTienda}/data`;
+    const timestampUnix = Math.floor(Date.now() / 1000);
+    const nivelCrudaPercent = 85;
+
+    const payload = {
+      'NIVEL CRUDA': nivelCrudaPercent,
+      'PORCENTAJE NIVEL CRUDA': nivelCrudaPercent,
+      timestamp: timestampUnix
+    };
+
+    const message = JSON.stringify(payload);
+    await mqttService.publish(topic, message);
+
+    console.log(`[Simulate Nivel Cruda Normalizado] Publicado en ${topic}: nivel cruda ${nivelCrudaPercent}%`);
+
+    res.json({
+      success: true,
+      message: 'Mensaje MQTT enviado: nivel de agua cruda normalizado',
+      data: {
+        puntoVentaId: id,
+        codigoTienda,
+        topic,
+        nivelCrudaPercent
+      }
+    });
+  } catch (error) {
+    console.error('[Simulate Nivel Cruda Normalizado] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al simular nivel agua cruda normalizado',
+      error: error.message
+    });
+  }
+};
+
 /** Allowed sensor keys for custom simulate (same payload keys as dev scenarios MQTT) */
 const TIWATER_SENSOR_KEYS = [
   'CAUDAL PURIFICADA', 'CAUDAL RECUPERACION', 'CAUDAL RECHAZO',
