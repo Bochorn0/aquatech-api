@@ -83,7 +83,7 @@ export const loginUser = [
       if (!isMatch) return res.status(401).json({ message: 'Credenciales invalidas' });
 
       // Generate Token if passwords match
-      const token = jwt.sign({ id: user._id, role: user.role }, SECRET_KEY, { expiresIn: '1m' });
+      const token = jwt.sign({ id: user._id, role: user.role }, SECRET_KEY, { expiresIn: '8h' });
 
       delete user._doc.password; // Remove password from user object
       res.json({ token, user });
