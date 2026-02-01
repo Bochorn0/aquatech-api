@@ -1738,14 +1738,19 @@ export const getTiwaterSensorData = async (req, res) => {
           sensorData.caudales.cruda_lmin = value;
           break;
         case 'nivel_purificada':
+        case 'nivel_purificada_absoluto':
           sensorData.niveles.purificada_absoluto = value;
           break;
         case 'electronivel_purificada':
+        case 'level_purificada':
           sensorData.niveles.purificada_porcentaje = value;
           break;
         case 'nivel_cruda':
+        case 'nivel_cruda_absoluto':
           sensorData.niveles.cruda_absoluto = value;
           break;
+        case 'electronivel_cruda':
+        case 'level_cruda':
         case 'electronivel_recuperada':
           sensorData.niveles.cruda_porcentaje = value;
           break;
