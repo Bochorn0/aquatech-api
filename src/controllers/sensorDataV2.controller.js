@@ -471,8 +471,9 @@ export const getOsmosisSystemByPuntoVenta = async (req, res) => {
       let code = '';
       let label = sensor.label || sensor.name;
       
-      // Map sensor names to status codes (matching v1.0 format)
-      switch (sensor.name) {
+      // Map sensor types to status codes (matching v1.0 format)
+      // IMPORTANT: Use sensor.type, not sensor.name
+      switch (sensor.type) {
         case 'flujo_produccion':
           code = 'flowrate_speed_1';  // Flow speed production
           label = 'Flujo Producción';
@@ -518,7 +519,7 @@ export const getOsmosisSystemByPuntoVenta = async (req, res) => {
           label = 'Presión Salida';
           break;
         default:
-          code = sensor.name;
+          code = sensor.type || sensor.name;
       }
 
       osmosisData.status.push({
