@@ -830,6 +830,9 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     // Get osmosis systems from PostgreSQL (including tiwater systems)
     const osmosisSystems = [];
 
+    // Normalize codigo so we match sensores regardless of stored case (same as simulate handlers)
+    const codigoTiendaNorm = (codigoTienda || '').toString().trim().toUpperCase();
+
     // Query to get distinct osmosis/tiwater systems (by resourceId)
     // Include both 'osmosis' and 'tiwater' resource types
     // For tiwater, resourceId might be NULL, so we'll treat all tiwater sensors as one system
@@ -838,19 +841,19 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         COALESCE(resourceid, 'tiwater-system') as resourceid,
         resourcetype
       FROM sensores
-      WHERE codigotienda = $1 
+      WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
         AND (resourcetype = 'osmosis' OR resourcetype = 'tiwater')
       ORDER BY resourcetype, resourceid
     `;
 
-    const systemsResult = await query(distinctSystemsQuery, [codigoTienda]);
+    const systemsResult = await query(distinctSystemsQuery, [codigoTiendaNorm]);
     const systemRows = systemsResult.rows || [];
     
     // If no systems found but we have tiwater data, create a default system entry
     if (systemRows.length === 0) {
       const hasTiwaterData = await query(
-        `SELECT COUNT(*) as count FROM sensores WHERE codigotienda = $1 AND resourcetype = 'tiwater'`,
-        [codigoTienda]
+        `SELECT COUNT(*) as count FROM sensores WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater'`,
+        [codigoTiendaNorm]
       );
       if (hasTiwaterData.rows[0]?.count > 0) {
         systemRows.push({ resourceid: 'tiwater-system', resourcetype: 'tiwater' });
@@ -863,9 +866,9 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       const resourceType = row.resourcetype || 'osmosis';
       
       try {
-        // Build filters
+        // Build filters (use normalized codigo for queries so we match regardless of stored case)
         const filters = {
-          codigoTienda: codigoTienda,
+          codigoTienda: codigoTiendaNorm,
           resourceType: resourceType,
           resourceId: resourceId
         };
@@ -879,7 +882,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           checkSensorsQuery = `
             SELECT DISTINCT name, COUNT(*) as count
             FROM sensores
-            WHERE codigotienda = $1 
+            WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
               AND resourcetype = $2
               AND (resourceid IS NULL OR resourceid = 'tiwater-system')
             GROUP BY name
@@ -889,7 +892,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           checkSensorsQuery = `
             SELECT DISTINCT name, COUNT(*) as count
             FROM sensores
-            WHERE codigotienda = $1 
+            WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
               AND resourcetype = $2
               AND resourceid = $3
             GROUP BY name
@@ -906,12 +909,12 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         let queryParams;
         
         if (resourceId === 'tiwater-system' && resourceType === 'tiwater') {
-          // For tiwater systems without resourceId, search for NULL resourceId
+          // For tiwater systems without resourceId, search for NULL resourceId (case-insensitive codigotienda)
           latestSensorsQuery = `
             SELECT DISTINCT ON (name) 
               name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
             FROM sensores
-            WHERE codigotienda = $1 
+            WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
               AND resourcetype = $2
               AND (resourceid IS NULL OR resourceid = 'tiwater-system')
             ORDER BY name, timestamp DESC
@@ -922,7 +925,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
             SELECT DISTINCT ON (name) 
               name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
             FROM sensores
-            WHERE codigotienda = $1 
+            WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
               AND resourcetype = $2
               AND resourceid = $3
             ORDER BY name, timestamp DESC

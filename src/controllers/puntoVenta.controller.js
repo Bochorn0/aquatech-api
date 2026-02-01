@@ -606,11 +606,11 @@ export const simulateBajoNivelCruda = async (req, res) => {
       if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
     } else if (isValidObjectId) {
       punto = await PuntoVenta.findById(id).populate('productos');
-      if (punto) codigoTienda = punto.codigo_tienda;
+      if (punto) codigoTienda = (punto.codigo_tienda || '').toUpperCase();
     } else {
       const codigoDirecto = id.toUpperCase();
       punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
-      if (punto) codigoTienda = punto.codigo_tienda;
+      if (punto) codigoTienda = (punto.codigo_tienda || codigoDirecto).toUpperCase();
     }
 
     if (!punto) {
@@ -626,6 +626,8 @@ export const simulateBajoNivelCruda = async (req, res) => {
         message: 'El punto de venta no tiene código de tienda configurado'
       });
     }
+
+    codigoTienda = codigoTienda.toUpperCase();
 
     if (!mqttService.isConnected) {
       mqttService.connect();
@@ -711,11 +713,11 @@ export const simulateNivelCrudaNormalizado = async (req, res) => {
       if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
     } else if (isValidObjectId) {
       punto = await PuntoVenta.findById(id).populate('productos');
-      if (punto) codigoTienda = punto.codigo_tienda;
+      if (punto) codigoTienda = (punto.codigo_tienda || '').toUpperCase();
     } else {
       const codigoDirecto = id.toUpperCase();
       punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
-      if (punto) codigoTienda = punto.codigo_tienda;
+      if (punto) codigoTienda = (punto.codigo_tienda || codigoDirecto).toUpperCase();
     }
 
     if (!punto) {
@@ -731,6 +733,8 @@ export const simulateNivelCrudaNormalizado = async (req, res) => {
         message: 'El punto de venta no tiene código de tienda configurado'
       });
     }
+
+    codigoTienda = codigoTienda.toUpperCase();
 
     if (!mqttService.isConnected) {
       mqttService.connect();
