@@ -1541,21 +1541,58 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       ...metricaProducts
     ];
 
-    // Determine if punto is online (check controllers or osmosis systems)
+    // Determine if punto is online based on latest sensor data timestamp
     const now = Date.now();
     const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
     
-    const tieneControladorOnline = punto.controladores?.some(
-      (ctrl) => ctrl.last_time_active && (now - ctrl.last_time_active * 1000 <= ONLINE_THRESHOLD_MS)
-    );
-
-    const tieneOsmosisOnline = osmosisSystems.some((osmosis) => osmosis.online);
+    let isOnline = false;
+    let latestSensorTimestamp = null;
+    
+    try {
+      // Query for the most recent sensor data for this punto de venta
+      const latestSensorQuery = `
+        SELECT MAX(timestamp) as latest_timestamp
+        FROM sensores
+        WHERE codigo_tienda = $1
+          AND timestamp IS NOT NULL
+          AND timestamp > NOW() - INTERVAL '1 day'
+      `;
+      
+      const latestResult = await query(latestSensorQuery, [codigoTienda]);
+      
+      if (latestResult.rows.length > 0 && latestResult.rows[0].latest_timestamp) {
+        latestSensorTimestamp = latestResult.rows[0].latest_timestamp;
+        const timestampMs = new Date(latestSensorTimestamp).getTime();
+        const timeSinceLastData = now - timestampMs;
+        
+        isOnline = timeSinceLastData <= ONLINE_THRESHOLD_MS;
+        
+        console.log(`[SensorDataV2] Online status for ${codigoTienda}:`, {
+          latestSensorTimestamp,
+          timeSinceLastDataMs: timeSinceLastData,
+          timeSinceLastDataMinutes: (timeSinceLastData / 60000).toFixed(2),
+          threshold: ONLINE_THRESHOLD_MS / 60000,
+          isOnline
+        });
+      } else {
+        console.log(`[SensorDataV2] No recent sensor data found for ${codigoTienda}, marking as offline`);
+      }
+    } catch (error) {
+      console.error('[SensorDataV2] Error checking online status:', error);
+      // Fallback to checking controllers/osmosis if sensor query fails
+      const tieneControladorOnline = punto.controladores?.some(
+        (ctrl) => ctrl.last_time_active && (now - ctrl.last_time_active * 1000 <= ONLINE_THRESHOLD_MS)
+      );
+      const tieneOsmosisOnline = osmosisSystems.some((osmosis) => osmosis.online);
+      isOnline = tieneControladorOnline || tieneOsmosisOnline;
+    }
 
     const safePunto = {
       ...punto.toObject(),
       productos: allProductos,
       osmosisSystems,
-      online: tieneControladorOnline || tieneOsmosisOnline
+      online: isOnline,
+      latestSensorTimestamp: latestSensorTimestamp || undefined
     };
 
     res.json({
