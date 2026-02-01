@@ -1680,12 +1680,14 @@ export const getTiwaterSensorData = async (req, res) => {
       raw: {}
     };
 
-    // Map sensor values
+    // Map sensor values (use type for mapping; name in DB can be display name e.g. "Nivel Recuperada")
     sensors.forEach(sensor => {
       const value = parseFloat(sensor.value);
+      const key = sensor.type || sensor.name;
       sensorData.raw[sensor.name] = value;
+      if (sensor.type && sensor.type !== sensor.name) sensorData.raw[sensor.type] = value;
 
-      switch (sensor.name) {
+      switch (key) {
         case 'flujo_produccion':
           sensorData.caudales.purificada = value;
           break;
