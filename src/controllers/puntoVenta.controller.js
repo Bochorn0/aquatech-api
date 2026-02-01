@@ -600,3 +600,139 @@ export const simulateBajoNivelCruda = async (req, res) => {
     });
   }
 };
+
+/** Allowed sensor keys for custom simulate (same payload keys as dev scenarios MQTT) */
+const TIWATER_SENSOR_KEYS = [
+  'CAUDAL PURIFICADA', 'CAUDAL RECUPERACION', 'CAUDAL RECHAZO',
+  'NIVEL PURIFICADA', 'NIVEL CRUDA', 'PORCENTAJE NIVEL PURIFICADA', 'PORCENTAJE NIVEL CRUDA',
+  'CAUDAL CRUDA', 'ACUMULADO CRUDA', 'CAUDAL CRUDA L/min',
+  'vida', 'PRESION CO2', 'ch1', 'ch2', 'ch3', 'ch4', 'EFICIENCIA'
+];
+
+/**
+ * Simular valor custom de un sensor: publica un mensaje MQTT con el payload base
+ * y el valor indicado para el sensor seleccionado (mismo formato que dev scenarios).
+ */
+export const simulateSensor = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sensorKey, value: rawValue } = req.body || {};
+
+    if (!sensorKey || typeof sensorKey !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'sensorKey es requerido y debe ser un string'
+      });
+    }
+
+    if (!TIWATER_SENSOR_KEYS.includes(sensorKey)) {
+      return res.status(400).json({
+        success: false,
+        message: `sensorKey no permitido. Permitidos: ${TIWATER_SENSOR_KEYS.join(', ')}`
+      });
+    }
+
+    const numValue = Number(rawValue);
+    if (rawValue === '' || rawValue === null || rawValue === undefined || Number.isNaN(numValue)) {
+      return res.status(400).json({
+        success: false,
+        message: 'value es requerido y debe ser un número'
+      });
+    }
+
+    let punto = null;
+    let codigoTienda = null;
+
+    const isNumericId = /^\d+$/.test(id);
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+
+    if (isNumericId) {
+      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+      punto = await PuntoVentaModel.findById(parseInt(id, 10));
+      if (!punto) punto = await PuntoVentaModel.findByCode(id);
+      if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
+    } else if (isValidObjectId) {
+      punto = await PuntoVenta.findById(id).populate('productos');
+      if (punto) codigoTienda = punto.codigo_tienda;
+    } else {
+      const codigoDirecto = id.toUpperCase();
+      punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
+      if (punto) codigoTienda = punto.codigo_tienda;
+    }
+
+    if (!punto) {
+      return res.status(404).json({
+        success: false,
+        message: `Punto de venta no encontrado con ID/código: ${id}`
+      });
+    }
+
+    if (!codigoTienda) {
+      return res.status(400).json({
+        success: false,
+        message: 'El punto de venta no tiene código de tienda configurado'
+      });
+    }
+
+    if (!mqttService.isConnected) {
+      mqttService.connect();
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (!mqttService.isConnected) {
+        return res.status(503).json({
+          success: false,
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.'
+        });
+      }
+    }
+
+    const topic = `tiwater/${codigoTienda}/data`;
+    const timestampUnix = Math.floor(Date.now() / 1000);
+
+    const tiwaterData = {
+      'CAUDAL PURIFICADA': 0.5,
+      'CAUDAL RECUPERACION': 2.0,
+      'CAUDAL RECHAZO': 0.2,
+      'NIVEL PURIFICADA': 80,
+      'NIVEL CRUDA': 65,
+      'PORCENTAJE NIVEL PURIFICADA': 8.0,
+      'PORCENTAJE NIVEL CRUDA': 65,
+      'CAUDAL CRUDA': 2.0,
+      'ACUMULADO CRUDA': 2000,
+      vida: 50,
+      'PRESION CO2': 300,
+      ch1: 2.5,
+      ch2: 2.5,
+      ch3: 1.0,
+      ch4: 2.0,
+      EFICIENCIA: 55,
+      'CAUDAL CRUDA L/min': 22.0,
+      timestamp: timestampUnix
+    };
+
+    tiwaterData[sensorKey] = numValue;
+
+    const message = JSON.stringify(tiwaterData);
+    await mqttService.publish(topic, message);
+
+    console.log(`[Simulate Sensor] Publicado en ${topic}: ${sensorKey}=${numValue}`);
+
+    res.json({
+      success: true,
+      message: 'Mensaje MQTT enviado con valor custom',
+      data: {
+        puntoVentaId: id,
+        codigoTienda,
+        topic,
+        sensorKey,
+        value: numValue
+      }
+    });
+  } catch (error) {
+    console.error('[Simulate Sensor] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al simular sensor',
+      error: error.message
+    });
+  }
+};
