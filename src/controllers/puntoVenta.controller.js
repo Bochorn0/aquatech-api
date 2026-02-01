@@ -552,31 +552,15 @@ export const simulateBajoNivelCruda = async (req, res) => {
 
     const topic = `tiwater/${codigoTienda}/data`;
     const timestampUnix = Math.floor(Date.now() / 1000);
-    // Nivel agua cruda bajo (< 70%): 65% para activar alerta
+    // Nivel agua cruda bajo (< 70%): only send the simulated fields, no full payload
     const nivelCrudaPercent = 65;
-
-    const tiwaterData = {
-      'CAUDAL PURIFICADA': 0.5,
-      'CAUDAL RECUPERACION': 2.0,
-      'CAUDAL RECHAZO': 0.2,
-      'NIVEL PURIFICADA': 80,
+    const payload = {
       'NIVEL CRUDA': nivelCrudaPercent,
-      'PORCENTAJE NIVEL PURIFICADA': 8.0,
       'PORCENTAJE NIVEL CRUDA': nivelCrudaPercent,
-      'CAUDAL CRUDA': 2.0,
-      'ACUMULADO CRUDA': 2000,
-      vida: 50,
-      'PRESION CO2': 300,
-      ch1: 2.5,
-      ch2: 2.5,
-      ch3: 1.0,
-      ch4: 2.0,
-      EFICIENCIA: 55,
-      'CAUDAL CRUDA L/min': 22.0,
       timestamp: timestampUnix
     };
 
-    const message = JSON.stringify(tiwaterData);
+    const message = JSON.stringify(payload);
     await mqttService.publish(topic, message);
 
     console.log(`[Simulate Bajo Nivel Cruda] Publicado en ${topic}: nivel cruda ${nivelCrudaPercent}%`);
