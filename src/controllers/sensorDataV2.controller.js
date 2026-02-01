@@ -486,11 +486,27 @@ export const getOsmosisSystemByPuntoVenta = async (req, res) => {
           label = 'TDS';
           break;
         case 'electronivel_purificada':
-          code = 'level_purificada';  // Purified water level
+          code = 'electronivel_purificada';  // Purified water level percentage
           label = 'Nivel Purificada';
           break;
+        case 'level_purificada':
+          code = 'level_purificada';  // Purified water level percentage (alternative)
+          label = 'Nivel Purificada';
+          break;
+        case 'electronivel_cruda':
+          code = 'electronivel_cruda';  // Raw water level percentage
+          label = 'Nivel Cruda';
+          break;
+        case 'level_cruda':
+          code = 'level_cruda';  // Raw water level percentage (alternative)
+          label = 'Nivel Cruda';
+          break;
         case 'electronivel_recuperada':
-          code = 'level_recuperada';  // Recovered water level
+          code = 'electronivel_recuperada';  // Recovered water level
+          label = 'Nivel Recuperada';
+          break;
+        case 'level_recuperada':
+          code = 'level_recuperada';  // Recovered water level (alternative)
           label = 'Nivel Recuperada';
           break;
         case 'presion_in':
