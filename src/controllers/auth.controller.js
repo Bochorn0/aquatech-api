@@ -86,7 +86,14 @@ export const loginUser = [
       const token = jwt.sign({ id: user._id, role: user.role }, SECRET_KEY, { expiresIn: '8h' });
 
       delete user._doc.password; // Remove password from user object
-      res.json({ token, user });
+      
+      // Add postgresClientId to the response for dashboard v2 compatibility
+      const userResponse = {
+        ...user._doc,
+        postgresClientId: user.postgresClientId || null
+      };
+      
+      res.json({ token, user: userResponse });
     } catch (error) {
       console.error('Login Error:', error);
       res.status(500).json({ message: 'Server Error' });
