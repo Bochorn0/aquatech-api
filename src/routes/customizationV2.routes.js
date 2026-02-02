@@ -32,6 +32,7 @@ import {
   removePuntoVentaV2,
   // PuntoVenta Sensors
   getPuntoVentaSensorsV2,
+  getPuntoVentaSensorsReadingsV2,
   addPuntoVentaSensorV2,
   updatePuntoVentaSensorV2,
   removePuntoVentaSensorV2
@@ -205,6 +206,13 @@ router.post('/puntoVentas', addPuntoVentaV2);
  * @access  Private
  */
 router.get('/puntoVentas/:id/sensors', getPuntoVentaSensorsV2);
+
+/**
+ * @route   GET /api/v2.0/puntoVentas/:id/sensors/readings
+ * @desc    Get historical sensor readings for a punto de venta with time range
+ * @access  Private
+ */
+router.get('/puntoVentas/:id/sensors/readings', getPuntoVentaSensorsReadingsV2);
 
 /**
  * @route   POST /api/v2.0/puntoVentas/:id/sensors

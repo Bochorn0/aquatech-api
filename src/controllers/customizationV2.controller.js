@@ -1303,6 +1303,177 @@ export const getPuntoVentaSensorsV2 = async (req, res) => {
 };
 
 /**
+ * Get historical sensor readings for all sensors in a puntoVenta (v2.0 - PostgreSQL)
+ * @route   GET /api/v2.0/puntoVentas/:id/sensors/readings
+ * @desc    Get historical readings for all sensors with time range filter
+ * @access  Private
+ * @query   timeRange: 'today' | 'week' | 'month' (optional, defaults to 'today')
+ */
+export const getPuntoVentaSensorsReadingsV2 = async (req, res) => {
+  try {
+    console.log('[getPuntoVentaSensorsReadingsV2] Request received:', req.params, req.query);
+    const { id } = req.params;
+    const { timeRange = 'today' } = req.query;
+    const puntoVentaId = parseInt(id, 10);
+    
+    if (isNaN(puntoVentaId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid puntoVenta ID' 
+      });
+    }
+    
+    console.log('[getPuntoVentaSensorsReadingsV2] Fetching readings for puntoVenta ID:', puntoVentaId, 'timeRange:', timeRange);
+
+    // Get all sensor configurations for this puntoVenta
+    const sensors = await PuntoVentaSensorModel.findByPuntoVentaId(puntoVentaId);
+    
+    // Get puntoVenta to get codigo_tienda
+    const puntoVenta = await PuntoVentaModel.findById(puntoVentaId);
+    if (!puntoVenta) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Punto de venta no encontrado' 
+      });
+    }
+
+    const codigoTienda = (puntoVenta.codigo_tienda || puntoVenta.code || '').toUpperCase();
+
+    // Calculate date range based on timeRange parameter
+    const now = new Date();
+    let startDate;
+    
+    switch (timeRange) {
+      case 'week':
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case 'month':
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case 'today':
+      default:
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+        break;
+    }
+
+    console.log('[getPuntoVentaSensorsReadingsV2] Date range:', startDate.toISOString(), 'to', now.toISOString());
+
+    // Get historical readings for each sensor
+    const sensorsWithReadings = await Promise.all(
+      sensors.map(async (sensor) => {
+        try {
+          // Build query based on sensor configuration
+          let readingsQuery;
+          let params;
+          
+          if (sensor.resourceId && sensor.resourceType) {
+            readingsQuery = `
+              SELECT * FROM sensores
+              WHERE codigoTienda = $1
+                AND resourceType = $2
+                AND resourceId = $3
+                AND name = $4
+                AND (
+                  (timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 AND timestamp >= $5)
+                  OR (timestamp IS NULL AND createdat >= $5)
+                  OR (timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) NOT BETWEEN 2000 AND 3000 AND createdat >= $5)
+                )
+              ORDER BY 
+                CASE 
+                  WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 
+                  THEN timestamp 
+                  ELSE createdat 
+                END DESC
+              LIMIT 1000
+            `;
+            params = [
+              codigoTienda,
+              sensor.resourceType,
+              sensor.resourceId,
+              sensor.sensorName || sensor.sensor_name,
+              startDate
+            ];
+          } else {
+            readingsQuery = `
+              SELECT * FROM sensores
+              WHERE codigoTienda = $1
+                AND type = $2
+                AND (
+                  (timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 AND timestamp >= $3)
+                  OR (timestamp IS NULL AND createdat >= $3)
+                  OR (timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) NOT BETWEEN 2000 AND 3000 AND createdat >= $3)
+                )
+              ORDER BY 
+                CASE 
+                  WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 
+                  THEN timestamp 
+                  ELSE createdat 
+                END DESC
+              LIMIT 1000
+            `;
+            params = [
+              codigoTienda,
+              sensor.sensorType || sensor.sensor_type,
+              startDate
+            ];
+          }
+
+          const { rows: readings } = await query(readingsQuery, params);
+          
+          // Get the latest reading
+          let latestReading = null;
+          if (readings.length > 0) {
+            const latest = readings[0];
+            const isValidTimestamp = latest.timestamp && 
+              new Date(latest.timestamp).getFullYear() >= 2000 && 
+              new Date(latest.timestamp).getFullYear() <= 3000;
+            
+            latestReading = {
+              value: latest.value,
+              timestamp: isValidTimestamp ? latest.timestamp : latest.createdat,
+              createdAt: latest.createdat
+            };
+          }
+
+          return {
+            ...sensor,
+            latestReading,
+            readingsCount: readings.length,
+            readings: readings.map(r => ({
+              value: r.value,
+              timestamp: r.timestamp && 
+                new Date(r.timestamp).getFullYear() >= 2000 && 
+                new Date(r.timestamp).getFullYear() <= 3000 
+                ? r.timestamp 
+                : r.createdat,
+              createdAt: r.createdat
+            }))
+          };
+        } catch (error) {
+          console.warn(`[getPuntoVentaSensorsReadingsV2] Error getting readings for sensor ${sensor.id}:`, error.message);
+          return {
+            ...sensor,
+            latestReading: null,
+            readingsCount: 0,
+            readings: []
+          };
+        }
+      })
+    );
+
+    console.log('[getPuntoVentaSensorsReadingsV2] Returning', sensorsWithReadings.length, 'sensors with readings');
+    res.json(sensorsWithReadings);
+  } catch (error) {
+    console.error('Error getting sensor readings for punto de venta (v2.0):', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error getting sensor readings',
+      error: error.message 
+    });
+  }
+};
+
+/**
  * Add sensor configuration to puntoVenta (v2.0 - PostgreSQL)
  * @route   POST /api/v2.0/puntoVentas/:id/sensors
  * @desc    Manually add a sensor configuration
