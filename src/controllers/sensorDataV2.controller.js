@@ -1553,7 +1553,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       const latestSensorQuery = `
         SELECT MAX(timestamp) as latest_timestamp
         FROM sensores
-        WHERE codigo_tienda = $1
+        WHERE codigotienda = $1
           AND timestamp IS NOT NULL
           AND timestamp > NOW() - INTERVAL '1 day'
       `;
