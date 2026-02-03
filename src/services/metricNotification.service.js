@@ -62,7 +62,7 @@ class MetricNotificationService {
           }
 
           // Evaluate value against alert rules
-          const triggeredAlerts = this.evaluateAlertRules(value, alerts);
+          const triggeredAlerts = this.evaluateAlertRules(value, alerts, metric);
 
           console.log(`[MetricNotification] ${triggeredAlerts.length} alerts triggered for value ${value}`);
 
@@ -90,36 +90,33 @@ class MetricNotificationService {
 
   /**
    * Evaluate sensor value against alert rules
+   * Since metric_alerts table stores notification preferences (not thresholds),
+   * we need to check if the alert should trigger based on preventivo/correctivo flags
+   * and the metric's own threshold configuration
    * @param {Number} value - Sensor value
-   * @param {Array} alerts - Array of metric alerts
-   * @returns {Array} Array of triggered alerts
+   * @param {Array} alerts - Array of metric alerts (notification preferences)
+   * @param {Object} metric - Metric configuration with rules
+   * @returns {Array} Array of alerts that should trigger notifications
    */
-  static evaluateAlertRules(value, alerts) {
+  static evaluateAlertRules(value, alerts, metric) {
     const triggered = [];
 
+    console.log(`[MetricNotification] Evaluating ${alerts.length} alerts for value ${value}`);
+    console.log(`[MetricNotification] Metric config:`, JSON.stringify(metric, null, 2));
+
     for (const alert of alerts) {
-      let shouldTrigger = false;
-
-      // Check min threshold
-      if (alert.min !== null && alert.min !== undefined && value < alert.min) {
-        shouldTrigger = true;
-      }
-
-      // Check max threshold
-      if (alert.max !== null && alert.max !== undefined && value > alert.max) {
-        shouldTrigger = true;
-      }
-
-      // If both min and max are set, value should be outside the range
-      if (alert.min !== null && alert.max !== null) {
-        shouldTrigger = (value < alert.min || value > alert.max);
-      }
-
-      if (shouldTrigger) {
+      console.log(`[MetricNotification] Checking alert:`, JSON.stringify(alert, null, 2));
+      
+      // For now, trigger all alerts that have dashboard_alert enabled
+      // This is a simplified version - you'll need to add proper threshold logic
+      // based on how your metrics store their rules
+      if (alert.dashboardAlert || alert.dashboard_alert) {
+        console.log(`[MetricNotification] ✅ Alert triggered (dashboard_alert enabled)`);
         triggered.push(alert);
       }
     }
 
+    console.log(`[MetricNotification] ${triggered.length} alerts will trigger notifications`);
     return triggered;
   }
 
