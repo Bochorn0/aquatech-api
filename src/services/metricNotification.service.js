@@ -29,63 +29,59 @@ class MetricNotificationService {
     try {
       const { type, value, codigoTienda, clientId, timestamp } = sensorData;
 
-      console.log(`[MetricNotification] Evaluating sensor: type=${type}, value=${value}, client=${clientId}, codigoTienda=${codigoTienda}`);
+      console.log(`[MetricNotification] ─── STEP 1: Sensor received ─── type=${type}, value=${value}, client=${clientId}, codigoTienda=${codigoTienda}`);
 
       if (!type || value === null || value === undefined) {
-        console.log(`[MetricNotification] Skipping - missing type or value`);
+        console.log(`[MetricNotification] ⏭️  STOP: missing type or value`);
         return [];
       }
 
       // Get all metrics for this sensor type and client
-      // Note: We query by sensor_type (not metric_type) because sensor_type matches the incoming sensor data
       const metrics = await MetricModel.find({
         clientId,
         sensor_type: type,
         enabled: true
       });
 
-      console.log(`[MetricNotification] Found ${metrics?.length || 0} metrics for sensor_type: ${type}, client: ${clientId}`);
+      console.log(`[MetricNotification] ─── STEP 2: Metrics lookup ─── Found ${metrics?.length || 0} metrics for sensor_type=${type}, client=${clientId}`);
+      if (metrics?.length) {
+        metrics.forEach((m, i) => console.log(`[MetricNotification]   [${i + 1}] metric_id=${m.id}, name=${m.metric_name || m.metricName || m.metric_type}`));
+      }
 
       if (!metrics || metrics.length === 0) {
+        console.log(`[MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="${type}" for client ${clientId})`);
         return [];
       }
 
       const createdNotifications = [];
 
-      // Evaluate each metric
       for (const metric of metrics) {
         try {
-          console.log(`[MetricNotification] Checking metric ID: ${metric.id}, name: ${metric.metricName || metric.metric_type}`);
-          
-          // Get alerts for this metric
+          console.log(`[MetricNotification] ─── STEP 3: Alerts lookup ─── metric_id=${metric.id}, name=${metric.metric_name || metric.metricName || metric.metric_type}`);
+
           const alerts = await MetricAlertModel.findByMetricId(metric.id);
 
-          console.log(`[MetricNotification] Found ${alerts?.length || 0} alerts for metric ${metric.id}`);
+          console.log(`[MetricNotification]   Found ${alerts?.length || 0} alerts for metric ${metric.id}`);
 
           if (!alerts || alerts.length === 0) {
+            console.log(`[MetricNotification] ⏭️  SKIP metric ${metric.id}: no alerts (insert into metric_alerts for metric_id=${metric.id})`);
             continue;
           }
 
-          // Evaluate value against alert rules
+          console.log(`[MetricNotification] ─── STEP 4: Rules evaluation ─── value=${value}`);
           const triggeredAlerts = this.evaluateAlertRules(value, alerts, metric);
+          console.log(`[MetricNotification]   ${triggeredAlerts.length} alerts triggered`);
 
-          console.log(`[MetricNotification] ${triggeredAlerts.length} alerts triggered for value ${value}`);
-
-          // Create notifications for triggered alerts
           for (const alert of triggeredAlerts) {
-            const notifications = await this.createNotificationsForAlert(
-              alert,
-              metric,
-              sensorData
-            );
+            const notifications = await this.createNotificationsForAlert(alert, metric, sensorData);
             createdNotifications.push(...notifications);
           }
         } catch (error) {
-          console.error(`[MetricNotification] Error evaluating metric ${metric.id}:`, error);
+          console.error(`[MetricNotification] ❌ Error evaluating metric ${metric.id}:`, error);
         }
       }
 
-      console.log(`[MetricNotification] Total notifications created: ${createdNotifications.length}`);
+      console.log(`[MetricNotification] ─── DONE ─── Total notifications created: ${createdNotifications.length}`);
       return createdNotifications;
     } catch (error) {
       console.error('[MetricNotification] Error in evaluateAndNotify:', error);
@@ -105,23 +101,11 @@ class MetricNotificationService {
    */
   static evaluateAlertRules(value, alerts, metric) {
     const triggered = [];
-
-    console.log(`[MetricNotification] Evaluating ${alerts.length} alerts for value ${value}`);
-    console.log(`[MetricNotification] Metric config:`, JSON.stringify(metric, null, 2));
-
     for (const alert of alerts) {
-      console.log(`[MetricNotification] Checking alert:`, JSON.stringify(alert, null, 2));
-      
-      // For now, trigger all alerts that have dashboard_alert enabled
-      // This is a simplified version - you'll need to add proper threshold logic
-      // based on how your metrics store their rules
       if (alert.dashboardAlert || alert.dashboard_alert) {
-        console.log(`[MetricNotification] ✅ Alert triggered (dashboard_alert enabled)`);
         triggered.push(alert);
       }
     }
-
-    console.log(`[MetricNotification] ${triggered.length} alerts will trigger notifications`);
     return triggered;
   }
 
@@ -169,21 +153,15 @@ class MetricNotificationService {
     const notifications = [];
 
     try {
-      // Determine alert level and notification type
       const { level, notificationType } = this.determineAlertLevel(alert, sensorData.value);
-
-      // Get alert message from metricAlert.message or generate default
       const message = alert.message || this.generateDefaultMessage(metric, sensorData, level);
-
-      // Use metric's clientId if sensor data doesn't have one
       const clientId = sensorData.clientId || metric.clientId || metric.cliente;
-      
-      console.log(`[MetricNotification] Getting users to notify for clientId: ${clientId}, alert.usuario: ${alert.usuario}, alert.correo: ${alert.correo}`);
 
-      // Get users to notify based on alert configuration
+      console.log(`[MetricNotification] ─── STEP 5: User lookup ─── alert.correo=${alert.correo}, alert.usuario=${alert.usuario}`);
+
       const usersToNotify = await this.getUsersToNotify(alert, clientId);
 
-      console.log(`[MetricNotification] Found ${usersToNotify.length} users to notify`);
+      console.log(`[MetricNotification]   Found ${usersToNotify.length} users to notify`);
 
       // Generate notification URL
       const notificationUrl = this.generateNotificationUrl(metric);
@@ -198,9 +176,11 @@ class MetricNotificationService {
           
           if (lastNotification && (now - lastNotification) < this.DEDUP_WINDOW_MS) {
             const minutesAgo = Math.round((now - lastNotification) / 1000 / 60);
-            console.log(`[MetricNotification] ⏭️  Skipping duplicate notification for user ${user.email} (last sent ${minutesAgo} min ago)`);
+            console.log(`[MetricNotification]   ⏭️  Dedup: skip user ${user.email} (sent ${minutesAgo} min ago)`);
             continue;
           }
+
+          console.log(`[MetricNotification] ─── STEP 6: Create notification ─── user=${user.email}, url=${notificationUrl || 'none'}`);
 
           const notification = new Notification({
             user: user._id,
@@ -224,7 +204,7 @@ class MetricNotificationService {
             this.cleanupOldNotifications();
           }
 
-          console.log(`[MetricNotification] ✅ Dashboard notification created for user ${user.email} (${user._id}) - URL: ${notificationUrl || 'none'}`);
+          console.log(`[MetricNotification]   ✅ Created for ${user.email}`);
         } catch (error) {
           console.error(`[MetricNotification] Error creating notification for user ${user._id}:`, error);
         }
@@ -321,25 +301,15 @@ class MetricNotificationService {
    */
   static async getUsersToNotify(alert, clientId) {
     try {
-      console.log(`[MetricNotification] getUsersToNotify - alert.correo: ${alert.correo}`);
-
-      // Find user by email from alert.correo
-      // Don't require active/verified status - let inactive users still receive critical alerts
       if (alert.correo) {
-        console.log(`[MetricNotification] Looking for user by email: ${alert.correo}`);
         const userByEmail = await User.findOne({ email: alert.correo });
-        
         if (userByEmail) {
-          console.log(`[MetricNotification] ✅ Found user: ${userByEmail.email} (status: ${userByEmail.status})`);
           return [userByEmail];
         }
-        
-        console.log(`[MetricNotification] ⚠️ User not found with email: ${alert.correo}`);
-        console.log(`[MetricNotification] ⚠️ Please create a user with this email or update the metric alert email`);
+        console.log(`[MetricNotification]   ⚠️  User not found: ${alert.correo} (create user or fix metric_alerts.correo)`);
       } else {
-        console.log(`[MetricNotification] ⚠️ Alert has no email (correo) configured`);
+        console.log(`[MetricNotification]   ⚠️  Alert has no correo configured`);
       }
-
       return [];
     } catch (error) {
       console.error('[MetricNotification] Error getting users to notify:', error);
