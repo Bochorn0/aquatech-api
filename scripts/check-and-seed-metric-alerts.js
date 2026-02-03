@@ -6,22 +6,15 @@
  * Run: node scripts/check-and-seed-metric-alerts.js
  */
 
-import pg from 'pg';
-const { Pool } = pg;
+import { query } from '../src/config/postgres.config.js';
+import dotenv from 'dotenv';
 
-// PostgreSQL connection
-const pool = new Pool({
-  host: process.env.POSTGRES_HOST || 'localhost',
-  port: process.env.POSTGRES_PORT || 5432,
-  database: process.env.POSTGRES_DB || 'TIWater_timeseries',
-  user: process.env.POSTGRES_USER || 'TIWater_user',
-  password: process.env.POSTGRES_PASSWORD,
-});
+dotenv.config();
 
 async function checkMetrics() {
   console.log('\n📊 === CHECKING METRICS TABLE (PostgreSQL) ===\n');
   
-  const result = await pool.query(`
+  const result = await query(`
     SELECT 
       id,
       metric_name,
@@ -57,7 +50,7 @@ async function checkMetrics() {
 async function checkMetricAlerts() {
   console.log('\n🔔 === CHECKING METRIC_ALERTS TABLE (PostgreSQL) ===\n');
   
-  const result = await pool.query(`
+  const result = await query(`
     SELECT 
       ma.id as alert_id,
       ma.metric_id,
@@ -96,7 +89,7 @@ async function checkMetricAlerts() {
 async function checkMetricsWithoutAlerts() {
   console.log('\n⚠️  === METRICS WITHOUT ALERTS ===\n');
   
-  const result = await pool.query(`
+  const result = await query(`
     SELECT 
       m.id,
       m.metric_name,
@@ -126,7 +119,7 @@ async function checkMetricsWithoutAlerts() {
 async function seedMetricAlerts(userEmail = 'luis.cordova@lcc.com.mx', userName = 'Luis Fernando Cordova') {
   console.log(`\n🌱 === SEEDING METRIC ALERTS FOR ${userEmail} ===\n`);
   
-  const result = await pool.query(`
+  const result = await query(`
     INSERT INTO metric_alerts (
       metric_id,
       usuario,
@@ -222,8 +215,6 @@ async function main() {
     console.error('\n❌ Error:', error.message);
     console.error(error);
     process.exit(1);
-  } finally {
-    await pool.end();
   }
 }
 
