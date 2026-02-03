@@ -94,8 +94,8 @@ async function checkMetricsWithoutAlerts() {
       m.id,
       m.metric_name,
       m.sensor_type,
-      m."clientId",
-      m."puntoVentaId"
+      m.clientid,
+      m.puntoventaid
     FROM metrics m
     LEFT JOIN metric_alerts ma ON ma.metric_id = m.id
     WHERE m.enabled = TRUE
