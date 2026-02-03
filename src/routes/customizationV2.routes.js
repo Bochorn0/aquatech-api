@@ -35,7 +35,14 @@ import {
   getPuntoVentaSensorsReadingsV2,
   addPuntoVentaSensorV2,
   updatePuntoVentaSensorV2,
-  removePuntoVentaSensorV2
+  removePuntoVentaSensorV2,
+  // Calidad Agua
+  getCalidadAguaV2,
+  getCalidadAguaByStateV2,
+  getCalidadAguaByIdV2,
+  addCalidadAguaV2,
+  updateCalidadAguaV2,
+  removeCalidadAguaV2
 } from '../controllers/customizationV2.controller.js';
 
 const router = express.Router();
@@ -248,5 +255,51 @@ router.patch('/puntoVentas/:id', updatePuntoVentaV2);
  * @access  Private
  */
 router.delete('/puntoVentas/:id', removePuntoVentaV2);
+
+// ============================================================================
+// CALIDAD AGUA ROUTES
+// ============================================================================
+
+/**
+ * @route   GET /api/v2.0/calidad-agua
+ * @desc    Get all water quality records (PostgreSQL)
+ * @access  Private
+ */
+router.get('/calidad-agua', getCalidadAguaV2);
+
+/**
+ * @route   GET /api/v2.0/calidad-agua/by-state
+ * @desc    Get water quality data aggregated by state (PostgreSQL)
+ * @access  Private
+ */
+router.get('/calidad-agua/by-state', getCalidadAguaByStateV2);
+
+/**
+ * @route   GET /api/v2.0/calidad-agua/:id
+ * @desc    Get water quality record by ID (PostgreSQL)
+ * @access  Private
+ */
+router.get('/calidad-agua/:id', getCalidadAguaByIdV2);
+
+/**
+ * @route   POST /api/v2.0/calidad-agua
+ * @desc    Create new water quality record (PostgreSQL)
+ * @access  Private
+ */
+router.post('/calidad-agua', addCalidadAguaV2);
+
+/**
+ * @route   PATCH /api/v2.0/calidad-agua/:id
+ * @desc    Update water quality record (PostgreSQL)
+ * @access  Private
+ */
+router.patch('/calidad-agua/:id', updateCalidadAguaV2);
+
+/**
+ * @route   DELETE /api/v2.0/calidad-agua/:id
+ * @desc    Delete water quality record (PostgreSQL)
+ * @access  Private
+ */
+router.delete('/calidad-agua/:id', removeCalidadAguaV2);
 
 export default router;

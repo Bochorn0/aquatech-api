@@ -8,6 +8,7 @@ import CityModel from '../models/postgres/city.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
 import SensoresModel from '../models/postgres/sensores.model.js';
+import CalidadAguaModel from '../models/postgres/calidadAgua.model.js';
 import { query } from '../config/postgres.config.js';
 
 // ============================================================================
@@ -1627,6 +1628,202 @@ export const removePuntoVentaSensorV2 = async (req, res) => {
       success: false,
       message: 'Error deleting sensor',
       error: error.message 
+    });
+  }
+};
+
+// ============================================================================
+// CALIDAD AGUA CONTROLLERS
+// ============================================================================
+
+/**
+ * Get all water quality records (v2.0 - PostgreSQL)
+ * @route   GET /api/v2.0/calidad-agua
+ * @desc    Get all water quality records from PostgreSQL
+ * @access  Private
+ */
+export const getCalidadAguaV2 = async (req, res) => {
+  try {
+    const { estado, ciudad, municipio, owner } = req.query;
+    
+    const filters = {};
+    if (estado) filters.estado = estado;
+    if (ciudad) filters.ciudad = ciudad;
+    if (municipio) filters.municipio = municipio;
+    if (owner) filters.owner = owner;
+    
+    const records = await CalidadAguaModel.find(filters);
+    
+    console.log(`[getCalidadAguaV2] ✅ Found ${records.length} water quality records from PostgreSQL`);
+    
+    res.json({
+      success: true,
+      count: records.length,
+      data: records
+    });
+  } catch (error) {
+    console.error('[getCalidadAguaV2] ❌ Error fetching water quality records:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching water quality records',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get water quality aggregated by state (v2.0 - PostgreSQL)
+ * @route   GET /api/v2.0/calidad-agua/by-state
+ * @desc    Get water quality data aggregated by state
+ * @access  Private
+ */
+export const getCalidadAguaByStateV2 = async (req, res) => {
+  try {
+    const stateData = await CalidadAguaModel.getByState();
+    
+    console.log(`[getCalidadAguaByStateV2] ✅ Found ${stateData.length} states with water quality data`);
+    
+    res.json({
+      success: true,
+      count: stateData.length,
+      data: stateData
+    });
+  } catch (error) {
+    console.error('[getCalidadAguaByStateV2] ❌ Error fetching state aggregation:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching state water quality data',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get water quality record by ID (v2.0 - PostgreSQL)
+ * @route   GET /api/v2.0/calidad-agua/:id
+ * @desc    Get single water quality record by ID
+ * @access  Private
+ */
+export const getCalidadAguaByIdV2 = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const record = await CalidadAguaModel.findById(parseInt(id, 10));
+    
+    if (!record) {
+      return res.status(404).json({
+        success: false,
+        message: 'Water quality record not found'
+      });
+    }
+    
+    console.log(`[getCalidadAguaByIdV2] ✅ Found water quality record ${id}`);
+    
+    res.json({
+      success: true,
+      data: record
+    });
+  } catch (error) {
+    console.error('[getCalidadAguaByIdV2] ❌ Error fetching water quality record:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching water quality record',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Add new water quality record (v2.0 - PostgreSQL)
+ * @route   POST /api/v2.0/calidad-agua
+ * @desc    Create new water quality record
+ * @access  Private
+ */
+export const addCalidadAguaV2 = async (req, res) => {
+  try {
+    const newRecord = await CalidadAguaModel.create(req.body);
+    
+    console.log(`[addCalidadAguaV2] ✅ Created water quality record ${newRecord.id}`);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Water quality record created successfully',
+      data: newRecord
+    });
+  } catch (error) {
+    console.error('[addCalidadAguaV2] ❌ Error creating water quality record:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating water quality record',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Update water quality record (v2.0 - PostgreSQL)
+ * @route   PATCH /api/v2.0/calidad-agua/:id
+ * @desc    Update existing water quality record
+ * @access  Private
+ */
+export const updateCalidadAguaV2 = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updatedRecord = await CalidadAguaModel.update(parseInt(id, 10), req.body);
+    
+    if (!updatedRecord) {
+      return res.status(404).json({
+        success: false,
+        message: 'Water quality record not found'
+      });
+    }
+    
+    console.log(`[updateCalidadAguaV2] ✅ Updated water quality record ${id}`);
+    
+    res.json({
+      success: true,
+      message: 'Water quality record updated successfully',
+      data: updatedRecord
+    });
+  } catch (error) {
+    console.error('[updateCalidadAguaV2] ❌ Error updating water quality record:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating water quality record',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Delete water quality record (v2.0 - PostgreSQL)
+ * @route   DELETE /api/v2.0/calidad-agua/:id
+ * @desc    Delete water quality record
+ * @access  Private
+ */
+export const removeCalidadAguaV2 = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await CalidadAguaModel.delete(parseInt(id, 10));
+    
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'Water quality record not found'
+      });
+    }
+    
+    console.log(`[removeCalidadAguaV2] ✅ Deleted water quality record ${id}`);
+    
+    res.json({
+      success: true,
+      message: 'Water quality record deleted successfully'
+    });
+  } catch (error) {
+    console.error('[removeCalidadAguaV2] ❌ Error deleting water quality record:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting water quality record',
+      error: error.message
     });
   }
 };
