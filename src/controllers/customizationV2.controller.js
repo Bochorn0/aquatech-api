@@ -1699,6 +1699,34 @@ export const getCalidadAguaByStateV2 = async (req, res) => {
 };
 
 /**
+ * Get historical water quality data for a state (v2.0 - PostgreSQL)
+ * @route   GET /api/v2.0/calidad-agua/historical/:estado
+ * @desc    Get historical water quality data for a specific state
+ * @access  Private
+ */
+export const getCalidadAguaHistoricalV2 = async (req, res) => {
+  try {
+    const { estado } = req.params;
+    const historicalData = await CalidadAguaModel.getHistoricalByState(estado);
+    
+    console.log(`[getCalidadAguaHistoricalV2] ✅ Found ${historicalData.length} historical records for ${estado}`);
+    
+    res.json({
+      success: true,
+      count: historicalData.length,
+      data: historicalData
+    });
+  } catch (error) {
+    console.error('[getCalidadAguaHistoricalV2] ❌ Error fetching historical data:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching historical water quality data',
+      error: error.message
+    });
+  }
+};
+
+/**
  * Get water quality record by ID (v2.0 - PostgreSQL)
  * @route   GET /api/v2.0/calidad-agua/:id
  * @desc    Get single water quality record by ID

@@ -85,11 +85,16 @@ class CalidadAguaModel {
   }
 
   /**
-   * Get aggregated water quality by state
+   * Get aggregated water quality by state (latest records only)
    * @returns {Promise<Array>} Array of state aggregations
    */
   static async getByState() {
     const selectQuery = `
+      WITH latest_records AS (
+        SELECT DISTINCT ON (ciudad, estado) *
+        FROM calidad_agua
+        ORDER BY ciudad, estado, createdat DESC
+      )
       SELECT 
         estado,
         COUNT(*) as total_registros,
@@ -97,7 +102,7 @@ class CalidadAguaModel {
         MIN(tds_minimo) as tds_min,
         MAX(tds_maximo) as tds_max,
         ARRAY_AGG(DISTINCT ciudad) as ciudades
-      FROM calidad_agua
+      FROM latest_records
       GROUP BY estado
       ORDER BY estado
     `;
@@ -114,6 +119,39 @@ class CalidadAguaModel {
       }));
     } catch (error) {
       console.error('[CalidadAguaModel] Error getting state aggregation:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get historical water quality data for a specific state
+   * @param {String} estado - State name
+   * @returns {Promise<Array>} Array of historical records
+   */
+  static async getHistoricalByState(estado) {
+    const selectQuery = `
+      SELECT 
+        ciudad,
+        calidad,
+        tds_minimo,
+        tds_maximo,
+        createdat
+      FROM calidad_agua
+      WHERE LOWER(estado) = LOWER($1)
+      ORDER BY createdat ASC, ciudad
+    `;
+
+    try {
+      const result = await query(selectQuery, [estado]);
+      return result.rows.map(row => ({
+        ciudad: row.ciudad,
+        calidad: row.calidad ? parseFloat(row.calidad) : null,
+        tdsMinimo: row.tds_minimo ? parseFloat(row.tds_minimo) : null,
+        tdsMaximo: row.tds_maximo ? parseFloat(row.tds_maximo) : null,
+        createdAt: row.createdat
+      }));
+    } catch (error) {
+      console.error('[CalidadAguaModel] Error getting historical data:', error);
       throw error;
     }
   }

@@ -39,6 +39,7 @@ import {
   // Calidad Agua
   getCalidadAguaV2,
   getCalidadAguaByStateV2,
+  getCalidadAguaHistoricalV2,
   getCalidadAguaByIdV2,
   addCalidadAguaV2,
   updateCalidadAguaV2,
@@ -273,6 +274,13 @@ router.get('/calidad-agua', getCalidadAguaV2);
  * @access  Private
  */
 router.get('/calidad-agua/by-state', getCalidadAguaByStateV2);
+
+/**
+ * @route   GET /api/v2.0/calidad-agua/historical/:estado
+ * @desc    Get historical water quality data for a state (PostgreSQL)
+ * @access  Private
+ */
+router.get('/calidad-agua/historical/:estado', getCalidadAguaHistoricalV2);
 
 /**
  * @route   GET /api/v2.0/calidad-agua/:id
