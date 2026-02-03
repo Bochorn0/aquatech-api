@@ -22,10 +22,7 @@ async function checkMetrics() {
       clientid,
       punto_venta_id,
       enabled,
-      preventivo_min,
-      preventivo_max,
-      correctivo_min,
-      correctivo_max
+      rules
     FROM metrics
     WHERE enabled = TRUE
     ORDER BY id
@@ -34,13 +31,13 @@ async function checkMetrics() {
   console.log(`Found ${result.rows.length} enabled metrics:\n`);
   
   result.rows.forEach(metric => {
+    const rulesStr = metric.rules ? JSON.stringify(metric.rules).substring(0, 80) + '...' : 'N/A';
     console.log(`  ✓ Metric ID: ${metric.id}`);
     console.log(`    Name: ${metric.metric_name}`);
     console.log(`    Sensor Type: ${metric.sensor_type}`);
     console.log(`    Client ID: ${metric.clientid}`);
     console.log(`    Punto Venta ID: ${metric.punto_venta_id}`);
-    console.log(`    Preventivo: ${metric.preventivo_min} - ${metric.preventivo_max}`);
-    console.log(`    Correctivo: ${metric.correctivo_min} - ${metric.correctivo_max}`);
+    console.log(`    Rules: ${rulesStr}`);
     console.log('');
   });
 
