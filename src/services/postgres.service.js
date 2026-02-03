@@ -4,6 +4,7 @@
 import SensoresModel from '../models/postgres/sensores.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
+import MetricNotificationService from './metricNotification.service.js';
 
 /**
  * PostgreSQL Service
@@ -110,6 +111,14 @@ class PostgresService {
       const savedSensor = await SensoresModel.create(sensorData);
       
       console.log(`[PostgresService] ✅ Sensor data saved to PostgreSQL: ID ${savedSensor.id}`);
+      
+      // Evaluate saved sensor against metric alerts and create notifications
+      // Run in background to avoid blocking sensor save
+      setImmediate(() => {
+        MetricNotificationService.evaluateAndNotify(savedSensor).catch(error => {
+          console.error('[PostgresService] Error evaluating metrics for notifications:', error);
+        });
+      });
       
       return savedSensor;
     } catch (error) {
@@ -321,6 +330,14 @@ class PostgresService {
       const savedSensors = await SensoresModel.createMany(sensors);
       
       console.log(`[PostgresService] ✅ ${savedSensors.length} sensor readings saved to PostgreSQL`);
+      
+      // Evaluate saved sensors against metric alerts and create notifications
+      // Run in background to avoid blocking sensor save
+      setImmediate(() => {
+        MetricNotificationService.batchEvaluateAndNotify(savedSensors).catch(error => {
+          console.error('[PostgresService] Error evaluating metrics for notifications:', error);
+        });
+      });
       
       return savedSensors;
     } catch (error) {
