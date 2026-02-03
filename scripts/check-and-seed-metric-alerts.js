@@ -19,8 +19,8 @@ async function checkMetrics() {
       id,
       metric_name,
       sensor_type,
-      "clientId",
-      "puntoVentaId",
+      clientid,
+      puntoventaid,
       enabled,
       preventivo_min,
       preventivo_max,
@@ -37,8 +37,8 @@ async function checkMetrics() {
     console.log(`  ✓ Metric ID: ${metric.id}`);
     console.log(`    Name: ${metric.metric_name}`);
     console.log(`    Sensor Type: ${metric.sensor_type}`);
-    console.log(`    Client ID: ${metric.clientId}`);
-    console.log(`    Punto Venta ID: ${metric.puntoVentaId}`);
+    console.log(`    Client ID: ${metric.clientid}`);
+    console.log(`    Punto Venta ID: ${metric.puntoventaid}`);
     console.log(`    Preventivo: ${metric.preventivo_min} - ${metric.preventivo_max}`);
     console.log(`    Correctivo: ${metric.correctivo_min} - ${metric.correctivo_max}`);
     console.log('');
