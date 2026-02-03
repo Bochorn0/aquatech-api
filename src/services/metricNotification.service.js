@@ -273,90 +273,32 @@ class MetricNotificationService {
 
   /**
    * Get users to notify based on alert configuration
+   * Simply find user by the email specified in the alert
    * @param {Object} alert - Alert configuration
-   * @param {String} clientId - Client ID
+   * @param {String} clientId - Client ID (not used, kept for compatibility)
    * @returns {Promise<Array>} Array of users to notify
    */
   static async getUsersToNotify(alert, clientId) {
     try {
-      const query = {
-        status: 'active',
-        verified: true
-      };
+      console.log(`[MetricNotification] getUsersToNotify - alert.correo: ${alert.correo}`);
 
-      console.log(`[MetricNotification] getUsersToNotify - alert.correo: ${alert.correo}, alert.usuario: ${alert.usuario}, clientId: ${clientId}`);
-
-      // If alert has specific email (correo field)
+      // Find user by email from alert.correo
+      // Don't require active/verified status - let inactive users still receive critical alerts
       if (alert.correo) {
         console.log(`[MetricNotification] Looking for user by email: ${alert.correo}`);
-        const userByEmail = await User.findOne({ email: alert.correo, ...query });
+        const userByEmail = await User.findOne({ email: alert.correo });
+        
         if (userByEmail) {
-          console.log(`[MetricNotification] ✅ Found user by email: ${userByEmail.email}`);
+          console.log(`[MetricNotification] ✅ Found user: ${userByEmail.email} (status: ${userByEmail.status})`);
           return [userByEmail];
         }
-        console.log(`[MetricNotification] ⚠️ User not found by email: ${alert.correo}`);
+        
+        console.log(`[MetricNotification] ⚠️ User not found with email: ${alert.correo}`);
+        console.log(`[MetricNotification] ⚠️ Please create a user with this email or update the metric alert email`);
+      } else {
+        console.log(`[MetricNotification] ⚠️ Alert has no email (correo) configured`);
       }
 
-      // If alert has specific user/usuario configured
-      if (alert.usuario) {
-        console.log(`[MetricNotification] Looking for user by usuario: ${alert.usuario}`);
-        // Try to find user by email (usuario field might contain email)
-        const userByEmail = await User.findOne({ email: alert.usuario, ...query });
-        if (userByEmail) {
-          console.log(`[MetricNotification] ✅ Found user by usuario (email match): ${userByEmail.email}`);
-          return [userByEmail];
-        }
-
-        // Try to find by MongoDB ID
-        try {
-          const userById = await User.findOne({ _id: alert.usuario, ...query });
-          if (userById) {
-            console.log(`[MetricNotification] ✅ Found user by usuario (ID match): ${userById.email}`);
-            return [userById];
-          }
-        } catch (e) {
-          // Not a valid ObjectId, skip
-        }
-        console.log(`[MetricNotification] ⚠️ User not found by usuario: ${alert.usuario}`);
-      }
-
-      // Fallback: notify all active users of this client
-      if (clientId) {
-        console.log(`[MetricNotification] Looking for users by clientId: ${clientId}`);
-        // clientId from PostgreSQL needs to match postgresClientId field in MongoDB User
-        const users = await User.find({
-          postgresClientId: String(clientId),
-          ...query
-        }).limit(10); // Limit to prevent spam
-
-        console.log(`[MetricNotification] Found ${users.length} users for clientId ${clientId}`);
-        if (users && users.length > 0) {
-          return users;
-        }
-      }
-
-      // Last resort: notify admin users
-      console.log(`[MetricNotification] Falling back to admin users`);
-      try {
-        const Role = User.model('Role');
-        const adminRole = await Role.findOne({ name: 'Admin' });
-        if (adminRole) {
-          const adminUsers = await User.find({
-            role: adminRole._id,
-            ...query
-          }).limit(5);
-
-          console.log(`[MetricNotification] Found ${adminUsers.length} admin users`);
-          if (adminUsers && adminUsers.length > 0) {
-            return adminUsers;
-          }
-        }
-      } catch (roleError) {
-        console.error(`[MetricNotification] Error finding admin users:`, roleError);
-      }
-
-      console.log(`[MetricNotification] ⚠️ No users found to notify!`);
-      console.log(`[MetricNotification] Summary - alert.correo: ${alert.correo}, alert.usuario: ${alert.usuario}, clientId: ${clientId}`);
       return [];
     } catch (error) {
       console.error('[MetricNotification] Error getting users to notify:', error);
