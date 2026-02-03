@@ -322,7 +322,9 @@ class MetricNotificationService {
   static generateNotificationUrl(metric) {
     const puntoVentaId = metric.puntoVentaId || metric.punto_venta_id;
     if (puntoVentaId) {
-      return `http://www.lcc.com.mx/PuntoVenta/${puntoVentaId}`;
+      const baseUrl = process.env.FRONTEND_URL || process.env.BASE_URL || 'https://www.lcc.com.mx';
+      const cleanBase = baseUrl.replace(/\/$/, '');
+      return `${cleanBase}/PuntoVenta/${puntoVentaId}`;
     }
     return null;
   }
