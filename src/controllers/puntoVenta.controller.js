@@ -467,69 +467,109 @@ export const generateDailyData = async (req, res) => {
     }
 
     // Generar 24 mensajes (uno por cada hora del día)
+    // Usar el día anterior para que todos los timestamps estén en el pasado (evitar futuros)
     const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const startOfDay = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 0, 0, 0);
     const topic = `tiwater/${codigoTienda}/data`;
     
     const messages = [];
     let publishedCount = 0;
     let errorCount = 0;
 
-    // Valores iniciales para simular comportamiento realista
-    let nivelPurificada = 40 + Math.random() * 20; // 40-60%
-    let nivelCruda = 35 + Math.random() * 15; // 35-50%
-    let caudalPurificada = 0.3 + Math.random() * 0.4; // 0.3-0.7 L/min
-    let caudalRecuperacion = 2.0 + Math.random() * 2.0; // 2.0-4.0 L/min
-    let eficiencia = 50 + Math.random() * 10; // 50-60%
+    // Valores constantes base (produccion, tds, eficiencia, rechazo - varían poco)
+    const baseTds = 80 + Math.random() * 40; // 80-120 ppm, constante durante el día
+    const baseProduccion = 0.8 + Math.random() * 0.8; // 0.8-1.6 L/min
+    const baseRechazo = 0.15 + Math.random() * 0.25; // 0.15-0.4 L/min
+    const baseRecuperacion = 1.8 + Math.random() * 0.6; // 1.8-2.4 L/min
+    const baseEficiencia = 48 + Math.random() * 8; // 48-56%
+    const baseCaudalCruda = 1.8 + Math.random() * 0.6; // 1.8-2.4
+    const baseCaudalCrudaLmin = 20 + Math.random() * 4; // 20-24 L/min
+
+    // Corrientes (ch1-4): base estable, varían solo unos pocos amperes (±0.3)
+    const baseCh1 = 2.5 + Math.random() * 0.5;
+    const baseCh2 = 2.8 + Math.random() * 0.4;
+    const baseCh3 = 1.0 + Math.random() * 0.3;
+    const baseCh4 = 2.2 + Math.random() * 0.4;
+
+    // Niveles iniciales (subirán/bajarán según patrón del día)
+    let nivelPurificada = 75;
+    let nivelCruda = 70;
 
     for (let hour = 0; hour < 24; hour++) {
       const timestamp = new Date(startOfDay);
       timestamp.setHours(hour, 0, 0, 0);
 
-      // Simular comportamiento realista: niveles que suben y bajan
-      // Durante el día (6am-10pm): más consumo, niveles bajan
-      // Durante la noche (10pm-6am): menos consumo, niveles suben
-      const isDayTime = hour >= 6 && hour < 22;
-      
-      if (isDayTime) {
-        // Durante el día: consumo activo, niveles tienden a bajar
-        nivelPurificada = Math.max(20, nivelPurificada - (2 + Math.random() * 3));
-        nivelCruda = Math.max(25, nivelCruda - (1.5 + Math.random() * 2));
-        caudalPurificada = 0.4 + Math.random() * 0.6; // Mayor caudal durante el día
-        caudalRecuperacion = 2.5 + Math.random() * 2.5;
-        eficiencia = 52 + Math.random() * 8;
+      // Patrón nivel agua: 20%, 40%, 80% a lo largo del día (consumo día, recuperación noche)
+      // 0-5h: recuperación noche 70-85%
+      // 6-9h: inicio consumo 60-75%
+      // 10-14h: pico consumo 25-45%
+      // 15-18h: recuperación tarde 45-65%
+      // 19-22h: consumo tarde 30-50%
+      // 23h: inicio recuperación 55-75%
+      if (hour >= 0 && hour < 6) {
+        nivelPurificada = Math.min(85, nivelPurificada + 2 + Math.random() * 2);
+        nivelCruda = Math.min(88, nivelCruda + 1.5 + Math.random() * 1.5);
+      } else if (hour >= 6 && hour < 10) {
+        nivelPurificada = Math.max(55, nivelPurificada - (3 + Math.random() * 4));
+        nivelCruda = Math.max(60, nivelCruda - (2 + Math.random() * 3));
+      } else if (hour >= 10 && hour < 15) {
+        nivelPurificada = Math.max(22, nivelPurificada - (4 + Math.random() * 5));
+        nivelCruda = Math.max(35, nivelCruda - (3 + Math.random() * 4));
+      } else if (hour >= 15 && hour < 19) {
+        nivelPurificada = Math.min(70, nivelPurificada + (2 + Math.random() * 3));
+        nivelCruda = Math.min(75, nivelCruda + (1.5 + Math.random() * 2));
+      } else if (hour >= 19 && hour < 23) {
+        nivelPurificada = Math.max(28, nivelPurificada - (2 + Math.random() * 3));
+        nivelCruda = Math.max(40, nivelCruda - (1.5 + Math.random() * 2));
       } else {
-        // Durante la noche: menos consumo, niveles se recuperan
-        nivelPurificada = Math.min(90, nivelPurificada + (1 + Math.random() * 2));
-        nivelCruda = Math.min(85, nivelCruda + (1 + Math.random() * 1.5));
-        caudalPurificada = 0.1 + Math.random() * 0.3; // Menor caudal durante la noche
-        caudalRecuperacion = 1.5 + Math.random() * 1.5;
-        eficiencia = 48 + Math.random() * 7;
+        nivelPurificada = Math.min(72, nivelPurificada + (2 + Math.random() * 2));
+        nivelCruda = Math.min(78, nivelCruda + (1.5 + Math.random() * 1.5));
       }
+      nivelPurificada = Math.round(Math.min(95, Math.max(18, nivelPurificada)) * 10) / 10;
+      nivelCruda = Math.round(Math.min(95, Math.max(20, nivelCruda)) * 10) / 10;
 
-      // Generar datos TIWATER según el formato del ESP32
-      // Incluir timestamp en formato Unix (segundos) para que el servicio MQTT lo use
+      // Producción, rechazo, eficiencia: casi constantes, pequeña variación (±0.1-0.2)
+      const prodVar = (Math.random() - 0.5) * 0.3;
+      const rechVar = (Math.random() - 0.5) * 0.08;
+      const effVar = (Math.random() - 0.5) * 4;
+      const caudalPurificada = Math.max(0.3, Math.min(2.4, baseProduccion + prodVar));
+      const caudalRechazo = Math.max(0.1, Math.min(0.5, baseRechazo + rechVar));
+      const eficiencia = Math.max(35, Math.min(65, baseEficiencia + effVar));
+      const caudalRecuperacion = Math.max(1.2, Math.min(3.0, baseRecuperacion + (Math.random() - 0.5) * 0.3));
+
+      // TDS: constante 30-150, pequeña variación ±5
+      const tds = Math.round(Math.max(30, Math.min(150, baseTds + (Math.random() - 0.5) * 10)));
+
+      // Corrientes: varían muy poco (±0.2-0.3 A)
+      const ch1 = baseCh1 + (Math.random() - 0.5) * 0.4;
+      const ch2 = baseCh2 + (Math.random() - 0.5) * 0.4;
+      const ch3 = baseCh3 + (Math.random() - 0.5) * 0.25;
+      const ch4 = baseCh4 + (Math.random() - 0.5) * 0.35;
+
       const timestampUnix = Math.floor(timestamp.getTime() / 1000);
       
       const tiwaterData = {
         "CAUDAL PURIFICADA": parseFloat(caudalPurificada.toFixed(2)),
         "CAUDAL RECUPERACION": parseFloat(caudalRecuperacion.toFixed(2)),
-        "CAUDAL RECHAZO": parseFloat((0.1 + Math.random() * 0.3).toFixed(2)),
-        "NIVEL PURIFICADA": parseFloat(nivelPurificada.toFixed(2)),
-        "NIVEL CRUDA": parseFloat(nivelCruda.toFixed(2)),
-        "CAUDAL CRUDA": parseFloat((1.5 + Math.random() * 2.0).toFixed(2)),
-        "ACUMULADO CRUDA": parseFloat((2000.0 + Math.random() * 50.0).toFixed(1)),
-        "vida": Math.floor(Math.random() * 100),
-        "PRESION CO2": parseFloat((300.0 + Math.random() * 5.0).toFixed(2)),
-        "ch1": parseFloat((2.5 + Math.random() * 1.5).toFixed(2)),
-        "ch2": parseFloat((2.5 + Math.random() * 1.5).toFixed(2)),
-        "ch3": parseFloat((1.0 + Math.random() * 0.5).toFixed(2)),
-        "ch4": parseFloat((2.0 + Math.random() * 1.0).toFixed(2)),
+        "CAUDAL RECHAZO": parseFloat(caudalRechazo.toFixed(2)),
+        "NIVEL PURIFICADA": parseFloat(nivelPurificada.toFixed(1)),
+        "NIVEL CRUDA": parseFloat(nivelCruda.toFixed(1)),
+        "PORCENTAJE NIVEL PURIFICADA": parseFloat(nivelPurificada.toFixed(1)),
+        "PORCENTAJE NIVEL CRUDA": parseFloat(nivelCruda.toFixed(1)),
+        "CAUDAL CRUDA": parseFloat((baseCaudalCruda + (Math.random() - 0.5) * 0.2).toFixed(2)),
+        "ACUMULADO CRUDA": parseFloat((2000.0 + hour * 15 + Math.random() * 10).toFixed(1)),
+        "CAUDAL CRUDA L/min": parseFloat((baseCaudalCrudaLmin + (Math.random() - 0.5) * 2).toFixed(3)),
+        "vida": Math.floor(75 + Math.random() * 20),
+        "TDS": tds,
+        "PRESION CO2": parseFloat((300 + (Math.random() - 0.5) * 8).toFixed(2)),
+        "ch1": parseFloat(ch1.toFixed(2)),
+        "ch2": parseFloat(ch2.toFixed(2)),
+        "ch3": parseFloat(ch3.toFixed(2)),
+        "ch4": parseFloat(ch4.toFixed(2)),
         "EFICIENCIA": parseFloat(eficiencia.toFixed(1)),
-        "PORCENTAJE NIVEL PURIFICADA": parseFloat((nivelPurificada / 10).toFixed(1)),
-        "PORCENTAJE NIVEL CRUDA": parseFloat((nivelCruda / 10).toFixed(1)),
-        "CAUDAL CRUDA L/min": parseFloat((20.0 + Math.random() * 5.0).toFixed(3)),
-        "timestamp": timestampUnix  // Timestamp en formato Unix (segundos) para que el servicio MQTT lo use
+        "timestamp": timestampUnix
       };
 
       const message = JSON.stringify(tiwaterData);
@@ -561,11 +601,11 @@ export const generateDailyData = async (req, res) => {
       }
     }
 
-    console.log(`[Generate Daily Data] Completado: ${publishedCount} publicados, ${errorCount} errores`);
+    console.log(`[Generate Daily Data] Completado: ${publishedCount} publicados, ${errorCount} errores (fecha: ${startOfDay.toISOString().slice(0, 10)})`);
 
     res.json({
       success: true,
-      message: `Generados ${publishedCount} de 24 mensajes MQTT`,
+      message: `Generados ${publishedCount} de 24 mensajes MQTT (1 por hora, fecha: ${startOfDay.toISOString().slice(0, 10)})`,
       data: {
         puntoVentaId: id,
         codigoTienda: codigoTienda,

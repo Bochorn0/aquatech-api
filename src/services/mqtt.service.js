@@ -495,6 +495,7 @@ class MQTTService {
       flujo_produccion: data['CAUDAL PURIFICADA'] || data['caudal_purificada'] || null,
       flujo_rechazo: data['CAUDAL RECHAZO'] || data['caudal_rechazo'] || null,
       flujo_recuperacion: data['CAUDAL RECUPERACION'] || data['caudal_recuperacion'] || null,
+      tds: data['TDS'] ?? data['tds'] ?? null,
       
       // Niveles absolutos (valores pueden ser > 100). Para payloads parciales, usar porcentaje si no viene nivel.
       nivel_purificada: data['NIVEL PURIFICADA'] ?? data['nivel_purificada'] ?? data['PORCENTAJE NIVEL PURIFICADA'] ?? data['porcentaje_nivel_purificada'] ?? null,
