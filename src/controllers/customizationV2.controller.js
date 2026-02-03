@@ -434,7 +434,9 @@ export const addMetricAlertV2 = async (req, res) => {
       dashboardAlert,
       emailAlert,
       preventivo,
-      correctivo
+      correctivo,
+      emailCooldownMinutes,
+      emailMaxPerDay
     } = req.body;
     
     // Validate required fields
@@ -478,7 +480,9 @@ export const addMetricAlertV2 = async (req, res) => {
       dashboardAlert: dashboardAlert || false,
       emailAlert: emailAlert || false,
       preventivo: preventivo || false,
-      correctivo: correctivo || false
+      correctivo: correctivo || false,
+      emailCooldownMinutes: emailCooldownMinutes ?? 10,
+      emailMaxPerDay: emailMaxPerDay ?? 5
     });
     
     res.status(201).json(newAlert);
@@ -528,7 +532,9 @@ export const updateMetricAlertV2 = async (req, res) => {
       dashboardAlert,
       emailAlert,
       preventivo,
-      correctivo
+      correctivo,
+      emailCooldownMinutes,
+      emailMaxPerDay
     } = req.body;
     
     // Validate that at least one alert type is enabled
@@ -567,7 +573,9 @@ export const updateMetricAlertV2 = async (req, res) => {
       dashboardAlert,
       emailAlert,
       preventivo,
-      correctivo
+      correctivo,
+      emailCooldownMinutes,
+      emailMaxPerDay
     });
     
     if (!updatedAlert) {

@@ -125,16 +125,19 @@ class MetricAlertModel {
       dashboardAlert = false,
       emailAlert = false,
       preventivo = false,
-      correctivo = false
+      correctivo = false,
+      emailCooldownMinutes = 10,
+      emailMaxPerDay = 5
     } = data;
 
     const insertQuery = `
       INSERT INTO metric_alerts (
         metric_id, usuario, correo, celular,
         celular_alert, dashboard_alert, email_alert,
-        preventivo, correctivo
+        preventivo, correctivo,
+        email_cooldown_minutes, email_max_per_day
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
       ) RETURNING *
     `;
 
@@ -147,7 +150,9 @@ class MetricAlertModel {
       dashboardAlert,
       emailAlert,
       preventivo,
-      correctivo
+      correctivo,
+      emailCooldownMinutes,
+      emailMaxPerDay
     ];
 
     try {
@@ -174,7 +179,9 @@ class MetricAlertModel {
       dashboardAlert,
       emailAlert,
       preventivo,
-      correctivo
+      correctivo,
+      emailCooldownMinutes,
+      emailMaxPerDay
     } = data;
 
     const updateQuery = `
@@ -188,8 +195,10 @@ class MetricAlertModel {
         email_alert = COALESCE($6, email_alert),
         preventivo = COALESCE($7, preventivo),
         correctivo = COALESCE($8, correctivo),
+        email_cooldown_minutes = COALESCE($9, email_cooldown_minutes),
+        email_max_per_day = COALESCE($10, email_max_per_day),
         updatedat = CURRENT_TIMESTAMP
-      WHERE id = $9
+      WHERE id = $11
       RETURNING *
     `;
 
@@ -202,6 +211,8 @@ class MetricAlertModel {
       emailAlert !== undefined ? emailAlert : null,
       preventivo !== undefined ? preventivo : null,
       correctivo !== undefined ? correctivo : null,
+      emailCooldownMinutes !== undefined ? emailCooldownMinutes : null,
+      emailMaxPerDay !== undefined ? emailMaxPerDay : null,
       id
     ];
 
@@ -257,6 +268,8 @@ class MetricAlertModel {
       email_alert: row.email_alert || false,
       preventivo: row.preventivo || false,
       correctivo: row.correctivo || false,
+      emailCooldownMinutes: row.email_cooldown_minutes ?? 10,
+      emailMaxPerDay: row.email_max_per_day ?? 5,
       createdAt: row.createdat || null,
       updatedAt: row.updatedat || null
     };

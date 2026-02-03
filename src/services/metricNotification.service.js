@@ -5,6 +5,8 @@ import Notification from '../models/notification.model.js';
 import User from '../models/user.model.js';
 import MetricModel from '../models/postgres/metric.model.js';
 import MetricAlertModel from '../models/postgres/metricAlert.model.js';
+import MetricEmailLogModel from '../models/postgres/metricEmailLog.model.js';
+import emailHelper from '../utils/email.helper.js';
 
 /**
  * Metric Notification Service
@@ -102,7 +104,7 @@ class MetricNotificationService {
   static evaluateAlertRules(value, alerts, metric) {
     const triggered = [];
     for (const alert of alerts) {
-      if (alert.dashboardAlert || alert.dashboard_alert) {
+      if (alert.dashboardAlert || alert.dashboard_alert || alert.emailAlert || alert.email_alert) {
         triggered.push(alert);
       }
     }
@@ -120,8 +122,7 @@ class MetricNotificationService {
     const notifications = [];
 
     try {
-      // Only create dashboard notifications for now (email will be added later)
-      if (alert.dashboardAlert) {
+      if (alert.dashboardAlert || alert.dashboard_alert) {
         const dashboardNotifications = await this.createDashboardNotifications(
           alert,
           metric,
@@ -130,10 +131,10 @@ class MetricNotificationService {
         notifications.push(...dashboardNotifications);
       }
 
-      // Email notifications (to be implemented later)
-      // if (alert.emailAlert) {
-      //   await this.sendEmailNotification(alert, metric, sensorData);
-      // }
+      if (alert.emailAlert || alert.email_alert) {
+        console.log(`[MetricNotification] ─── STEP 7: Email notification ─── alert_id=${alert.id}, correo=${alert.correo}`);
+        await this.sendEmailNotification(alert, metric, sensorData);
+      }
 
       return notifications;
     } catch (error) {
@@ -218,6 +219,40 @@ class MetricNotificationService {
   }
 
   /**
+   * Evaluate sensor value against metric rules to determine level (preventivo/critico)
+   * @param {Number} value - Sensor value
+   * @param {Object} metric - Metric with rules array
+   * @returns {string} 'preventivo' | 'critico' | null (null = normal, no alert)
+   */
+  static evaluateLevelFromMetricRules(value, metric) {
+    const rules = metric.rules || [];
+    if (!Array.isArray(rules) || rules.length === 0) return 'preventivo'; // default
+
+    const numValue = Number(value);
+    if (isNaN(numValue)) return 'preventivo';
+
+    for (const rule of rules) {
+      const min = rule.min != null ? Number(rule.min) : null;
+      const max = rule.max != null ? Number(rule.max) : null;
+      const inRange = (min === null || numValue >= min) && (max === null || numValue <= max);
+      if (!inRange) continue;
+
+      const label = (rule.label || '').toLowerCase();
+      if (label.includes('critico') || label.includes('crítico') || label.includes('critical') || label.includes('danger') || label.includes('peligro')) {
+        return 'critico';
+      }
+      if (label.includes('preventivo') || label.includes('warning') || label.includes('advertencia') || label.includes('precaucion')) {
+        return 'preventivo';
+      }
+      if (label.includes('normal') || label.includes('ok')) {
+        return null; // Normal - no alert
+      }
+      return 'preventivo'; // Unknown label, treat as warning
+    }
+    return 'preventivo'; // No matching rule, default to warning
+  }
+
+  /**
    * Determine alert level based on alert rule and value
    * @param {Object} alert - Alert configuration
    * @param {Number} value - Sensor value
@@ -290,6 +325,65 @@ class MetricNotificationService {
       return `http://www.lcc.com.mx/PuntoVenta/${puntoVentaId}`;
     }
     return null;
+  }
+
+  /**
+   * Send email notification with throttling (cooldown + daily limit)
+   */
+  static async sendEmailNotification(alert, metric, sensorData) {
+    try {
+      const level = this.evaluateLevelFromMetricRules(sensorData.value, metric);
+      if (!level) return;
+
+      const wantsPreventivo = !!alert.preventivo;
+      const wantsCorrectivo = !!alert.correctivo;
+      if ((level === 'preventivo' && !wantsPreventivo) || (level === 'critico' && !wantsCorrectivo)) {
+        return;
+      }
+
+      const cooldown = alert.emailCooldownMinutes ?? 10;
+      const maxPerDay = alert.emailMaxPerDay ?? 5;
+      const metricAlertId = parseInt(alert.id || alert._id, 10);
+
+      const canSend = await MetricEmailLogModel.canSendEmail(metricAlertId, level, cooldown, maxPerDay);
+      if (!canSend.allowed) {
+        console.log(`[MetricNotification] 📧 Email skipped: ${canSend.reason}`);
+        return;
+      }
+
+      const metricName = metric.metric_name || metric.metricName || metric.metric_type || 'Sensor';
+      const message = alert.message || this.generateDefaultMessage(metric, sensorData, level);
+      const alertType = level === 'critico' ? 'correctivo' : 'preventivo';
+
+      const result = await emailHelper.sendAlertEmail({
+        to: alert.correo,
+        alertType,
+        metricName,
+        message,
+        sensorData: {
+          Valor: sensorData.value,
+          'Punto de venta': sensorData.codigoTienda || '-',
+          Sensor: sensorData.type || '-'
+        }
+      });
+
+      if (result.success) {
+        await MetricEmailLogModel.create({
+          metricAlertId,
+          metricId: metric.id,
+          correo: alert.correo,
+          alertLevel: level,
+          metricName,
+          codigoTienda: sensorData.codigoTienda,
+          sensorValue: sensorData.value
+        });
+        console.log(`[MetricNotification] 📧 Email sent to ${alert.correo} (${level})`);
+      } else {
+        console.error('[MetricNotification] 📧 Email failed:', result.error);
+      }
+    } catch (error) {
+      console.error('[MetricNotification] Error sending email:', error);
+    }
   }
 
   /**
