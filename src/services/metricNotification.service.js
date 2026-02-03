@@ -25,7 +25,10 @@ class MetricNotificationService {
     try {
       const { type, value, codigoTienda, clientId, timestamp } = sensorData;
 
+      console.log(`[MetricNotification] Evaluating sensor: type=${type}, value=${value}, client=${clientId}, codigoTienda=${codigoTienda}`);
+
       if (!type || value === null || value === undefined) {
+        console.log(`[MetricNotification] Skipping - missing type or value`);
         return [];
       }
 
@@ -36,8 +39,9 @@ class MetricNotificationService {
         enabled: true
       });
 
+      console.log(`[MetricNotification] Found ${metrics?.length || 0} metrics for type: ${type}, client: ${clientId}`);
+
       if (!metrics || metrics.length === 0) {
-        console.log(`[MetricNotification] No metrics found for type: ${type}, client: ${clientId}`);
         return [];
       }
 
@@ -46,8 +50,12 @@ class MetricNotificationService {
       // Evaluate each metric
       for (const metric of metrics) {
         try {
+          console.log(`[MetricNotification] Checking metric ID: ${metric.id}, name: ${metric.metricName || metric.metric_type}`);
+          
           // Get alerts for this metric
           const alerts = await MetricAlertModel.findByMetricId(metric.id);
+
+          console.log(`[MetricNotification] Found ${alerts?.length || 0} alerts for metric ${metric.id}`);
 
           if (!alerts || alerts.length === 0) {
             continue;
@@ -55,6 +63,8 @@ class MetricNotificationService {
 
           // Evaluate value against alert rules
           const triggeredAlerts = this.evaluateAlertRules(value, alerts);
+
+          console.log(`[MetricNotification] ${triggeredAlerts.length} alerts triggered for value ${value}`);
 
           // Create notifications for triggered alerts
           for (const alert of triggeredAlerts) {
@@ -70,10 +80,11 @@ class MetricNotificationService {
         }
       }
 
+      console.log(`[MetricNotification] Total notifications created: ${createdNotifications.length}`);
       return createdNotifications;
     } catch (error) {
       console.error('[MetricNotification] Error in evaluateAndNotify:', error);
-      throw error;
+      return [];
     }
   }
 
