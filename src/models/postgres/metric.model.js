@@ -60,6 +60,12 @@ class MetricModel {
       paramIndex++;
     }
 
+    if (filters.sensor_type) {
+      whereClause += ` AND sensor_type = $${paramIndex}`;
+      values.push(filters.sensor_type);
+      paramIndex++;
+    }
+
     if (filters.enabled !== undefined) {
       whereClause += ` AND enabled = $${paramIndex}`;
       values.push(filters.enabled);
