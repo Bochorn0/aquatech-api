@@ -11,6 +11,10 @@ import MetricAlertModel from '../models/postgres/metricAlert.model.js';
  * Evaluates sensor readings against metric alert rules and creates notifications
  */
 class MetricNotificationService {
+  // Cache to track recent notifications and prevent duplicates
+  // Key format: "userId_metricId_alertLevel"
+  static recentNotifications = new Map();
+  static DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
   /**
    * Evaluate a sensor reading against metric alerts
    * @param {Object} sensorData - Sensor reading data
@@ -183,6 +187,17 @@ class MetricNotificationService {
       // Create notification for each user
       for (const user of usersToNotify) {
         try {
+          // Check if we recently created a notification for this user/metric/level
+          const dedupKey = `${user._id}_${metric.id}_${level}`;
+          const now = Date.now();
+          const lastNotification = this.recentNotifications.get(dedupKey);
+          
+          if (lastNotification && (now - lastNotification) < this.DEDUP_WINDOW_MS) {
+            const minutesAgo = Math.round((now - lastNotification) / 1000 / 60);
+            console.log(`[MetricNotification] ⏭️  Skipping duplicate notification for user ${user.email} (last sent ${minutesAgo} min ago)`);
+            continue;
+          }
+
           const notification = new Notification({
             user: user._id,
             title: `Alerta: ${metric.metricName || metric.metric_type}`,
@@ -195,6 +210,14 @@ class MetricNotificationService {
 
           await notification.save();
           notifications.push(notification);
+
+          // Track this notification to prevent duplicates
+          this.recentNotifications.set(dedupKey, now);
+          
+          // Clean up old entries periodically (keep map size manageable)
+          if (this.recentNotifications.size > 1000) {
+            this.cleanupOldNotifications();
+          }
 
           console.log(`[MetricNotification] ✅ Dashboard notification created for user ${user.email} (${user._id})`);
         } catch (error) {
@@ -324,6 +347,27 @@ class MetricNotificationService {
     }
 
     return allNotifications;
+  }
+
+  /**
+   * Clean up old notification tracking entries
+   * Removes entries older than the deduplication window
+   */
+  static cleanupOldNotifications() {
+    const now = Date.now();
+    const cutoff = now - this.DEDUP_WINDOW_MS;
+    let removed = 0;
+
+    for (const [key, timestamp] of this.recentNotifications.entries()) {
+      if (timestamp < cutoff) {
+        this.recentNotifications.delete(key);
+        removed++;
+      }
+    }
+
+    if (removed > 0) {
+      console.log(`[MetricNotification] 🧹 Cleaned up ${removed} old notification tracking entries`);
+    }
   }
 }
 
