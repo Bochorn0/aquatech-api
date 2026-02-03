@@ -6,7 +6,8 @@
  * Run: node scripts/check-and-seed-metric-alerts.js
  */
 
-const { Pool } = require('pg');
+import pg from 'pg';
+const { Pool } = pg;
 
 // PostgreSQL connection
 const pool = new Pool({
