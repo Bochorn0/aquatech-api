@@ -20,7 +20,7 @@ async function checkMetrics() {
       metric_name,
       sensor_type,
       clientid,
-      puntoventaid,
+      punto_venta_id,
       enabled,
       preventivo_min,
       preventivo_max,
@@ -38,7 +38,7 @@ async function checkMetrics() {
     console.log(`    Name: ${metric.metric_name}`);
     console.log(`    Sensor Type: ${metric.sensor_type}`);
     console.log(`    Client ID: ${metric.clientid}`);
-    console.log(`    Punto Venta ID: ${metric.puntoventaid}`);
+    console.log(`    Punto Venta ID: ${metric.punto_venta_id}`);
     console.log(`    Preventivo: ${metric.preventivo_min} - ${metric.preventivo_max}`);
     console.log(`    Correctivo: ${metric.correctivo_min} - ${metric.correctivo_max}`);
     console.log('');
@@ -95,7 +95,7 @@ async function checkMetricsWithoutAlerts() {
       m.metric_name,
       m.sensor_type,
       m.clientid,
-      m.puntoventaid
+      m.punto_venta_id
     FROM metrics m
     LEFT JOIN metric_alerts ma ON ma.metric_id = m.id
     WHERE m.enabled = TRUE
