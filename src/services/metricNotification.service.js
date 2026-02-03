@@ -37,13 +37,14 @@ class MetricNotificationService {
       }
 
       // Get all metrics for this sensor type and client
+      // Note: We query by sensor_type (not metric_type) because sensor_type matches the incoming sensor data
       const metrics = await MetricModel.find({
         clientId,
-        metric_type: type,
+        sensor_type: type,
         enabled: true
       });
 
-      console.log(`[MetricNotification] Found ${metrics?.length || 0} metrics for type: ${type}, client: ${clientId}`);
+      console.log(`[MetricNotification] Found ${metrics?.length || 0} metrics for sensor_type: ${type}, client: ${clientId}`);
 
       if (!metrics || metrics.length === 0) {
         return [];
