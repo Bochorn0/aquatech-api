@@ -184,6 +184,9 @@ class MetricNotificationService {
 
       console.log(`[MetricNotification] Found ${usersToNotify.length} users to notify`);
 
+      // Generate notification URL
+      const notificationUrl = this.generateNotificationUrl(metric);
+
       // Create notification for each user
       for (const user of usersToNotify) {
         try {
@@ -200,12 +203,13 @@ class MetricNotificationService {
 
           const notification = new Notification({
             user: user._id,
-            title: `Alerta: ${metric.metricName || metric.metric_type}`,
+            title: `Alerta: ${metric.metricName || metric.metric_name || metric.metric_type}`,
             description: message,
             avatarUrl: null,
             type: notificationType, // 'alert' or 'warning'
             postedAt: new Date(),
-            isUnRead: true
+            isUnRead: true,
+            url: notificationUrl
           });
 
           await notification.save();
@@ -219,7 +223,7 @@ class MetricNotificationService {
             this.cleanupOldNotifications();
           }
 
-          console.log(`[MetricNotification] ✅ Dashboard notification created for user ${user.email} (${user._id})`);
+          console.log(`[MetricNotification] ✅ Dashboard notification created for user ${user.email} (${user._id}) - URL: ${notificationUrl || 'none'}`);
         } catch (error) {
           console.error(`[MetricNotification] Error creating notification for user ${user._id}:`, error);
         }
@@ -284,14 +288,27 @@ class MetricNotificationService {
    * @returns {String} Alert message
    */
   static generateDefaultMessage(metric, sensorData, level) {
-    const metricName = metric.metricName || metric.metric_type || 'Sensor';
+    const metricName = metric.metricName || metric.metric_name || metric.metric_type || 'Sensor';
     const location = sensorData.codigoTienda ? ` en ${sensorData.codigoTienda}` : '';
     const value = sensorData.value !== null ? ` Valor: ${sensorData.value.toFixed(2)}` : '';
-    const unit = metric.unit || '';
+    const unit = metric.sensorUnit || metric.sensor_unit || metric.unit || '';
     
     const levelText = level === 'critico' ? 'CRÍTICO' : 'PREVENTIVO';
     
     return `⚠️ Alerta ${levelText}: ${metricName}${location}.${value}${unit ? ' ' + unit : ''}`;
+  }
+
+  /**
+   * Generate notification URL for punto venta detail page
+   * @param {Object} metric - Metric configuration
+   * @returns {String} URL to punto venta detail page
+   */
+  static generateNotificationUrl(metric) {
+    const puntoVentaId = metric.puntoVentaId || metric.punto_venta_id;
+    if (puntoVentaId) {
+      return `http://www.lcc.com.mx/PuntoVenta/${puntoVentaId}`;
+    }
+    return null;
   }
 
   /**

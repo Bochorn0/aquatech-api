@@ -32,6 +32,10 @@ const NotificationSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    url: {
+      type: String,
+      default: null,
+    },
   },
   { timestamps: true } // Automatically adds `createdAt` and `updatedAt` fields
 );
