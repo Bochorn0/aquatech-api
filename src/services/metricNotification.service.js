@@ -323,14 +323,9 @@ class MetricNotificationService {
       // Fallback: notify all active users of this client
       if (clientId) {
         console.log(`[MetricNotification] Looking for users by clientId: ${clientId}`);
-        // clientId from PostgreSQL needs to match either:
-        // - postgresClientId field in MongoDB User
-        // - or cliente._id if it's the same
+        // clientId from PostgreSQL needs to match postgresClientId field in MongoDB User
         const users = await User.find({
-          $or: [
-            { postgresClientId: String(clientId) },
-            { cliente: clientId }
-          ],
+          postgresClientId: String(clientId),
           ...query
         }).limit(10); // Limit to prevent spam
 
@@ -342,19 +337,26 @@ class MetricNotificationService {
 
       // Last resort: notify admin users
       console.log(`[MetricNotification] Falling back to admin users`);
-      const Role = User.model('Role');
-      const adminRole = await Role.findOne({ name: 'Admin' });
-      if (adminRole) {
-        const adminUsers = await User.find({
-          role: adminRole._id,
-          ...query
-        }).limit(5);
+      try {
+        const Role = User.model('Role');
+        const adminRole = await Role.findOne({ name: 'Admin' });
+        if (adminRole) {
+          const adminUsers = await User.find({
+            role: adminRole._id,
+            ...query
+          }).limit(5);
 
-        console.log(`[MetricNotification] Found ${adminUsers.length} admin users`);
-        return adminUsers || [];
+          console.log(`[MetricNotification] Found ${adminUsers.length} admin users`);
+          if (adminUsers && adminUsers.length > 0) {
+            return adminUsers;
+          }
+        }
+      } catch (roleError) {
+        console.error(`[MetricNotification] Error finding admin users:`, roleError);
       }
 
       console.log(`[MetricNotification] ⚠️ No users found to notify!`);
+      console.log(`[MetricNotification] Summary - alert.correo: ${alert.correo}, alert.usuario: ${alert.usuario}, clientId: ${clientId}`);
       return [];
     } catch (error) {
       console.error('[MetricNotification] Error getting users to notify:', error);

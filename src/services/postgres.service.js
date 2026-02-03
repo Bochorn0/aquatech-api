@@ -61,6 +61,20 @@ class PostgresService {
         }
       }
 
+      // Get clientId from puntoVenta if not provided in context
+      let clientId = context.cliente_id || mqttData.cliente_id || null;
+      if (!clientId && codigoTienda) {
+        try {
+          const puntoVenta = await PuntoVentaModel.findByCode(codigoTienda);
+          if (puntoVenta && puntoVenta.clientId) {
+            clientId = puntoVenta.clientId;
+            console.log(`[PostgresService] ✅ ClientId ${clientId} obtenido de puntoVenta para ${codigoTienda}`);
+          }
+        } catch (error) {
+          console.warn(`[PostgresService] ⚠️  Error getting clientId from puntoVenta:`, error.message);
+        }
+      }
+
       // Map MQTT data to sensores table structure
       // This is a flexible mapping - adjust based on your actual MQTT payload structure
       
@@ -79,7 +93,7 @@ class PostgresService {
         codigoTienda: context.codigo_tienda || mqttData.codigo_tienda || null,
         resourceId: context.equipo_id || mqttData.equipo_id || mqttData.gateway_id || null,
         resourceType: context.resource_type || this.detectResourceType(context),
-        clientId: context.cliente_id || mqttData.cliente_id || null,
+        clientId: clientId,
         ownerId: context.owner_id || mqttData.owner_id || null,
         
         // Status and metadata
@@ -174,6 +188,20 @@ class PostgresService {
         } catch (error) {
           // Log error but don't fail sensor data save
           console.error(`[PostgresService] ⚠️  Error ensuring puntoVenta for ${codigoTienda}:`, error.message);
+        }
+      }
+
+      // Get clientId from puntoVenta if not provided in context
+      let clientId = context.cliente_id || mqttData.cliente_id || null;
+      if (!clientId && codigoTienda) {
+        try {
+          const puntoVenta = await PuntoVentaModel.findByCode(codigoTienda);
+          if (puntoVenta && puntoVenta.clientId) {
+            clientId = puntoVenta.clientId;
+            console.log(`[PostgresService] ✅ ClientId ${clientId} obtenido de puntoVenta para ${codigoTienda}`);
+          }
+        } catch (error) {
+          console.warn(`[PostgresService] ⚠️  Error getting clientId from puntoVenta:`, error.message);
         }
       }
 
@@ -303,7 +331,7 @@ class PostgresService {
             codigoTienda: context.codigo_tienda || mqttData.codigo_tienda || null,
             resourceId: context.equipo_id || mqttData.equipo_id || mqttData.gateway_id || null,
             resourceType: context.resource_type || this.detectResourceType(context),
-            clientId: context.cliente_id || mqttData.cliente_id || null,
+            clientId: clientId, // Use the clientId fetched from puntoVenta
             ownerId: context.owner_id || mqttData.owner_id || null,
             status: 'active',
             label: context.label || null,
