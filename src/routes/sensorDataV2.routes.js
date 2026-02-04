@@ -3,6 +3,7 @@
 
 import express from 'express';
 import {
+  getMainDashboardV2Metrics,
   getOsmosisSystemByPuntoVenta,
   getPuntoVentaDetalleV2,
   getPuntosVentaV2,
@@ -11,6 +12,13 @@ import {
 } from '../controllers/sensorDataV2.controller.js';
 
 const router = express.Router();
+
+/**
+ * @route   GET /api/v2.0/dashboard/global-metrics
+ * @desc    Global summary for Main Dashboard V2 (production sum, rechazo sum, eficiencia avg, nivel by level)
+ * @access  Private
+ */
+router.get('/dashboard/global-metrics', getMainDashboardV2Metrics);
 
 /**
  * @route   GET /api/v2.0/sensors/osmosis

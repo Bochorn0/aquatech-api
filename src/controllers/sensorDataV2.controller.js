@@ -1947,3 +1947,36 @@ function getUnitForSensor(sensorName) {
   return '';
 }
 
+/**
+ * Get global metrics for Main Dashboard V2 (summary of all puntos de venta).
+ * Returns aggregated production sum, rechazo sum, eficiencia avg, nivel avgs,
+ * and counts by level (normal/preventivo/critico) for design and later real data.
+ * @route   GET /api/v2.0/dashboard/global-metrics
+ * @access  Private
+ */
+export const getMainDashboardV2Metrics = async (req, res) => {
+  try {
+    // TODO: Replace with real aggregation from sensores / metric rules per PV
+    // For now return mock data for design
+    const mock = {
+      puntosVentaCount: 4,
+      productionSum: 125.5,
+      rechazoSum: 45.2,
+      eficienciaAvg: 72.3,
+      nivelPurificadaAvg: 65,
+      nivelCrudaAvg: 70,
+      byLevel: {
+        nivelPurificada: { normal: 2, preventivo: 1, critico: 1 },
+        nivelCruda: { normal: 3, preventivo: 0, critico: 1 },
+      },
+    };
+    res.json(mock);
+  } catch (error) {
+    console.error('[getMainDashboardV2Metrics]', error);
+    res.status(500).json({
+      message: 'Error al obtener métricas globales del dashboard',
+      error: error.message,
+    });
+  }
+};
+
