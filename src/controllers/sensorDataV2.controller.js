@@ -2135,6 +2135,7 @@ export const getMainDashboardV2Metrics = async (req, res) => {
       nivelCruda: { normal: 0, preventivo: 0, critico: 0 },
     };
     const debugPerPv = []; // Temporary: remove after debugging
+    const perPvMetrics = []; // Per-PV values for nivel/produccion/rechazo/eficiencia charts
 
     // 3–4. Map every PV: evaluate sensors against metrics, push into aggregates
     for (const pv of puntosPG) {
@@ -2181,6 +2182,10 @@ export const getMainDashboardV2Metrics = async (req, res) => {
         byLevel.nivelCruda.normal += 1;
       }
 
+      const produccion = sensors.flujo_produccion ?? null;
+      const rechazo = sensors.flujo_rechazo ?? null;
+      const eficiencia = sensors.eficiencia ?? null;
+
       debugPerPv.push({
         pvId,
         name: pv.name,
@@ -2193,6 +2198,17 @@ export const getMainDashboardV2Metrics = async (req, res) => {
         hasCrudaMetric: !!crudaMetric,
         crudaRules: crudaMetric?.rules ?? null,
         nivelCrudaLevel: nivelCrudaLevel ?? (crudaMetric ? 'critico (no data)' : 'normal'),
+      });
+
+      perPvMetrics.push({
+        pvId: String(pvId),
+        name: pv.name || `PV ${pvId}`,
+        codigo,
+        nivelPurificada: sensors.nivelPurificada != null ? Math.round(sensors.nivelPurificada * 10) / 10 : null,
+        nivelCruda: sensors.nivelCruda != null ? Math.round(sensors.nivelCruda * 10) / 10 : null,
+        produccion: produccion != null ? Math.round(produccion * 10) / 10 : null,
+        rechazo: rechazo != null ? Math.round(rechazo * 10) / 10 : null,
+        eficiencia: eficiencia != null ? Math.round(eficiencia * 10) / 10 : null,
       });
     }
 
@@ -2208,6 +2224,7 @@ export const getMainDashboardV2Metrics = async (req, res) => {
       nivelPurificadaAvg: nivelPurificadaAvg != null ? Math.round(nivelPurificadaAvg * 10) / 10 : null,
       nivelCrudaAvg: nivelCrudaAvg != null ? Math.round(nivelCrudaAvg * 10) / 10 : null,
       byLevel,
+      perPvMetrics,
       debug: {
         sensorsCodigos: [...perPvSensors.keys()],
         metricsPvIds: [...metricsByPv.keys()],
