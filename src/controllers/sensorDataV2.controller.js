@@ -1982,13 +1982,13 @@ function evaluateLevelFromRules(value, rules) {
   return 'normal'; // Value outside all rules: default normal
 }
 
-/** Check if metric applies to nivel purificada (metric_type, sensor_type, or metric_name) */
+/** Check if metric applies to nivel purificada (water level, not flow). Do not match flujo_produccion so we use level rules, not production rules. */
 function isNivelPurificadaMetric(m) {
   const mt = (m.metric_type || '').toLowerCase().replace(/\s+/g, '_');
   const st = (m.sensor_type || '').toLowerCase();
   const mn = (m.metric_name || '').toLowerCase();
   return mt === 'nivel_agua_purificada' || (mn.includes('purificada') && mn.includes('nivel'))
-    || st === 'nivel_purificada' || st === 'electronivel_purificada' || st === 'level_purificada' || st === 'flujo_produccion';
+    || st === 'nivel_purificada' || st === 'electronivel_purificada' || st === 'level_purificada';
 }
 
 /** Check if metric applies to nivel cruda (metric_type, sensor_type, or metric_name) */
