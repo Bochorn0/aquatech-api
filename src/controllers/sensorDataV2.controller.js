@@ -2044,6 +2044,7 @@ export const getMainDashboardV2Metrics = async (req, res) => {
         COALESCE(timestamp, createdat) DESC NULLS LAST
     `;
     const { rows: latestRows } = await query(latestSensorsQuery);
+    console.log(`[getMainDashboardV2Metrics] Sensores raw rows: ${latestRows?.length ?? 0}`);
 
     const perPvSensors = new Map();
     for (const row of latestRows) {
@@ -2076,6 +2077,16 @@ export const getMainDashboardV2Metrics = async (req, res) => {
       }
     }
 
+    for (const [codigo, sensors] of perPvSensors) {
+      console.log(`[getMainDashboardV2Metrics] Sensors by codigo ${codigo}:`, {
+        flujo_produccion: sensors.flujo_produccion,
+        flujo_rechazo: sensors.flujo_rechazo,
+        eficiencia: sensors.eficiencia,
+        nivelPurificada: sensors.nivelPurificada,
+        nivelCruda: sensors.nivelCruda,
+      });
+    }
+
     // 2. Get metrics by punto venta (all enabled metrics for all PVs in one query)
     const metricsByPv = new Map();
     const pvIds = puntosPG.map((pv) => parseInt(pv.id, 10)).filter((id) => !isNaN(id));
@@ -2094,6 +2105,12 @@ export const getMainDashboardV2Metrics = async (req, res) => {
         }
       } catch (err) {
         console.warn('[getMainDashboardV2Metrics] Error fetching metrics:', err.message);
+      }
+    }
+    for (const [pvId, metrics] of metricsByPv) {
+      const nivelMetrics = metrics.filter((m) => isNivelPurificadaMetric(m) || isNivelCrudaMetric(m));
+      if (nivelMetrics.length > 0) {
+        console.log(`[getMainDashboardV2Metrics] Metrics for PV ${pvId}:`, nivelMetrics.map((m) => ({ metric_type: m.metric_type, sensor_type: m.sensor_type, rulesCount: m.rules?.length ?? 0 })));
       }
     }
 
@@ -2115,6 +2132,8 @@ export const getMainDashboardV2Metrics = async (req, res) => {
       const pvId = parseInt(pv.id, 10);
       const sensors = perPvSensors.get(codigo) || {};
       const metrics = metricsByPv.get(pvId) || [];
+      const hasSensors = Object.keys(sensors).length > 0;
+      console.log(`[getMainDashboardV2Metrics] PV ${pvId} "${pv.name}" codigo=${codigo} sensorsMatch=${hasSensors} nivelPurificada=${sensors.nivelPurificada ?? '—'} nivelCruda=${sensors.nivelCruda ?? '—'} metricsCount=${metrics.length}`);
 
       // Production, rechazo, eficiencia: sum/avg from sensors (no metric evaluation needed)
       if (sensors.flujo_produccion != null) productionSum += sensors.flujo_produccion;
