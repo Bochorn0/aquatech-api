@@ -1960,14 +1960,21 @@ function evaluateLevelFromRules(value, rules) {
     const inRange = (min === null || v >= min) && (max === null || v <= max);
     if (!inRange) continue;
 
+    // Prefer explicit severity (stored in metrics, no label parsing)
+    const s = (rule.severity || '').toLowerCase();
+    if (s === 'critico') return 'critico';
+    if (s === 'preventivo') return 'preventivo';
+    if (s === 'normal') return 'normal';
+
+    // Fallback for legacy rules without severity: infer from label
     const label = (rule.label || '').toLowerCase();
-    if (label.includes('critico') || label.includes('crítico') || label.includes('correctivo') || label.includes('danger') || label.includes('peligro')) {
+    if (label.includes('critico') || label.includes('crítico') || label.includes('correctivo') || label.includes('danger') || label.includes('peligro') || label.includes('muy bajo') || label.includes('urgente')) {
       return 'critico';
     }
-    if (label.includes('preventivo') || label.includes('warning') || label.includes('advertencia') || label.includes('precaucion')) {
+    if (label.includes('preventivo') || label.includes('warning') || label.includes('advertencia') || label.includes('precaucion') || label.includes('bajo') || label.includes('nivel bajo')) {
       return 'preventivo';
     }
-    if (label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo')) {
+    if (label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo') || label.includes('buen') || label.includes('buen estado')) {
       return 'normal';
     }
     return 'preventivo';

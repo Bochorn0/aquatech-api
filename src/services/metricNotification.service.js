@@ -238,6 +238,7 @@ class MetricNotificationService {
 
   /**
    * Evaluate sensor value against metric rules to determine level (preventivo/critico)
+   * Uses rule.severity when present; falls back to label parsing for legacy rules.
    * @param {Number} value - Sensor value
    * @param {Object} metric - Metric with rules array
    * @returns {string} 'preventivo' | 'critico' | null (null = normal, no alert)
@@ -255,14 +256,21 @@ class MetricNotificationService {
       const inRange = (min === null || numValue >= min) && (max === null || numValue <= max);
       if (!inRange) continue;
 
+      // Prefer explicit severity (stored in metrics, no label parsing)
+      const s = (rule.severity || '').toLowerCase();
+      if (s === 'critico') return 'critico';
+      if (s === 'preventivo') return 'preventivo';
+      if (s === 'normal') return null;
+
+      // Fallback for legacy rules without severity: infer from label
       const label = (rule.label || '').toLowerCase();
-      if (label.includes('critico') || label.includes('crítico') || label.includes('critical') || label.includes('danger') || label.includes('peligro')) {
+      if (label.includes('critico') || label.includes('crítico') || label.includes('critical') || label.includes('danger') || label.includes('peligro') || label.includes('muy bajo') || label.includes('urgente')) {
         return 'critico';
       }
-      if (label.includes('preventivo') || label.includes('warning') || label.includes('advertencia') || label.includes('precaucion')) {
+      if (label.includes('preventivo') || label.includes('warning') || label.includes('advertencia') || label.includes('precaucion') || label.includes('bajo') || label.includes('nivel bajo')) {
         return 'preventivo';
       }
-      if (label.includes('normal') || label.includes('ok')) {
+      if (label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo') || label.includes('buen') || label.includes('buen estado')) {
         return null; // Normal - no alert
       }
       return 'preventivo'; // Unknown label, treat as warning
