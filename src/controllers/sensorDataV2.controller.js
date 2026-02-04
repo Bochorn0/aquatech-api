@@ -1950,27 +1950,128 @@ function getUnitForSensor(sensorName) {
 /**
  * Get global metrics for Main Dashboard V2 (summary of all puntos de venta).
  * Returns aggregated production sum, rechazo sum, eficiencia avg, nivel avgs,
- * and counts by level (normal/preventivo/critico) for design and later real data.
+ * and counts by level (normal/preventivo/critico) from real sensores data.
  * @route   GET /api/v2.0/dashboard/global-metrics
  * @access  Private
  */
 export const getMainDashboardV2Metrics = async (req, res) => {
   try {
-    // TODO: Replace with real aggregation from sensores / metric rules per PV
-    // For now return mock data for design
-    const mock = {
-      puntosVentaCount: 4,
-      productionSum: 125.5,
-      rechazoSum: 45.2,
-      eficienciaAvg: 72.3,
-      nivelPurificadaAvg: 65,
-      nivelCrudaAvg: 70,
-      byLevel: {
-        nivelPurificada: { normal: 2, preventivo: 1, critico: 1 },
-        nivelCruda: { normal: 3, preventivo: 0, critico: 1 },
-      },
+    const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+    const puntosPG = await PuntoVentaModel.find({}, { limit: 1000, offset: 0 });
+    const puntosVentaCount = puntosPG.length;
+
+    if (puntosVentaCount === 0) {
+      return res.json({
+        puntosVentaCount: 0,
+        productionSum: 0,
+        rechazoSum: 0,
+        eficienciaAvg: null,
+        nivelPurificadaAvg: null,
+        nivelCrudaAvg: null,
+        byLevel: {
+          nivelPurificada: { normal: 0, preventivo: 0, critico: 0 },
+          nivelCruda: { normal: 0, preventivo: 0, critico: 0 },
+        },
+      });
+    }
+
+    // Get latest sensor value per codigotienda per type (DISTINCT ON)
+    const latestSensorsQuery = `
+      SELECT DISTINCT ON (UPPER(TRIM(codigotienda)), type)
+        UPPER(TRIM(codigotienda)) AS codigotienda,
+        type,
+        value
+      FROM sensores
+      WHERE type IN (
+        'flujo_produccion', 'flujo_rechazo', 'eficiencia',
+        'electronivel_purificada', 'electronivel_cruda',
+        'nivel_purificada', 'nivel_cruda'
+      )
+        AND codigotienda IS NOT NULL
+        AND TRIM(codigotienda) != ''
+      ORDER BY UPPER(TRIM(codigotienda)), type,
+        COALESCE(timestamp, createdat) DESC NULLS LAST
+    `;
+    const { rows: latestRows } = await query(latestSensorsQuery);
+
+    // Build map: codigotienda -> { flujo_produccion, flujo_rechazo, eficiencia, nivelPurificada, nivelCruda }
+    const perPv = new Map();
+    for (const row of latestRows) {
+      const codigo = (row.codigotienda || '').toString().trim().toUpperCase();
+      if (!codigo) continue;
+      if (!perPv.has(codigo)) perPv.set(codigo, {});
+      const v = parseFloat(row.value);
+      if (Number.isNaN(v)) continue;
+      const type = row.type;
+      if (type === 'flujo_produccion') perPv.get(codigo).flujo_produccion = v;
+      else if (type === 'flujo_rechazo') perPv.get(codigo).flujo_rechazo = v;
+      else if (type === 'eficiencia') perPv.get(codigo).eficiencia = v;
+      else if (type === 'electronivel_purificada' || type === 'nivel_purificada') {
+        const p = perPv.get(codigo);
+        if (p.nivelPurificada == null || type === 'electronivel_purificada') p.nivelPurificada = v;
+      } else if (type === 'electronivel_cruda' || type === 'nivel_cruda') {
+        const p = perPv.get(codigo);
+        if (p.nivelCruda == null || type === 'electronivel_cruda') p.nivelCruda = v;
+      }
+    }
+
+    let productionSum = 0;
+    let rechazoSum = 0;
+    const eficiencias = [];
+    const nivelesPurificada = [];
+    const nivelesCruda = [];
+    const byLevel = {
+      nivelPurificada: { normal: 0, preventivo: 0, critico: 0 },
+      nivelCruda: { normal: 0, preventivo: 0, critico: 0 },
     };
-    res.json(mock);
+
+    const classifyLevel = (val) => {
+      if (val == null || Number.isNaN(val)) return 'critico';
+      if (val >= 50) return 'normal';
+      if (val >= 20) return 'preventivo';
+      return 'critico';
+    };
+
+    for (const pv of puntosPG) {
+      const codigo = (pv.codigo_tienda || pv.code || '').toString().trim().toUpperCase();
+      if (!codigo) continue;
+      const data = perPv.get(codigo) || {};
+      if (data.flujo_produccion != null) productionSum += data.flujo_produccion;
+      if (data.flujo_rechazo != null) rechazoSum += data.flujo_rechazo;
+      if (data.eficiencia != null) eficiencias.push(data.eficiencia);
+      if (data.nivelPurificada != null) {
+        nivelesPurificada.push(data.nivelPurificada);
+        byLevel.nivelPurificada[classifyLevel(data.nivelPurificada)] += 1;
+      } else {
+        byLevel.nivelPurificada.critico += 1;
+      }
+      if (data.nivelCruda != null) {
+        nivelesCruda.push(data.nivelCruda);
+        byLevel.nivelCruda[classifyLevel(data.nivelCruda)] += 1;
+      } else {
+        byLevel.nivelCruda.critico += 1;
+      }
+    }
+
+    const eficienciaAvg = eficiencias.length > 0
+      ? eficiencias.reduce((a, b) => a + b, 0) / eficiencias.length
+      : null;
+    const nivelPurificadaAvg = nivelesPurificada.length > 0
+      ? nivelesPurificada.reduce((a, b) => a + b, 0) / nivelesPurificada.length
+      : null;
+    const nivelCrudaAvg = nivelesCruda.length > 0
+      ? nivelesCruda.reduce((a, b) => a + b, 0) / nivelesCruda.length
+      : null;
+
+    res.json({
+      puntosVentaCount,
+      productionSum: Math.round(productionSum * 10) / 10,
+      rechazoSum: Math.round(rechazoSum * 10) / 10,
+      eficienciaAvg: eficienciaAvg != null ? Math.round(eficienciaAvg * 10) / 10 : null,
+      nivelPurificadaAvg: nivelPurificadaAvg != null ? Math.round(nivelPurificadaAvg * 10) / 10 : null,
+      nivelCrudaAvg: nivelCrudaAvg != null ? Math.round(nivelCrudaAvg * 10) / 10 : null,
+      byLevel,
+    });
   } catch (error) {
     console.error('[getMainDashboardV2Metrics]', error);
     res.status(500).json({
