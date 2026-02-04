@@ -1947,16 +1947,61 @@ function getUnitForSensor(sensorName) {
   return '';
 }
 
+/** Evaluate sensor value against metric rules; returns 'normal' | 'preventivo' | 'critico' */
+function evaluateLevelFromRules(value, rules) {
+  if (value == null || Number.isNaN(Number(value))) return 'critico';
+  const rulesArr = Array.isArray(rules) ? rules : [];
+  if (rulesArr.length === 0) return 'normal';
+
+  const v = Number(value);
+  for (const rule of rulesArr) {
+    const min = rule.min != null ? Number(rule.min) : null;
+    const max = rule.max != null ? Number(rule.max) : null;
+    const inRange = (min === null || v >= min) && (max === null || v <= max);
+    if (!inRange) continue;
+
+    const label = (rule.label || '').toLowerCase();
+    if (label.includes('critico') || label.includes('crítico') || label.includes('correctivo') || label.includes('danger') || label.includes('peligro')) {
+      return 'critico';
+    }
+    if (label.includes('preventivo') || label.includes('warning') || label.includes('advertencia') || label.includes('precaucion')) {
+      return 'preventivo';
+    }
+    if (label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo')) {
+      return 'normal';
+    }
+    return 'preventivo';
+  }
+  return 'normal'; // Value outside all rules: default normal
+}
+
+/** Check if metric applies to nivel purificada (metric_type or sensor_type) */
+function isNivelPurificadaMetric(m) {
+  const mt = (m.metric_type || '').toLowerCase();
+  const st = (m.sensor_type || '').toLowerCase();
+  return mt === 'nivel_agua_purificada' || st === 'nivel_purificada' || st === 'electronivel_purificada' || st === 'level_purificada' || st === 'flujo_produccion';
+}
+
+/** Check if metric applies to nivel cruda */
+function isNivelCrudaMetric(m) {
+  const mt = (m.metric_type || '').toLowerCase();
+  const st = (m.sensor_type || '').toLowerCase();
+  return mt === 'nivel_agua_cruda' || st === 'nivel_cruda' || st === 'electronivel_cruda' || st === 'level_cruda' || st === 'caudal_cruda';
+}
+
 /**
  * Get global metrics for Main Dashboard V2 (summary of all puntos de venta).
- * Returns aggregated production sum, rechazo sum, eficiencia avg, nivel avgs,
- * and counts by level (normal/preventivo/critico) from real sensores data.
+ * Flow: 1) Get all PVs with latest sensor data 2) Get metrics by punto venta
+ * 3) Map PV sensors evaluating metrics 4) Aggregate for dashboard 5) Return
  * @route   GET /api/v2.0/dashboard/global-metrics
  * @access  Private
  */
 export const getMainDashboardV2Metrics = async (req, res) => {
   try {
     const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+    const MetricModel = (await import('../models/postgres/metric.model.js')).default;
+
+    // 1. Get all puntos venta
     const puntosPG = await PuntoVentaModel.find({}, { limit: 1000, offset: 0 });
     const puntosVentaCount = puntosPG.length;
 
@@ -1975,8 +2020,7 @@ export const getMainDashboardV2Metrics = async (req, res) => {
       });
     }
 
-    // Get latest sensor value per codigotienda per type (DISTINCT ON)
-    // Include all known nivel types: electronivel_*, level_*, nivel_* (percentage preferred over absolute mm)
+    // 1b. Get latest sensor data per codigotienda
     const latestSensorsQuery = `
       SELECT DISTINCT ON (UPPER(TRIM(codigotienda)), COALESCE(NULLIF(TRIM(type), ''), name))
         UPPER(TRIM(codigotienda)) AS codigotienda,
@@ -2001,40 +2045,55 @@ export const getMainDashboardV2Metrics = async (req, res) => {
     `;
     const { rows: latestRows } = await query(latestSensorsQuery);
 
-    // Build map: codigotienda -> { flujo_produccion, flujo_rechazo, eficiencia, nivelPurificada, nivelCruda }
-    // For nivel: prefer percentage (electronivel_*, level_*); use nivel_* only if 0-100 (could be %)
-    const perPv = new Map();
+    const perPvSensors = new Map();
     for (const row of latestRows) {
       const codigo = (row.codigotienda || '').toString().trim().toUpperCase();
       if (!codigo) continue;
-      if (!perPv.has(codigo)) perPv.set(codigo, {});
+      if (!perPvSensors.has(codigo)) perPvSensors.set(codigo, {});
       const v = parseFloat(row.value);
       if (Number.isNaN(v)) continue;
       const type = (row.type || '').toString().trim();
       const name = (row.name || '').toString().trim();
-      if (type === 'flujo_produccion') perPv.get(codigo).flujo_produccion = v;
-      else if (type === 'flujo_rechazo') perPv.get(codigo).flujo_rechazo = v;
-      else if (type === 'eficiencia') perPv.get(codigo).eficiencia = v;
-      // Nivel purificada (percentage 0-100): electronivel_purificada, level_purificada first; nivel_purificada if 0-100; name fallback
+      if (type === 'flujo_produccion') perPvSensors.get(codigo).flujo_produccion = v;
+      else if (type === 'flujo_rechazo') perPvSensors.get(codigo).flujo_rechazo = v;
+      else if (type === 'eficiencia') perPvSensors.get(codigo).eficiencia = v;
       else if (type === 'electronivel_purificada' || type === 'level_purificada' || name === 'Nivel Purificada') {
-        const p = perPv.get(codigo);
+        const p = perPvSensors.get(codigo);
         if (p.nivelPurificada == null) p.nivelPurificada = v;
       } else if (type === 'nivel_purificada' && v >= 0 && v <= 100) {
-        const p = perPv.get(codigo);
+        const p = perPvSensors.get(codigo);
         if (p.nivelPurificada == null) p.nivelPurificada = v;
-      }
-      // Nivel cruda (percentage 0-100): electronivel_cruda, level_cruda, electronivel_recuperada first; nivel_cruda if 0-100; name fallback
-      else if (type === 'electronivel_cruda' || type === 'level_cruda' || type === 'electronivel_recuperada' || name === 'Nivel Cruda (%)' || name === 'Nivel Recuperada') {
-        const p = perPv.get(codigo);
+      } else if (type === 'electronivel_cruda' || type === 'level_cruda' || type === 'electronivel_recuperada' || name === 'Nivel Cruda (%)' || name === 'Nivel Recuperada') {
+        const p = perPvSensors.get(codigo);
         if (p.nivelCruda == null) p.nivelCruda = v;
       } else if (type === 'nivel_cruda' && v >= 0 && v <= 100) {
-        const p = perPv.get(codigo);
+        const p = perPvSensors.get(codigo);
         if (p.nivelCruda == null) p.nivelCruda = v;
       } else if (type === 'liquid_level_percent' || type === 'water_level') {
-        // Generic level - apply to purificada if purificada missing (common in single-tank systems)
-        const p = perPv.get(codigo);
+        const p = perPvSensors.get(codigo);
         if (p.nivelPurificada == null) p.nivelPurificada = v;
         if (p.nivelCruda == null) p.nivelCruda = v;
+      }
+    }
+
+    // 2. Get metrics by punto venta (all enabled metrics for all PVs in one query)
+    const metricsByPv = new Map();
+    const pvIds = puntosPG.map((pv) => parseInt(pv.id, 10)).filter((id) => !isNaN(id));
+    if (pvIds.length > 0) {
+      try {
+        const { rows: metricsRows } = await query(
+          `SELECT * FROM metrics WHERE enabled = true AND punto_venta_id = ANY($1::int[]) ORDER BY punto_venta_id, display_order ASC, createdat DESC`,
+          [pvIds]
+        );
+        for (const row of metricsRows || []) {
+          const pvId = row.punto_venta_id ? parseInt(row.punto_venta_id, 10) : null;
+          if (pvId == null) continue;
+          const metric = MetricModel.parseRow ? MetricModel.parseRow(row) : row;
+          if (!metricsByPv.has(pvId)) metricsByPv.set(pvId, []);
+          metricsByPv.get(pvId).push(metric);
+        }
+      } catch (err) {
+        console.warn('[getMainDashboardV2Metrics] Error fetching metrics:', err.message);
       }
     }
 
@@ -2048,76 +2107,47 @@ export const getMainDashboardV2Metrics = async (req, res) => {
       nivelCruda: { normal: 0, preventivo: 0, critico: 0 },
     };
 
-    // Get punto_venta_ids that have metrics for nivel purificada/cruda (byLevel only counts PVs with metrics)
-    const pvIdsWithNivelPurificadaMetric = new Set();
-    const pvIdsWithNivelCrudaMetric = new Set();
-    try {
-      const metricsPurifResult = await query(
-        `SELECT DISTINCT punto_venta_id FROM metrics WHERE enabled = true AND punto_venta_id IS NOT NULL
-         AND (metric_type = 'nivel_agua_purificada' OR sensor_type IN ('nivel_purificada', 'electronivel_purificada', 'level_purificada', 'flujo_produccion'))`
-      );
-      (metricsPurifResult.rows || []).forEach((r) => { if (r.punto_venta_id) pvIdsWithNivelPurificadaMetric.add(parseInt(r.punto_venta_id, 10)); });
-      const metricsCrudaResult = await query(
-        `SELECT DISTINCT punto_venta_id FROM metrics WHERE enabled = true AND punto_venta_id IS NOT NULL
-         AND (metric_type = 'nivel_agua_cruda' OR sensor_type IN ('nivel_cruda', 'electronivel_cruda', 'level_cruda', 'caudal_cruda'))`
-      );
-      (metricsCrudaResult.rows || []).forEach((r) => { if (r.punto_venta_id) pvIdsWithNivelCrudaMetric.add(parseInt(r.punto_venta_id, 10)); });
-    } catch (err) {
-      console.warn('[getMainDashboardV2Metrics] Could not fetch metrics for byLevel:', err.message);
-    }
-
-    const classifyLevel = (val) => {
-      if (val == null || Number.isNaN(val)) return 'critico';
-      if (val >= 50) return 'normal';
-      if (val >= 20) return 'preventivo';
-      return 'critico';
-    };
-
+    // 3–4. Map every PV: evaluate sensors against metrics, push into aggregates
     for (const pv of puntosPG) {
       const codigo = (pv.codigo_tienda || pv.code || '').toString().trim().toUpperCase();
       if (!codigo) continue;
       const pvId = parseInt(pv.id, 10);
-      const data = perPv.get(codigo) || {};
-      if (data.flujo_produccion != null) productionSum += data.flujo_produccion;
-      if (data.flujo_rechazo != null) rechazoSum += data.flujo_rechazo;
-      if (data.eficiencia != null) eficiencias.push(data.eficiencia);
-      // Nivel purificada: only count in byLevel if PV has metrics; otherwise default to normal
-      if (data.nivelPurificada != null) {
-        nivelesPurificada.push(data.nivelPurificada);
-        if (pvIdsWithNivelPurificadaMetric.has(pvId)) {
-          byLevel.nivelPurificada[classifyLevel(data.nivelPurificada)] += 1;
-        } else {
-          byLevel.nivelPurificada.normal += 1; // no metrics = default normal
-        }
-      } else if (pvIdsWithNivelPurificadaMetric.has(pvId)) {
+      const sensors = perPvSensors.get(codigo) || {};
+      const metrics = metricsByPv.get(pvId) || [];
+
+      // Production, rechazo, eficiencia: sum/avg from sensors (no metric evaluation needed)
+      if (sensors.flujo_produccion != null) productionSum += sensors.flujo_produccion;
+      if (sensors.flujo_rechazo != null) rechazoSum += sensors.flujo_rechazo;
+      if (sensors.eficiencia != null) eficiencias.push(sensors.eficiencia);
+
+      // Nivel purificada: evaluate against PV metrics; if no metrics, default normal
+      const purifMetric = metrics.find(isNivelPurificadaMetric);
+      if (sensors.nivelPurificada != null) {
+        nivelesPurificada.push(sensors.nivelPurificada);
+        const level = purifMetric ? evaluateLevelFromRules(sensors.nivelPurificada, purifMetric.rules) : 'normal';
+        byLevel.nivelPurificada[level] += 1;
+      } else if (purifMetric) {
         byLevel.nivelPurificada.critico += 1; // has metric but no data
       } else {
         byLevel.nivelPurificada.normal += 1; // no metrics = default normal
       }
-      // Nivel cruda: same logic
-      if (data.nivelCruda != null) {
-        nivelesCruda.push(data.nivelCruda);
-        if (pvIdsWithNivelCrudaMetric.has(pvId)) {
-          byLevel.nivelCruda[classifyLevel(data.nivelCruda)] += 1;
-        } else {
-          byLevel.nivelCruda.normal += 1;
-        }
-      } else if (pvIdsWithNivelCrudaMetric.has(pvId)) {
+
+      // Nivel cruda: same
+      const crudaMetric = metrics.find(isNivelCrudaMetric);
+      if (sensors.nivelCruda != null) {
+        nivelesCruda.push(sensors.nivelCruda);
+        const level = crudaMetric ? evaluateLevelFromRules(sensors.nivelCruda, crudaMetric.rules) : 'normal';
+        byLevel.nivelCruda[level] += 1;
+      } else if (crudaMetric) {
         byLevel.nivelCruda.critico += 1;
       } else {
         byLevel.nivelCruda.normal += 1;
       }
     }
 
-    const eficienciaAvg = eficiencias.length > 0
-      ? eficiencias.reduce((a, b) => a + b, 0) / eficiencias.length
-      : null;
-    const nivelPurificadaAvg = nivelesPurificada.length > 0
-      ? nivelesPurificada.reduce((a, b) => a + b, 0) / nivelesPurificada.length
-      : null;
-    const nivelCrudaAvg = nivelesCruda.length > 0
-      ? nivelesCruda.reduce((a, b) => a + b, 0) / nivelesCruda.length
-      : null;
+    const eficienciaAvg = eficiencias.length > 0 ? eficiencias.reduce((a, b) => a + b, 0) / eficiencias.length : null;
+    const nivelPurificadaAvg = nivelesPurificada.length > 0 ? nivelesPurificada.reduce((a, b) => a + b, 0) / nivelesPurificada.length : null;
+    const nivelCrudaAvg = nivelesCruda.length > 0 ? nivelesCruda.reduce((a, b) => a + b, 0) / nivelesCruda.length : null;
 
     res.json({
       puntosVentaCount,
