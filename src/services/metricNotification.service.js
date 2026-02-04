@@ -6,6 +6,7 @@ import User from '../models/user.model.js';
 import MetricModel from '../models/postgres/metric.model.js';
 import MetricAlertModel from '../models/postgres/metricAlert.model.js';
 import MetricEmailLogModel from '../models/postgres/metricEmailLog.model.js';
+import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import emailHelper from '../utils/email.helper.js';
 
 /**
@@ -38,14 +39,31 @@ class MetricNotificationService {
         return [];
       }
 
-      // Get all metrics for this sensor type and client
+      // Resolve codigoTienda -> puntoVentaId (metrics are linked to specific punto venta)
+      let puntoVentaId = null;
+      if (codigoTienda) {
+        try {
+          const puntoVenta = await PuntoVentaModel.findByCode(codigoTienda);
+          if (puntoVenta) puntoVentaId = parseInt(puntoVenta.id, 10);
+        } catch (err) {
+          console.warn(`[MetricNotification] ⚠️  Could not resolve punto venta for codigoTienda=${codigoTienda}:`, err.message);
+        }
+      }
+
+      // Only evaluate metrics for the punto venta where sensor data came from
+      if (puntoVentaId == null || isNaN(puntoVentaId)) {
+        console.log(`[MetricNotification] ⏭️  STOP: no punto venta for codigoTienda=${codigoTienda} (metrics are PV-specific)`);
+        return [];
+      }
+
       const metrics = await MetricModel.find({
         clientId,
+        puntoVentaId,
         sensor_type: type,
         enabled: true
       });
 
-      console.log(`[MetricNotification] ─── STEP 2: Metrics lookup ─── Found ${metrics?.length || 0} metrics for sensor_type=${type}, client=${clientId}`);
+      console.log(`[MetricNotification] ─── STEP 2: Metrics lookup ─── Found ${metrics?.length || 0} metrics for sensor_type=${type}, client=${clientId}, puntoVentaId=${puntoVentaId ?? 'N/A'}`);
       if (metrics?.length) {
         metrics.forEach((m, i) => console.log(`[MetricNotification]   [${i + 1}] metric_id=${m.id}, name=${m.metric_name || m.metricName || m.metric_type}`));
       }
