@@ -2106,6 +2106,7 @@ export const getMainDashboardV2Metrics = async (req, res) => {
       nivelPurificada: { normal: 0, preventivo: 0, critico: 0 },
       nivelCruda: { normal: 0, preventivo: 0, critico: 0 },
     };
+    const debugPerPv = []; // Temporary: remove after debugging
 
     // 3–4. Map every PV: evaluate sensors against metrics, push into aggregates
     for (const pv of puntosPG) {
@@ -2138,8 +2139,18 @@ export const getMainDashboardV2Metrics = async (req, res) => {
         nivelesCruda.push(sensors.nivelCruda);
         const level = crudaMetric ? evaluateLevelFromRules(sensors.nivelCruda, crudaMetric.rules) : 'normal';
         byLevel.nivelCruda[level] += 1;
+        debugPerPv.push({
+          pvId,
+          name: pv.name,
+          codigo,
+          nivelCruda: sensors.nivelCruda,
+          hasCrudaMetric: !!crudaMetric,
+          crudaRules: crudaMetric?.rules || null,
+          nivelCrudaLevel: level,
+        });
       } else if (crudaMetric) {
         byLevel.nivelCruda.critico += 1;
+        debugPerPv.push({ pvId, name: pv.name, codigo, nivelCruda: null, hasCrudaMetric: true, nivelCrudaLevel: 'critico (no data)' });
       } else {
         byLevel.nivelCruda.normal += 1;
       }
@@ -2157,6 +2168,11 @@ export const getMainDashboardV2Metrics = async (req, res) => {
       nivelPurificadaAvg: nivelPurificadaAvg != null ? Math.round(nivelPurificadaAvg * 10) / 10 : null,
       nivelCrudaAvg: nivelCrudaAvg != null ? Math.round(nivelCrudaAvg * 10) / 10 : null,
       byLevel,
+      debug: {
+        sensorsCodigos: [...perPvSensors.keys()],
+        metricsPvIds: [...metricsByPv.keys()],
+        perPv: debugPerPv,
+      },
     });
   } catch (error) {
     console.error('[getMainDashboardV2Metrics]', error);
