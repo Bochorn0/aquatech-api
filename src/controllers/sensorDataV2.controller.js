@@ -1982,18 +1982,22 @@ function evaluateLevelFromRules(value, rules) {
   return 'normal'; // Value outside all rules: default normal
 }
 
-/** Check if metric applies to nivel purificada (metric_type or sensor_type) */
+/** Check if metric applies to nivel purificada (metric_type, sensor_type, or metric_name) */
 function isNivelPurificadaMetric(m) {
-  const mt = (m.metric_type || '').toLowerCase();
+  const mt = (m.metric_type || '').toLowerCase().replace(/\s+/g, '_');
   const st = (m.sensor_type || '').toLowerCase();
-  return mt === 'nivel_agua_purificada' || st === 'nivel_purificada' || st === 'electronivel_purificada' || st === 'level_purificada' || st === 'flujo_produccion';
+  const mn = (m.metric_name || '').toLowerCase();
+  return mt === 'nivel_agua_purificada' || (mn.includes('purificada') && mn.includes('nivel'))
+    || st === 'nivel_purificada' || st === 'electronivel_purificada' || st === 'level_purificada' || st === 'flujo_produccion';
 }
 
-/** Check if metric applies to nivel cruda */
+/** Check if metric applies to nivel cruda (metric_type, sensor_type, or metric_name) */
 function isNivelCrudaMetric(m) {
-  const mt = (m.metric_type || '').toLowerCase();
+  const mt = (m.metric_type || '').toLowerCase().replace(/\s+/g, '_');
   const st = (m.sensor_type || '').toLowerCase();
-  return mt === 'nivel_agua_cruda' || st === 'nivel_cruda' || st === 'electronivel_cruda' || st === 'level_cruda' || st === 'caudal_cruda';
+  const mn = (m.metric_name || '').toLowerCase();
+  return mt === 'nivel_agua_cruda' || (mn.includes('cruda') && mn.includes('nivel'))
+    || st === 'nivel_cruda' || st === 'electronivel_cruda' || st === 'level_cruda' || st === 'caudal_cruda';
 }
 
 /**
@@ -2149,37 +2153,47 @@ export const getMainDashboardV2Metrics = async (req, res) => {
 
       // Nivel purificada: evaluate against PV metrics; if no metrics, default normal
       const purifMetric = metrics.find(isNivelPurificadaMetric);
+      let nivelPurificadaLevel = null;
       if (sensors.nivelPurificada != null) {
         nivelesPurificada.push(sensors.nivelPurificada);
-        const level = purifMetric ? evaluateLevelFromRules(sensors.nivelPurificada, purifMetric.rules) : 'normal';
-        byLevel.nivelPurificada[level] += 1;
+        nivelPurificadaLevel = purifMetric ? evaluateLevelFromRules(sensors.nivelPurificada, purifMetric.rules) : 'normal';
+        byLevel.nivelPurificada[nivelPurificadaLevel] += 1;
       } else if (purifMetric) {
+        nivelPurificadaLevel = 'critico';
         byLevel.nivelPurificada.critico += 1; // has metric but no data
       } else {
+        nivelPurificadaLevel = 'normal';
         byLevel.nivelPurificada.normal += 1; // no metrics = default normal
       }
 
       // Nivel cruda: same
       const crudaMetric = metrics.find(isNivelCrudaMetric);
+      let nivelCrudaLevel = null;
       if (sensors.nivelCruda != null) {
         nivelesCruda.push(sensors.nivelCruda);
-        const level = crudaMetric ? evaluateLevelFromRules(sensors.nivelCruda, crudaMetric.rules) : 'normal';
-        byLevel.nivelCruda[level] += 1;
-        debugPerPv.push({
-          pvId,
-          name: pv.name,
-          codigo,
-          nivelCruda: sensors.nivelCruda,
-          hasCrudaMetric: !!crudaMetric,
-          crudaRules: crudaMetric?.rules || null,
-          nivelCrudaLevel: level,
-        });
+        nivelCrudaLevel = crudaMetric ? evaluateLevelFromRules(sensors.nivelCruda, crudaMetric.rules) : 'normal';
+        byLevel.nivelCruda[nivelCrudaLevel] += 1;
       } else if (crudaMetric) {
+        nivelCrudaLevel = 'critico';
         byLevel.nivelCruda.critico += 1;
-        debugPerPv.push({ pvId, name: pv.name, codigo, nivelCruda: null, hasCrudaMetric: true, nivelCrudaLevel: 'critico (no data)' });
       } else {
+        nivelCrudaLevel = 'normal';
         byLevel.nivelCruda.normal += 1;
       }
+
+      debugPerPv.push({
+        pvId,
+        name: pv.name,
+        codigo,
+        nivelPurificada: sensors.nivelPurificada ?? null,
+        hasPurifMetric: !!purifMetric,
+        purifRules: purifMetric?.rules ?? null,
+        nivelPurificadaLevel: nivelPurificadaLevel ?? (purifMetric ? 'critico (no data)' : 'normal'),
+        nivelCruda: sensors.nivelCruda ?? null,
+        hasCrudaMetric: !!crudaMetric,
+        crudaRules: crudaMetric?.rules ?? null,
+        nivelCrudaLevel: nivelCrudaLevel ?? (crudaMetric ? 'critico (no data)' : 'normal'),
+      });
     }
 
     const eficienciaAvg = eficiencias.length > 0 ? eficiencias.reduce((a, b) => a + b, 0) / eficiencias.length : null;
