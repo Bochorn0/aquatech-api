@@ -1726,24 +1726,16 @@ export const fetchLogsRoutine = async (req, res) => {
     console.log('🔄 [fetchLogsRoutine] Iniciando rutina de obtención de logs...');
 
     // ====== PRODUCTOS CON RUTINA DE LOGS HABILITADA ======
-    // 1) Products enabled in Personalización > Productos rutina logs (tuya_logs_routine_enabled)
+    // Products enabled in Personalización > Productos rutina logs (tuya_logs_routine_enabled)
     const enabledProducts = await Product.find({ tuya_logs_routine_enabled: true })
       .select('id product_type')
       .lean();
-    const idSet = new Set();
-    const productosWhitelist = (enabledProducts || []).map((p) => {
-      idSet.add(p.id);
-      return { id: p.id, type: p.product_type || 'Osmosis' };
-    });
-    // 2) Always include productos_nivel (Nivel type) so existing Nivel devices keep being fetched
-    for (const id of productos_nivel) {
-      if (!idSet.has(id)) {
-        idSet.add(id);
-        productosWhitelist.push({ id, type: 'Nivel' });
-      }
-    }
+    const productosWhitelist = (enabledProducts || []).map((p) => ({
+      id: p.id,
+      type: p.product_type || 'Osmosis',
+    }));
 
-    // Si no hay productos en la lista, responder con error
+    // Si no hay productos habilitados, responder con error
     if (!productosWhitelist || productosWhitelist.length === 0) {
       console.warn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
       return res.status(400).json({
