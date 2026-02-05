@@ -901,6 +901,53 @@ export const getProductLogsById = async (req, res) => {
       }
     });
 
+    // ====== SYNC TUYA LOGS TO ProductLogs (when fetched from Tuya) ======
+    // When the detail page fetches logs from Tuya, persist any missing entries to MongoDB
+    // so reports and other consumers see them. Deduplicate by (product_id, date).
+    if (source === 'tuya' && Object.keys(groupedLogs).length > 0) {
+      try {
+        const product = await Product.findOne({ id }).select('_id').lean();
+        if (product) {
+          const logsToSync = Object.values(groupedLogs).map(entry => ({
+            ...entry,
+            product_id: id,
+            producto: product._id,
+          }));
+          const hasValidData = (log) => {
+            const v = (x) => x != null && x !== 0;
+            return v(log.tds) || v(log.production_volume) || v(log.rejected_volume) || v(log.flujo_produccion) || v(log.flujo_rechazo);
+          };
+          const logsWithData = logsToSync.filter(hasValidData);
+          if (logsWithData.length > 0) {
+            const dates = logsWithData.map((l) => l.date);
+            const existing = await ProductLog.find({ product_id: id, date: { $in: dates } }).select('date').lean();
+            const existingSet = new Set(existing.map((e) => e.date.getTime()));
+            const toInsert = logsWithData
+              .filter((l) => !existingSet.has(l.date.getTime()))
+              .map((l) => ({
+                product_id: id,
+                producto: l.producto,
+                date: l.date,
+                tds: l.tds ?? undefined,
+                production_volume: l.production_volume ?? undefined,
+                rejected_volume: l.rejected_volume ?? undefined,
+                flujo_produccion: l.flujo_produccion ?? undefined,
+                flujo_rechazo: l.flujo_rechazo ?? undefined,
+                tiempo_inicio: l.date ? Math.floor(l.date.getTime() / 1000) : undefined,
+                tiempo_fin: l.date ? Math.floor(l.date.getTime() / 1000) : undefined,
+                source: 'tuya',
+              }));
+            if (toInsert.length > 0) {
+              await ProductLog.insertMany(toInsert);
+              console.log(`📥 [getProductLogsById] Synced ${toInsert.length} Tuya logs to ProductLogs (${logsWithData.length - toInsert.length} already in DB)`);
+            }
+          }
+        }
+      } catch (syncErr) {
+        console.error('❌ [getProductLogsById] Error syncing Tuya logs to ProductLogs:', syncErr.message);
+      }
+    }
+
     // ====== APLICAR CONVERSIONES Y CONVERTIR A ARRAY ======
     const groupedArray = Object.values(groupedLogs)
       .map(log => {
