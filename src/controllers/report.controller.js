@@ -2,6 +2,7 @@
 import Report from '../models/report.model.js';
 import ProductLog from '../models/product_logs.model.js';
 import Product from '../models/product.model.js';
+import PuntoVenta from '../models/puntoVenta.model.js';
 import moment from 'moment';
 
 export const getReports = async (req, res) => {
@@ -461,15 +462,52 @@ export const getProductLogsReport = async (req, res) => {
    ====================================================== */
 
 /**
- * Reporte mensual que obtiene registros de la base de datos agrupados por día
- * Por ahora filtra del mes actual (2025-12-01 a 2025-12-16) para el producto especificado
- * Solo considera registros con valores diferentes de 0
- * Ordena de fecha más antigua a más nueva
+ * Reporte mensual que obtiene registros de la base de datos agrupados por día,
+ * scoped al punto de venta actual (productos del punto venta).
+ * Query: puntoVentaId (MongoDB _id), dateStart, dateEnd (YYYY-MM-DD).
+ * Solo considera registros con valores diferentes de 0.
  */
 export const reporteMensual = async (req, res) => {
   try {
-    const PRODUCT_ID = 'ebea4ffa2ab1483940nrqn';
-    
+    const { puntoVentaId, dateStart, dateEnd } = req.query;
+
+    if (!puntoVentaId) {
+      return res.status(400).json({
+        success: false,
+        message: 'puntoVentaId es requerido (ID del punto de venta en la URL, ej. /v1/PuntoVenta/697b857abb927ef6df4f43c1)',
+      });
+    }
+
+    // Cargar punto de venta y sus productos
+    const punto = await PuntoVenta.findById(puntoVentaId).populate('productos').lean();
+    if (!punto) {
+      return res.status(404).json({
+        success: false,
+        message: 'Punto de venta no encontrado',
+      });
+    }
+
+    const productos = punto.productos || [];
+    const productIds = productos.map((p) => p && p.id).filter(Boolean);
+    const productIdToName = new Map(productos.filter((p) => p && p.id).map((p) => [p.id, p.name || p.id]));
+
+    if (productIds.length === 0) {
+      return res.json({
+        success: true,
+        message: 'El punto de venta no tiene productos asignados',
+        data: [],
+        summary: {
+          puntoVentaId,
+          puntoVentaName: punto.name,
+          fechaInicio: null,
+          fechaFin: null,
+          totalDias: 0,
+          totalLogs: 0,
+          productIds: [],
+        },
+      });
+    }
+
     // Formatear fechas como YYYY-MM-DD
     const formatDate = (date) => {
       const year = date.getFullYear();
@@ -477,27 +515,21 @@ export const reporteMensual = async (req, res) => {
       const day = String(date.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     };
-    
-    // Obtener fechas de query params o usar fallback (último mes)
+
     let START_DATE, END_DATE;
-    
-    if (req.query.dateStart && req.query.dateEnd) {
-      // Validar formato de fechas (YYYY-MM-DD)
+
+    if (dateStart && dateEnd) {
       const dateStartRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dateStartRegex.test(req.query.dateStart) || !dateStartRegex.test(req.query.dateEnd)) {
+      if (!dateStartRegex.test(dateStart) || !dateStartRegex.test(dateEnd)) {
         return res.status(400).json({
           success: false,
-          message: 'Formato de fecha inválido. Use YYYY-MM-DD',
+          message: 'Formato de fecha inválido. Use YYYY-MM-DD para dateStart y dateEnd',
         });
       }
-      
-      START_DATE = req.query.dateStart;
-      END_DATE = req.query.dateEnd;
-      
-      // Validar que startDate <= endDate
+      START_DATE = dateStart;
+      END_DATE = dateEnd;
       const startDateObj = new Date(START_DATE);
       const endDateObj = new Date(END_DATE);
-      
       if (startDateObj > endDateObj) {
         return res.status(400).json({
           success: false,
@@ -505,33 +537,21 @@ export const reporteMensual = async (req, res) => {
         });
       }
     } else {
-      // Fallback: calcular fechas dinámicamente del día actual un mes atrás hasta hoy
       const today = new Date();
       const oneMonthAgo = new Date(today);
       oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-      
       START_DATE = formatDate(oneMonthAgo);
       END_DATE = formatDate(today);
     }
 
-    console.log(`📊 [reporteMensual] Generando reporte para producto ${PRODUCT_ID}`);
-    console.log(`   Rango de fechas: ${START_DATE} a ${END_DATE} (último mes hasta hoy)`);
-
-    // Convertir fechas a objetos Date
     const startDate = new Date(START_DATE);
-    startDate.setHours(0, 0, 0, 0); // Inicio del día
-    
+    startDate.setHours(0, 0, 0, 0);
     const endDate = new Date(END_DATE);
-    endDate.setHours(23, 59, 59, 999); // Fin del día
+    endDate.setHours(23, 59, 59, 999);
 
-    // Obtener logs del producto en el rango de fechas
-    // Filtrar solo registros donde al menos uno de los valores no sea 0
     const logs = await ProductLog.find({
-      product_id: PRODUCT_ID,
-      date: {
-        $gte: startDate,
-        $lte: endDate,
-      },
+      product_id: { $in: productIds },
+      date: { $gte: startDate, $lte: endDate },
       $or: [
         { tds: { $ne: 0, $exists: true } },
         { production_volume: { $ne: 0, $exists: true } },
@@ -540,209 +560,157 @@ export const reporteMensual = async (req, res) => {
         { flujo_rechazo: { $ne: 0, $exists: true } },
       ],
     })
-      .sort({ date: 1 }) // Ordenar de más antigua a más nueva
-      .lean(); // Usar lean() para mejor rendimiento
-
-    console.log(`   📋 Total de logs encontrados: ${logs.length}`);
+      .sort({ date: 1 })
+      .lean();
 
     if (logs.length === 0) {
       return res.json({
         success: true,
-        message: 'No se encontraron registros para el rango de fechas especificado',
+        message: 'No se encontraron registros para el rango de fechas y punto de venta especificados',
         data: [],
+        summary: {
+          puntoVentaId,
+          puntoVentaName: punto.name,
+          fechaInicio: START_DATE,
+          fechaFin: END_DATE,
+          totalDias: 0,
+          totalLogs: 0,
+          productIds,
+        },
       });
     }
 
-    // Agrupar logs por día (mantener todos los logs de cada día)
-    const logsByDay = {};
-
+    // Agrupar logs por día y por product_id
+    const logsByDayAndProduct = {};
     for (const log of logs) {
-      // Obtener la fecha en formato YYYY-MM-DD
-      const logDate = new Date(log.date);
-      const dayKey = logDate.toISOString().split('T')[0]; // YYYY-MM-DD
-
-      if (!logsByDay[dayKey]) {
-        logsByDay[dayKey] = [];
-      }
-
-      logsByDay[dayKey].push(log);
+      const dayKey = new Date(log.date).toISOString().split('T')[0];
+      if (!logsByDayAndProduct[dayKey]) logsByDayAndProduct[dayKey] = {};
+      const pid = log.product_id;
+      if (!logsByDayAndProduct[dayKey][pid]) logsByDayAndProduct[dayKey][pid] = [];
+      logsByDayAndProduct[dayKey][pid].push(log);
     }
 
-    // Función helper para obtener hora en formato HH:mm:ss (zona horaria Hermosillo)
     const getTimeString = (date) => {
-      const d = new Date(date);
-      // Convertir a zona horaria de Hermosillo (America/Hermosillo)
-      const options = {
+      return new Date(date).toLocaleTimeString('es-MX', {
         timeZone: 'America/Hermosillo',
         hour12: false,
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
-      };
-      const timeStr = d.toLocaleTimeString('es-MX', options);
-      return timeStr; // Formato: HH:mm:ss
+      });
     };
 
-    // Función helper para aplicar todas las conversiones (igual que en getAllProducts)
-    const applySpecialProductLogic = (fieldName, value) => {
+    const PRODUCTOS_ESPECIALES = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
+    const flujos_codes = ['flowrate_speed_1', 'flowrate_speed_2', 'flowrate_total_1', 'flowrate_total_2'];
+    const flujos_total_codes = ['flowrate_total_1', 'flowrate_total_2'];
+    const arrayCodes = ['flowrate_speed_1', 'flowrate_speed_2'];
+
+    const applySpecialProductLogic = (fieldName, value, productId) => {
       if (value == null || value === 0) return value;
-
-      const PRODUCTOS_ESPECIALES = [
-        'ebf9738480d78e0132gnru',
-        'ebea4ffa2ab1483940nrqn'
-      ];
-
-      const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
-      const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
-      const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
-
       let convertedValue = value;
-
-      // 1. Si es producto especial y es código de flujo: multiplicar por 1.6
-      if (PRODUCTOS_ESPECIALES.includes(PRODUCT_ID) && flujos_codes.includes(fieldName)) {
+      if (PRODUCTOS_ESPECIALES.includes(productId) && flujos_codes.includes(fieldName)) {
         convertedValue = convertedValue * 1.6;
-        
-        // 2. Si es total (flowrate_total_1 o flowrate_total_2): dividir por 10
-        if (flujos_total_codes.includes(fieldName)) {
-          convertedValue = convertedValue / 10;
-        }
+        if (flujos_total_codes.includes(fieldName)) convertedValue = convertedValue / 10;
       }
-
-      // 3. Si es flowrate_speed_1 o flowrate_speed_2: siempre dividir por 10 (conversión a L/s)
-      // Esto se aplica después de la conversión especial si aplica
-      if (arrayCodes.includes(fieldName) && convertedValue > 0) {
-        convertedValue = convertedValue / 10;
-      }
-      
+      if (arrayCodes.includes(fieldName) && convertedValue > 0) convertedValue = convertedValue / 10;
       return parseFloat(convertedValue.toFixed(2));
     };
 
-    // Función helper para buscar el primer match de un campo
-    const findFirstMatch = (dayLogs, fieldName, fieldValue) => {
+    const findFirstMatch = (dayLogs, fieldName, fieldValue, productId) => {
       for (const log of dayLogs) {
         const value = log[fieldValue];
         if (value != null && value !== 0) {
-          const convertedValue = applySpecialProductLogic(fieldName, value);
-          return {
-            hora: getTimeString(log.date),
-            value: convertedValue,
-          };
+          const convertedValue = applySpecialProductLogic(fieldName, value, productId);
+          return { hora: getTimeString(log.date), value: convertedValue };
         }
       }
       return null;
     };
 
-    // Función helper para buscar el último match de un campo
-    const findLastMatch = (dayLogs, fieldName, fieldValue) => {
+    const findLastMatch = (dayLogs, fieldName, fieldValue, productId) => {
       for (let i = dayLogs.length - 1; i >= 0; i--) {
         const log = dayLogs[i];
         const value = log[fieldValue];
         if (value != null && value !== 0) {
-          const convertedValue = applySpecialProductLogic(fieldName, value);
-          return {
-            hora: getTimeString(log.date),
-            value: convertedValue,
-          };
+          const convertedValue = applySpecialProductLogic(fieldName, value, productId);
+          return { hora: getTimeString(log.date), value: convertedValue };
         }
       }
       return null;
     };
 
-    // Para cada día, obtener el primer y último match de cada campo
+    const buildProduccion = (inicio, fin) => ({
+      flowrate_total_1: (inicio.flowrate_total_1 && fin.flowrate_total_1)
+        ? { value: parseFloat((fin.flowrate_total_1.value - inicio.flowrate_total_1.value).toFixed(2)), inicio: inicio.flowrate_total_1.value, fin: fin.flowrate_total_1.value }
+        : null,
+      flowrate_total_2: (inicio.flowrate_total_2 && fin.flowrate_total_2)
+        ? { value: parseFloat((fin.flowrate_total_2.value - inicio.flowrate_total_2.value).toFixed(2)), inicio: inicio.flowrate_total_2.value, fin: fin.flowrate_total_2.value }
+        : null,
+      tds_out: (inicio.tds_out && fin.tds_out)
+        ? { value: parseFloat((fin.tds_out.value - inicio.tds_out.value).toFixed(2)), inicio: inicio.tds_out.value, fin: fin.tds_out.value }
+        : null,
+      flowrate_speed_1: (inicio.flowrate_speed_1 && fin.flowrate_speed_1)
+        ? { value: parseFloat(((inicio.flowrate_speed_1.value + fin.flowrate_speed_1.value) / 2).toFixed(2)), inicio: inicio.flowrate_speed_1.value, fin: fin.flowrate_speed_1.value }
+        : null,
+      flowrate_speed_2: (inicio.flowrate_speed_2 && fin.flowrate_speed_2)
+        ? { value: parseFloat(((inicio.flowrate_speed_2.value + fin.flowrate_speed_2.value) / 2).toFixed(2)), inicio: inicio.flowrate_speed_2.value, fin: fin.flowrate_speed_2.value }
+        : null,
+    });
+
     const result = [];
 
-    for (const dayKey of Object.keys(logsByDay).sort()) {
-      const dayLogs = logsByDay[dayKey];
-      
-      if (dayLogs.length === 0) continue;
+    for (const dayKey of Object.keys(logsByDayAndProduct).sort()) {
+      const byProduct = logsByDayAndProduct[dayKey];
+      const productosData = [];
 
-      // Buscar primer match de cada campo
-      const inicio = {
-        flowrate_total_1: findFirstMatch(dayLogs, 'flowrate_total_1', 'production_volume'),
-        flowrate_total_2: findFirstMatch(dayLogs, 'flowrate_total_2', 'rejected_volume'),
-        tds_out: findFirstMatch(dayLogs, 'tds_out', 'tds'),
-        flowrate_speed_1: findFirstMatch(dayLogs, 'flowrate_speed_1', 'flujo_produccion'),
-        flowrate_speed_2: findFirstMatch(dayLogs, 'flowrate_speed_2', 'flujo_rechazo'),
-      };
+      for (const productId of Object.keys(byProduct).sort()) {
+        const dayLogs = byProduct[productId];
+        if (!dayLogs.length) continue;
 
-      // Buscar último match de cada campo
-      const fin = {
-        flowrate_total_1: findLastMatch(dayLogs, 'flowrate_total_1', 'production_volume'),
-        flowrate_total_2: findLastMatch(dayLogs, 'flowrate_total_2', 'rejected_volume'),
-        tds_out: findLastMatch(dayLogs, 'tds_out', 'tds'),
-        flowrate_speed_1: findLastMatch(dayLogs, 'flowrate_speed_1', 'flujo_produccion'),
-        flowrate_speed_2: findLastMatch(dayLogs, 'flowrate_speed_2', 'flujo_rechazo'),
-      };
+        const inicio = {
+          flowrate_total_1: findFirstMatch(dayLogs, 'flowrate_total_1', 'production_volume', productId),
+          flowrate_total_2: findFirstMatch(dayLogs, 'flowrate_total_2', 'rejected_volume', productId),
+          tds_out: findFirstMatch(dayLogs, 'tds_out', 'tds', productId),
+          flowrate_speed_1: findFirstMatch(dayLogs, 'flowrate_speed_1', 'flujo_produccion', productId),
+          flowrate_speed_2: findFirstMatch(dayLogs, 'flowrate_speed_2', 'flujo_rechazo', productId),
+        };
+        const fin = {
+          flowrate_total_1: findLastMatch(dayLogs, 'flowrate_total_1', 'production_volume', productId),
+          flowrate_total_2: findLastMatch(dayLogs, 'flowrate_total_2', 'rejected_volume', productId),
+          tds_out: findLastMatch(dayLogs, 'tds_out', 'tds', productId),
+          flowrate_speed_1: findLastMatch(dayLogs, 'flowrate_speed_1', 'flujo_produccion', productId),
+          flowrate_speed_2: findLastMatch(dayLogs, 'flowrate_speed_2', 'flujo_rechazo', productId),
+        };
+        const produccion = buildProduccion(inicio, fin);
 
-      // Calcular producción diaria
-      const produccion = {
-        // Para totales: diferencia (fin - inicio)
-        flowrate_total_1: (inicio.flowrate_total_1 && fin.flowrate_total_1) 
-          ? {
-              value: parseFloat((fin.flowrate_total_1.value - inicio.flowrate_total_1.value).toFixed(2)),
-              inicio: inicio.flowrate_total_1.value,
-              fin: fin.flowrate_total_1.value,
-            }
-          : null,
-        
-        flowrate_total_2: (inicio.flowrate_total_2 && fin.flowrate_total_2)
-          ? {
-              value: parseFloat((fin.flowrate_total_2.value - inicio.flowrate_total_2.value).toFixed(2)),
-              inicio: inicio.flowrate_total_2.value,
-              fin: fin.flowrate_total_2.value,
-            }
-          : null,
-        
-        // Para TDS: diferencia (fin - inicio)
-        tds_out: (inicio.tds_out && fin.tds_out)
-          ? {
-              value: parseFloat((fin.tds_out.value - inicio.tds_out.value).toFixed(2)),
-              inicio: inicio.tds_out.value,
-              fin: fin.tds_out.value,
-            }
-          : null,
-        
-        // Para speeds: promedio (suma de inicio y fin dividido entre 2)
-        flowrate_speed_1: (inicio.flowrate_speed_1 && fin.flowrate_speed_1)
-          ? {
-              value: parseFloat(((inicio.flowrate_speed_1.value + fin.flowrate_speed_1.value) / 2).toFixed(2)),
-              inicio: inicio.flowrate_speed_1.value,
-              fin: fin.flowrate_speed_1.value,
-            }
-          : null,
-        
-        flowrate_speed_2: (inicio.flowrate_speed_2 && fin.flowrate_speed_2)
-          ? {
-              value: parseFloat(((inicio.flowrate_speed_2.value + fin.flowrate_speed_2.value) / 2).toFixed(2)),
-              inicio: inicio.flowrate_speed_2.value,
-              fin: fin.flowrate_speed_2.value,
-            }
-          : null,
-      };
+        productosData.push({
+          productId,
+          productName: productIdToName.get(productId) || productId,
+          inicio,
+          fin,
+          produccion,
+        });
+      }
 
-      result.push({
-        dia: dayKey,
-        inicio: inicio,
-        fin: fin,
-        produccion: produccion,
-      });
+      if (productosData.length > 0) {
+        result.push({ dia: dayKey, productos: productosData });
+      }
     }
-
-    console.log(`   ✅ Reporte generado con ${result.length} días con datos`);
 
     return res.json({
       success: true,
       message: 'Reporte mensual generado exitosamente',
       data: result,
       summary: {
-        producto: PRODUCT_ID,
+        puntoVentaId,
+        puntoVentaName: punto.name,
         fechaInicio: START_DATE,
         fechaFin: END_DATE,
         totalDias: result.length,
         totalLogs: logs.length,
+        productIds,
       },
     });
-
   } catch (error) {
     console.error('❌ [reporteMensual] Error generando reporte:', error);
     return res.status(500).json({
