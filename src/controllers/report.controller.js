@@ -611,19 +611,21 @@ export const reporteMensual = async (req, res) => {
       });
     }
 
-    // Agrupar logs por día y por product_id
-    const logsByDayAndProduct = {};
-    for (const log of logs) {
-      const dayKey = new Date(log.date).toISOString().split('T')[0];
-      if (!logsByDayAndProduct[dayKey]) logsByDayAndProduct[dayKey] = {};
-      const pid = log.product_id;
-      if (!logsByDayAndProduct[dayKey][pid]) logsByDayAndProduct[dayKey][pid] = [];
-      logsByDayAndProduct[dayKey][pid].push(log);
-    }
-
+    // Helpers: report timezone America/Hermosillo for day/hour grouping
+    const REPORT_TZ = 'America/Hermosillo';
+    const getLocalDayKey = (date) => {
+      const d = new Date(date);
+      const str = d.toLocaleDateString('en-CA', { timeZone: REPORT_TZ }); // YYYY-MM-DD
+      return str;
+    };
+    const getLocalHour = (date) => {
+      const d = new Date(date);
+      const h = d.toLocaleString('en-US', { timeZone: REPORT_TZ, hour: '2-digit', hour12: false });
+      return String(Number(h)).padStart(2, '0');
+    };
     const getTimeString = (date) => {
       return new Date(date).toLocaleTimeString('es-MX', {
-        timeZone: 'America/Hermosillo',
+        timeZone: REPORT_TZ,
         hour12: false,
         hour: '2-digit',
         minute: '2-digit',
@@ -631,14 +633,24 @@ export const reporteMensual = async (req, res) => {
       });
     };
 
+    // Agrupar logs por día (Hermosillo) y por product_id
+    const logsByDayAndProduct = {};
+    for (const log of logs) {
+      const dayKey = getLocalDayKey(log.date);
+      if (!logsByDayAndProduct[dayKey]) logsByDayAndProduct[dayKey] = {};
+      const pid = log.product_id;
+      if (!logsByDayAndProduct[dayKey][pid]) logsByDayAndProduct[dayKey][pid] = [];
+      logsByDayAndProduct[dayKey][pid].push(log);
+    }
+
     const PRODUCTOS_ESPECIALES = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
     const flujos_codes = ['flowrate_speed_1', 'flowrate_speed_2', 'flowrate_total_1', 'flowrate_total_2'];
     const flujos_total_codes = ['flowrate_total_1', 'flowrate_total_2'];
     const arrayCodes = ['flowrate_speed_1', 'flowrate_speed_2'];
 
     const applySpecialProductLogic = (fieldName, value, productId) => {
-      if (value == null || value === 0) return value;
-      let convertedValue = value;
+      if (value == null) return value;
+      let convertedValue = Number(value);
       if (PRODUCTOS_ESPECIALES.includes(productId) && flujos_codes.includes(fieldName)) {
         convertedValue = convertedValue * 1.6;
         if (flujos_total_codes.includes(fieldName)) convertedValue = convertedValue / 10;
@@ -647,7 +659,37 @@ export const reporteMensual = async (req, res) => {
       return parseFloat(convertedValue.toFixed(2));
     };
 
-    const findFirstMatch = (dayLogs, fieldName, fieldValue, productId) => {
+    // Cumulative counters: use min/max over period so total = max - min (device may report only in some logs)
+    const getMinMaxVolume = (dayLogs, fieldValue, fieldName, productId) => {
+      let minVal = null;
+      let maxVal = null;
+      let minLog = null;
+      let maxLog = null;
+      for (const log of dayLogs) {
+        const raw = log[fieldValue];
+        if (raw == null) continue;
+        const v = Number(raw);
+        if (minVal === null || v < minVal) {
+          minVal = v;
+          minLog = log;
+        }
+        if (maxVal === null || v > maxVal) {
+          maxVal = v;
+          maxLog = log;
+        }
+      }
+      if (minLog == null || maxLog == null) return null;
+      const minConverted = applySpecialProductLogic(fieldName, minVal, productId);
+      const maxConverted = applySpecialProductLogic(fieldName, maxVal, productId);
+      const delta = parseFloat((maxConverted - minConverted).toFixed(2));
+      return {
+        inicio: { value: minConverted, hora: getTimeString(minLog.date) },
+        fin: { value: maxConverted, hora: getTimeString(maxLog.date) },
+        value: delta,
+      };
+    };
+
+    const findFirstNonZero = (dayLogs, fieldName, fieldValue, productId) => {
       for (const log of dayLogs) {
         const value = log[fieldValue];
         if (value != null && value !== 0) {
@@ -658,7 +700,7 @@ export const reporteMensual = async (req, res) => {
       return null;
     };
 
-    const findLastMatch = (dayLogs, fieldName, fieldValue, productId) => {
+    const findLastNonZero = (dayLogs, fieldName, fieldValue, productId) => {
       for (let i = dayLogs.length - 1; i >= 0; i--) {
         const log = dayLogs[i];
         const value = log[fieldValue];
@@ -670,23 +712,28 @@ export const reporteMensual = async (req, res) => {
       return null;
     };
 
-    const buildProduccion = (inicio, fin) => ({
-      flowrate_total_1: (inicio.flowrate_total_1 && fin.flowrate_total_1)
-        ? { value: parseFloat((fin.flowrate_total_1.value - inicio.flowrate_total_1.value).toFixed(2)), inicio: inicio.flowrate_total_1.value, fin: fin.flowrate_total_1.value }
-        : null,
-      flowrate_total_2: (inicio.flowrate_total_2 && fin.flowrate_total_2)
-        ? { value: parseFloat((fin.flowrate_total_2.value - inicio.flowrate_total_2.value).toFixed(2)), inicio: inicio.flowrate_total_2.value, fin: fin.flowrate_total_2.value }
-        : null,
-      tds_out: (inicio.tds_out && fin.tds_out)
-        ? { value: parseFloat((fin.tds_out.value - inicio.tds_out.value).toFixed(2)), inicio: inicio.tds_out.value, fin: fin.tds_out.value }
-        : null,
-      flowrate_speed_1: (inicio.flowrate_speed_1 && fin.flowrate_speed_1)
-        ? { value: parseFloat(((inicio.flowrate_speed_1.value + fin.flowrate_speed_1.value) / 2).toFixed(2)), inicio: inicio.flowrate_speed_1.value, fin: fin.flowrate_speed_1.value }
-        : null,
-      flowrate_speed_2: (inicio.flowrate_speed_2 && fin.flowrate_speed_2)
-        ? { value: parseFloat(((inicio.flowrate_speed_2.value + fin.flowrate_speed_2.value) / 2).toFixed(2)), inicio: inicio.flowrate_speed_2.value, fin: fin.flowrate_speed_2.value }
-        : null,
-    });
+    // Build hourly stats for a set of logs (day or hour slice)
+    const buildHourlyStats = (hourLogs, productId) => {
+      if (!hourLogs.length) return null;
+      const prodVol = getMinMaxVolume(hourLogs, 'production_volume', 'flowrate_total_1', productId);
+      const rejVol = getMinMaxVolume(hourLogs, 'rejected_volume', 'flowrate_total_2', productId);
+      const withTds = hourLogs.filter((l) => l.tds != null && l.tds !== 0);
+      const tdsInicio = withTds.length ? withTds[0].tds : null;
+      const tdsFin = withTds.length ? withTds[withTds.length - 1].tds : null;
+      const flujoProd = hourLogs.filter((l) => l.flujo_produccion != null && l.flujo_produccion !== 0).map((l) => applySpecialProductLogic('flowrate_speed_1', l.flujo_produccion, productId));
+      const flujoRech = hourLogs.filter((l) => l.flujo_rechazo != null && l.flujo_rechazo !== 0).map((l) => applySpecialProductLogic('flowrate_speed_2', l.flujo_rechazo, productId));
+      const avgFlujoProd = flujoProd.length ? flujoProd.reduce((a, b) => a + b, 0) / flujoProd.length : null;
+      const avgFlujoRech = flujoRech.length ? flujoRech.reduce((a, b) => a + b, 0) / flujoRech.length : null;
+      return {
+        production_volume_total: prodVol?.value ?? 0,
+        rejected_volume_total: rejVol?.value ?? 0,
+        tds_inicio: tdsInicio != null ? tdsInicio : null,
+        tds_fin: tdsFin != null ? tdsFin : null,
+        flujo_produccion_promedio: avgFlujoProd != null ? parseFloat(avgFlujoProd.toFixed(2)) : null,
+        flujo_rechazo_promedio: avgFlujoRech != null ? parseFloat(avgFlujoRech.toFixed(2)) : null,
+        total_logs: hourLogs.length,
+      };
+    };
 
     const result = [];
 
@@ -698,21 +745,55 @@ export const reporteMensual = async (req, res) => {
         const dayLogs = byProduct[productId];
         if (!dayLogs.length) continue;
 
+        // Cumulative volumes: min/max over day → total = max - min
+        const prodVol = getMinMaxVolume(dayLogs, 'production_volume', 'flowrate_total_1', productId);
+        const rejVol = getMinMaxVolume(dayLogs, 'rejected_volume', 'flowrate_total_2', productId);
+
         const inicio = {
-          flowrate_total_1: findFirstMatch(dayLogs, 'flowrate_total_1', 'production_volume', productId),
-          flowrate_total_2: findFirstMatch(dayLogs, 'flowrate_total_2', 'rejected_volume', productId),
-          tds_out: findFirstMatch(dayLogs, 'tds_out', 'tds', productId),
-          flowrate_speed_1: findFirstMatch(dayLogs, 'flowrate_speed_1', 'flujo_produccion', productId),
-          flowrate_speed_2: findFirstMatch(dayLogs, 'flowrate_speed_2', 'flujo_rechazo', productId),
+          flowrate_total_1: prodVol ? prodVol.inicio : null,
+          flowrate_total_2: rejVol ? rejVol.inicio : null,
+          tds_out: findFirstNonZero(dayLogs, 'tds_out', 'tds', productId),
+          flowrate_speed_1: findFirstNonZero(dayLogs, 'flowrate_speed_1', 'flujo_produccion', productId),
+          flowrate_speed_2: findFirstNonZero(dayLogs, 'flowrate_speed_2', 'flujo_rechazo', productId),
         };
         const fin = {
-          flowrate_total_1: findLastMatch(dayLogs, 'flowrate_total_1', 'production_volume', productId),
-          flowrate_total_2: findLastMatch(dayLogs, 'flowrate_total_2', 'rejected_volume', productId),
-          tds_out: findLastMatch(dayLogs, 'tds_out', 'tds', productId),
-          flowrate_speed_1: findLastMatch(dayLogs, 'flowrate_speed_1', 'flujo_produccion', productId),
-          flowrate_speed_2: findLastMatch(dayLogs, 'flowrate_speed_2', 'flujo_rechazo', productId),
+          flowrate_total_1: prodVol ? prodVol.fin : null,
+          flowrate_total_2: rejVol ? rejVol.fin : null,
+          tds_out: findLastNonZero(dayLogs, 'tds_out', 'tds', productId),
+          flowrate_speed_1: findLastNonZero(dayLogs, 'flowrate_speed_1', 'flujo_produccion', productId),
+          flowrate_speed_2: findLastNonZero(dayLogs, 'flowrate_speed_2', 'flujo_rechazo', productId),
         };
-        const produccion = buildProduccion(inicio, fin);
+
+        const produccion = {
+          flowrate_total_1: prodVol ? { value: prodVol.value, inicio: prodVol.inicio.value, fin: prodVol.fin.value } : null,
+          flowrate_total_2: rejVol ? { value: rejVol.value, inicio: rejVol.inicio.value, fin: rejVol.fin.value } : null,
+          tds_out: (inicio.tds_out && fin.tds_out)
+            ? { value: parseFloat((fin.tds_out.value - inicio.tds_out.value).toFixed(2)), inicio: inicio.tds_out.value, fin: fin.tds_out.value }
+            : null,
+          flowrate_speed_1: (inicio.flowrate_speed_1 && fin.flowrate_speed_1)
+            ? { value: parseFloat(((inicio.flowrate_speed_1.value + fin.flowrate_speed_1.value) / 2).toFixed(2)), inicio: inicio.flowrate_speed_1.value, fin: fin.flowrate_speed_1.value }
+            : null,
+          flowrate_speed_2: (inicio.flowrate_speed_2 && fin.flowrate_speed_2)
+            ? { value: parseFloat(((inicio.flowrate_speed_2.value + fin.flowrate_speed_2.value) / 2).toFixed(2)), inicio: inicio.flowrate_speed_2.value, fin: fin.flowrate_speed_2.value }
+            : null,
+        };
+
+        // Group by hour (report TZ) for summary by hours
+        const byHour = {};
+        for (const log of dayLogs) {
+          const h = getLocalHour(log.date);
+          if (!byHour[h]) byHour[h] = [];
+          byHour[h].push(log);
+        }
+        const sortedHours = Object.keys(byHour).sort((a, b) => Number(a) - Number(b));
+        const hours_with_data = sortedHours.map((h) => {
+          const hourLogs = byHour[h];
+          const stats = buildHourlyStats(hourLogs, productId);
+          return {
+            hora: `${h}:00`,
+            ...stats,
+          };
+        });
 
         productosData.push({
           productId,
@@ -720,6 +801,7 @@ export const reporteMensual = async (req, res) => {
           inicio,
           fin,
           produccion,
+          hours_with_data,
         });
       }
 
