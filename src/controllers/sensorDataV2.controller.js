@@ -2206,6 +2206,8 @@ export const getMainDashboardV2Metrics = async (req, res) => {
         codigo,
         nivelPurificada: sensors.nivelPurificada != null ? Math.round(sensors.nivelPurificada * 10) / 10 : null,
         nivelCruda: sensors.nivelCruda != null ? Math.round(sensors.nivelCruda * 10) / 10 : null,
+        nivelPurificadaLevel: nivelPurificadaLevel ?? null,
+        nivelCrudaLevel: nivelCrudaLevel ?? null,
         produccion: produccion != null ? Math.round(produccion * 10) / 10 : null,
         rechazo: rechazo != null ? Math.round(rechazo * 10) / 10 : null,
         eficiencia: eficiencia != null ? Math.round(eficiencia * 10) / 10 : null,
