@@ -549,6 +549,16 @@ export const reporteMensual = async (req, res) => {
     const endDate = new Date(END_DATE);
     endDate.setHours(23, 59, 59, 999);
 
+    // Diagnóstico: valores usados en la consulta
+    console.log('📊 [reporteMensual] Query params:', {
+      START_DATE_STR: START_DATE,
+      END_DATE_STR: END_DATE,
+      startDate_ISO: startDate.toISOString(),
+      endDate_ISO: endDate.toISOString(),
+      productIds,
+      productIdsLength: productIds.length,
+    });
+
     const logs = await ProductLog.find({
       product_id: { $in: productIds },
       date: { $gte: startDate, $lte: endDate },
@@ -562,6 +572,8 @@ export const reporteMensual = async (req, res) => {
     })
       .sort({ date: 1 })
       .lean();
+
+    console.log('📊 [reporteMensual] totalLogsCount:', logs.length);
 
     if (logs.length === 0) {
       return res.json({
