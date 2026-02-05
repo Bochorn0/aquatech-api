@@ -544,10 +544,17 @@ export const reporteMensual = async (req, res) => {
       END_DATE = formatDate(today);
     }
 
-    const startDate = new Date(START_DATE);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(END_DATE);
-    endDate.setHours(23, 59, 59, 999);
+    // Rango en America/Hermosillo (UTC-7) para que no dependa de la TZ del servidor.
+    // Logs en BD están en UTC; "2026-02-05" = todo el día 5 en Hermosillo.
+    const REPORT_TZ_OFFSET_HOURS = 7; // 00:00 Hermosillo = 07:00 UTC
+    const parseLocal = (str) => {
+      const [y, m, d] = str.split('-').map(Number);
+      return { y, m: m - 1, d };
+    };
+    const startParsed = parseLocal(START_DATE);
+    const endParsed = parseLocal(END_DATE);
+    const startDate = new Date(Date.UTC(startParsed.y, startParsed.m, startParsed.d, REPORT_TZ_OFFSET_HOURS, 0, 0, 0));
+    const endDate = new Date(Date.UTC(endParsed.y, endParsed.m, endParsed.d + 1, REPORT_TZ_OFFSET_HOURS - 1, 59, 59, 999));
 
     // Diagnóstico: valores usados en la consulta
     console.log('📊 [reporteMensual] Query params:', {
@@ -559,21 +566,33 @@ export const reporteMensual = async (req, res) => {
       productIdsLength: productIds.length,
     });
 
+    // Conteo diagnóstico: logs en rango sin filtrar por valor (para saber si hay datos)
+    const totalInRange = await ProductLog.countDocuments({
+      product_id: { $in: productIds },
+      date: { $gte: startDate, $lte: endDate },
+    });
+    if (totalInRange === 0) {
+      console.log('📊 [reporteMensual] totalLogsInRange: 0 (no hay logs en BD para este PV en el rango)');
+    } else {
+      console.log('📊 [reporteMensual] totalLogsInRange:', totalInRange);
+    }
+
+    // Incluir logs que tengan al menos un campo de reporte presente (aunque sea 0)
     const logs = await ProductLog.find({
       product_id: { $in: productIds },
       date: { $gte: startDate, $lte: endDate },
       $or: [
-        { tds: { $ne: 0, $exists: true } },
-        { production_volume: { $ne: 0, $exists: true } },
-        { rejected_volume: { $ne: 0, $exists: true } },
-        { flujo_produccion: { $ne: 0, $exists: true } },
-        { flujo_rechazo: { $ne: 0, $exists: true } },
+        { tds: { $exists: true } },
+        { production_volume: { $exists: true } },
+        { rejected_volume: { $exists: true } },
+        { flujo_produccion: { $exists: true } },
+        { flujo_rechazo: { $exists: true } },
       ],
     })
       .sort({ date: 1 })
       .lean();
 
-    console.log('📊 [reporteMensual] totalLogsCount:', logs.length);
+    console.log('📊 [reporteMensual] totalLogsCount (con datos de reporte):', logs.length);
 
     if (logs.length === 0) {
       return res.json({
