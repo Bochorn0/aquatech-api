@@ -474,7 +474,7 @@ export const reporteMensual = async (req, res) => {
     if (!puntoVentaId) {
       return res.status(400).json({
         success: false,
-        message: 'puntoVentaId es requerido (ID del punto de venta en la URL, ej. /v1/PuntoVenta/697b857abb927ef6df4f43c1)',
+        message: 'puntoVentaId es requerido. Ejemplo: GET /api/v1.0/reportes/mensual?puntoVentaId=697b857abb927ef6df4f43c1&dateStart=2026-02-04&dateEnd=2026-02-05',
       });
     }
 

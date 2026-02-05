@@ -1748,10 +1748,10 @@ export const fetchLogsRoutine = async (req, res) => {
 
     // ====== CONFIGURACIÓN DE TIEMPO ======
     const now = Date.now();
-    // Por defecto últimos 5 minutos, pero puedes cambiar según necesites
+    // Ventana de búsqueda: 1 hora para capturar dispositivos que reportan con menor frecuencia.
+    // (5 min era demasiado estrecho y muchos dispositivos no tenían logs en esa ventana.)
     // Para pruebas: 24 * 60 * 60 * 1000 (24 horas)
-    // Para producción con cron: 5 * 60 * 1000 (5 minutos)
-    const timeRangeMs = 5 * 60 * 1000 ; // 5 minutos
+    const timeRangeMs = 60 * 60 * 1000; // 1 hora
     const startTime = now - timeRangeMs;
     
     // Crear objetos Date
@@ -1778,7 +1778,7 @@ export const fetchLogsRoutine = async (req, res) => {
     console.log(`   - UTC: ${nowDate.toISOString()}`);
     console.log(`   - Timestamp: ${now}`);
     
-    console.log(`⏰ [fetchLogsRoutine] Rango de búsqueda (últimos 5 minutos):`);
+    console.log(`⏰ [fetchLogsRoutine] Rango de búsqueda (última 1 hora):`);
     console.log(`   - Desde (Hermosillo): ${startLocal}`);
     console.log(`   - Hasta (Hermosillo): ${nowLocal}`);
     console.log(`   - Timestamps: ${startTime} a ${now}`);
