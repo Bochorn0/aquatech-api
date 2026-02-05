@@ -1991,6 +1991,7 @@ export const fetchLogsRoutine = async (req, res) => {
         console.log(`💾 [fetchLogsRoutine] ${logsToSave.length} logs con datos válidos para guardar (de ${Object.values(groupedLogs).length} totales)`);
 
         let insertedCount = 0;
+        let duplicateCount = 0;
         let skippedZeros = Object.values(groupedLogs).length - logsToSave.length;
 
         for (const logData of logsToSave) {
@@ -2006,7 +2007,7 @@ export const fetchLogsRoutine = async (req, res) => {
               await newLog.save();
               insertedCount++;
             } else {
-              console.log(`⏭️ [fetchLogsRoutine] Log duplicado, omitiendo... ${logData.date}`);
+              duplicateCount++;
             }
           } catch (saveError) {
             console.error(`❌ [fetchLogsRoutine] Error guardando log individual:`, saveError.message);
@@ -2015,6 +2016,9 @@ export const fetchLogsRoutine = async (req, res) => {
 
         if (skippedZeros > 0) {
           console.log(`⏭️ [fetchLogsRoutine] ${skippedZeros} logs omitidos por tener todos los valores en 0`);
+        }
+        if (duplicateCount > 0) {
+          console.log(`⏭️ [fetchLogsRoutine] ${duplicateCount} logs ya existían (duplicados omitidos) para ${productId}`);
         }
 
         console.log(`✅ [fetchLogsRoutine] ${insertedCount} logs insertados para ${productId}`);
