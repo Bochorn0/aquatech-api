@@ -34,6 +34,8 @@ const ProductSchema = new mongoose.Schema({
   uid: String,
   update_time: Number,
   uuid: String,
+  /** When true, this product is included in the Tuya logs routine (cron) that fetches logs in batches. Admin-configurable in Personalización > Productos rutina logs. */
+  tuya_logs_routine_enabled: { type: Boolean, default: false },
 }, { timestamps: true });
 
 const Product = mongoose.model('Product', ProductSchema);

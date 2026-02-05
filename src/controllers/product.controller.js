@@ -495,12 +495,13 @@ export const mockedProducts = async () => {
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { cliente, city, state, product_type } = req.body;
+    const { cliente, city, state, product_type, tuya_logs_routine_enabled } = req.body;
     const update = {
       ...(cliente != null && { cliente }),
       ...(city != null && { city }),
       ...(state != null && { state }),
       ...(product_type != null && { product_type }),
+      ...(typeof tuya_logs_routine_enabled === 'boolean' && { tuya_logs_routine_enabled }),
     };
     const isMongoId = mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === id;
     const product = isMongoId
@@ -1724,23 +1725,30 @@ export const fetchLogsRoutine = async (req, res) => {
   try {
     console.log('🔄 [fetchLogsRoutine] Iniciando rutina de obtención de logs...');
 
-    // ====== WHITELIST DE PRODUCTOS ======
-    // TODO: Mover esto a una variable de entorno o configuración
-    const productosWhitelist = [
-      { id: 'ebf9738480d78e0132gnru', type: 'Osmosis' },
-      { id: 'ebea4ffa2ab1483940nrqn', type: 'Osmosis' },
-      // Productos tipo Nivel (usando constante productos_nivel)
-      ...productos_nivel.map(id => ({ id, type: 'Nivel' })),
+    // ====== PRODUCTOS CON RUTINA DE LOGS HABILITADA ======
+    // 1) Products enabled in Personalización > Productos rutina logs (tuya_logs_routine_enabled)
+    const enabledProducts = await Product.find({ tuya_logs_routine_enabled: true })
+      .select('id product_type')
+      .lean();
+    const idSet = new Set();
+    const productosWhitelist = (enabledProducts || []).map((p) => {
+      idSet.add(p.id);
+      return { id: p.id, type: p.product_type || 'Osmosis' };
+    });
+    // 2) Always include productos_nivel (Nivel type) so existing Nivel devices keep being fetched
+    for (const id of productos_nivel) {
+      if (!idSet.has(id)) {
+        idSet.add(id);
+        productosWhitelist.push({ id, type: 'Nivel' });
+      }
+    }
 
-      // Agrega más productos según necesites
-    ];
-
-    // Si no hay productos en whitelist, responder con error
+    // Si no hay productos en la lista, responder con error
     if (!productosWhitelist || productosWhitelist.length === 0) {
-      console.warn('⚠️ [fetchLogsRoutine] No hay productos en la whitelist');
+      console.warn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
       return res.status(400).json({
         success: false,
-        message: 'No products in whitelist',
+        message: 'No products with Tuya logs routine enabled. Enable them in Personalización > Productos rutina logs.',
       });
     }
 
