@@ -1893,9 +1893,8 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
   try {
     // ====== CONFIGURACIÓN DE TIEMPO ======
     const now = Date.now();
-    // Ventana de búsqueda: 1 hora para capturar dispositivos que reportan con menor frecuencia.
-    // (5 min era demasiado estrecho y muchos dispositivos no tenían logs en esa ventana.)
-    // Para pruebas: 24 * 60 * 60 * 1000 (24 horas)
+    // Ventana de búsqueda: 1 hora. Tuya (cuenta dev) solo devuelve máx 100 registros por código,
+    // así que una ventana corta asegura que pedimos "lo más reciente" y no cambia la cantidad.
     const timeRangeMs = 60 * 60 * 1000; // 1 hora
     const startTime = now - timeRangeMs;
     
@@ -1923,7 +1922,7 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
     console.log(`   - UTC: ${nowDate.toISOString()}`);
     console.log(`   - Timestamp: ${now}`);
     
-    console.log(`⏰ [fetchLogsRoutine] Rango de búsqueda (última 1 hora):`);
+    console.log(`⏰ [fetchLogsRoutine] Rango de búsqueda (última 1 hora, Tuya dev limit 100/código):`);
     console.log(`   - Desde (Hermosillo): ${startLocal}`);
     console.log(`   - Hasta (Hermosillo): ${nowLocal}`);
     console.log(`   - Timestamps: ${startTime} a ${now}`);
