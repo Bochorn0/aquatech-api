@@ -203,10 +203,22 @@ export const getPuntoVentaById = async (req, res) => {
     // Uses report.controller (MongoDB ProductLog); does not touch V2 or sensorDataV2.
     const productos = puntoConEstado.productos || [];
     const nivelProducts = productos.filter((p) => p && (p.product_type === 'Nivel' || p.product_type === 'nivel'));
+    const historicoRange = (req.query.historicoRange || '24h').toLowerCase();
     if (nivelProducts.length > 0) {
-      // Rango últimos 2 días para que el histórico muestre varias horas (una por hora con datos, último valor por hora)
-      const endDate = moment().format('YYYY-MM-DD');
-      const startDate = moment().subtract(1, 'day').format('YYYY-MM-DD');
+      // Rango según historicoRange: 24h (last 24 hours), 7d (last week), 30d (last month)
+      let startDate;
+      let endDate;
+      if (historicoRange === '7d') {
+        startDate = moment().subtract(7, 'days').toISOString();
+        endDate = moment().toISOString();
+      } else if (historicoRange === '30d') {
+        startDate = moment().subtract(30, 'days').toISOString();
+        endDate = moment().toISOString();
+      } else {
+        // default 24h
+        startDate = moment().subtract(24, 'hours').toISOString();
+        endDate = moment().toISOString();
+      }
       await Promise.all(
         nivelProducts.map(async (product) => {
           try {

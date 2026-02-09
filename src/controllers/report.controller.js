@@ -100,9 +100,11 @@ export async function generateProductLogsReport(product_id, date, product = null
     let startOfDay, endOfDay;
     
     if (startDate && endDate) {
-      // Si se proporcionan fechas de inicio y fin, usar el rango completo
-      startOfDay = moment(startDate).startOf('day').toDate();
-      endOfDay = moment(endDate).endOf('day').toDate();
+      // Si las fechas incluyen hora (ISO con 'T'), usar el rango exacto; si no, día completo
+      const startIsDatetime = typeof startDate === 'string' && startDate.includes('T');
+      const endIsDatetime = typeof endDate === 'string' && endDate.includes('T');
+      startOfDay = startIsDatetime ? new Date(startDate) : moment(startDate).startOf('day').toDate();
+      endOfDay = endIsDatetime ? new Date(endDate) : moment(endDate).endOf('day').toDate();
     } else {
       // Si solo se proporciona una fecha, usar ese día
       startOfDay = moment(date).startOf('day').toDate();
