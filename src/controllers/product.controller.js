@@ -728,19 +728,23 @@ export const getProductById = async (req, res) => {
 
 export const getProductLogsById = async (req, res) => {
   try {
-    console.log('Fetching product logs for:', req.query);
-
+    const id = req.params.id || req.query?.id || req.query?.params?.id;
+    const queryParams = req.query.params || req.query;
     const {
-      id,
-      start_date,
-      end_date,
-      limit = 100,
-      last_row_key = null,
-    } = req.query.params || {};
+      start_date = queryParams.start_date,
+      end_date = queryParams.end_date,
+      limit = queryParams.limit ?? 100,
+      last_row_key = queryParams.last_row_key ?? null,
+    } = queryParams;
 
     if (!id) {
       return res.status(400).json({ message: 'Missing required parameter: id' });
     }
+
+    const product = await Product.findOne({ id }).select('product_type').lean();
+    const productType = product?.product_type || 'Osmosis';
+    const isNivel = productType === 'Nivel' || productType === 'nivel';
+    console.log('Fetching product logs for:', { id, productType });
 
     // ====== FUNCIÓN PARA APLICAR CONVERSIONES ======
     const applySpecialProductLogic = (fieldName, value) => {
@@ -779,16 +783,22 @@ export const getProductLogsById = async (req, res) => {
     const numericLimit = parseInt(limit, 10) || 100;
     const numericStartDate = start_date ? Number(start_date) : Date.now() - 24 * 60 * 60 * 1000;
     const numericEndDate = end_date ? Number(end_date) : Date.now();
-    
+
+    const tuyaFieldsByType = {
+      Osmosis: 'flowrate_speed_1,flowrate_speed_2,flowrate_total_1,flowrate_total_2,tds_out',
+      Nivel: 'liquid_level_percent,liquid_depth',
+    };
+    const fields = tuyaFieldsByType[productType] || tuyaFieldsByType.Osmosis;
+
     const filters = {
       id,
       start_date: numericStartDate,
       end_date: numericEndDate,
-      fields: 'flowrate_speed_1,flowrate_speed_2,flowrate_total_1,flowrate_total_2,tds_out', // hardcodeados
-      size: numericLimit * 5, // Obtener más logs para agrupar
+      fields,
+      size: numericLimit * 5,
       last_row_key,
     };
-    
+
     console.log('📊 Filtros para Tuya:', filters);
 
     let rawLogs = [];
@@ -798,7 +808,9 @@ export const getProductLogsById = async (req, res) => {
     try {
       const response = await tuyaService.getDeviceLogs(filters);
       if (response.success && response.data && response.data.logs?.length > 0) {
-        rawLogs = mapTuyaLogs(response.data.logs);
+        rawLogs = isNivel
+          ? mapTuyaLogsNivel(response.data.logs)
+          : mapTuyaLogs(response.data.logs);
         source = 'tuya';
         console.log(`✅ Logs obtenidos desde Tuya (${rawLogs.length})`);
       } else {
@@ -948,24 +960,23 @@ export const getProductLogsById = async (req, res) => {
       }
     }
 
-    // ====== APLICAR CONVERSIONES Y CONVERTIR A ARRAY ======
+    // ====== APLICAR CONVERSIONES (solo Osmosis) Y CONVERTIR A ARRAY ======
     const groupedArray = Object.values(groupedLogs)
       .map(log => {
-        // Aplicar conversiones
-        if (log.flujo_produccion != null) {
-          log.flujo_produccion = applySpecialProductLogic('flowrate_speed_1', log.flujo_produccion);
+        if (!isNivel) {
+          if (log.flujo_produccion != null) {
+            log.flujo_produccion = applySpecialProductLogic('flowrate_speed_1', log.flujo_produccion);
+          }
+          if (log.flujo_rechazo != null) {
+            log.flujo_rechazo = applySpecialProductLogic('flowrate_speed_2', log.flujo_rechazo);
+          }
+          if (log.production_volume != null) {
+            log.production_volume = applySpecialProductLogic('flowrate_total_1', log.production_volume);
+          }
+          if (log.rejected_volume != null) {
+            log.rejected_volume = applySpecialProductLogic('flowrate_total_2', log.rejected_volume);
+          }
         }
-        if (log.flujo_rechazo != null) {
-          log.flujo_rechazo = applySpecialProductLogic('flowrate_speed_2', log.flujo_rechazo);
-        }
-        if (log.production_volume != null) {
-          log.production_volume = applySpecialProductLogic('flowrate_total_1', log.production_volume);
-        }
-        if (log.rejected_volume != null) {
-          log.rejected_volume = applySpecialProductLogic('flowrate_total_2', log.rejected_volume);
-        }
-        // TDS no necesita conversión especial
-        
         return log;
       })
       .sort((a, b) => new Date(b.date) - new Date(a.date)) // Ordenar descendente
@@ -1008,6 +1019,27 @@ function mapTuyaLogs(tuyaData) {
         break;
       case 'tds_out':
         grouped[ts].tds = Number(item.value);
+        break;
+    }
+  });
+
+  return Object.values(grouped).sort((a, b) => b.date - a.date);
+}
+
+/** Map Tuya device logs for Nivel products: liquid_level_percent → flujo_rechazo, liquid_depth → flujo_produccion */
+function mapTuyaLogsNivel(tuyaData) {
+  const grouped = {};
+
+  tuyaData.forEach(item => {
+    const ts = item.event_time;
+    if (!grouped[ts]) grouped[ts] = { date: ts, source: 'tuya' };
+
+    switch (item.code) {
+      case 'liquid_level_percent':
+        grouped[ts].flujo_rechazo = Number(item.value);
+        break;
+      case 'liquid_depth':
+        grouped[ts].flujo_produccion = Number(item.value);
         break;
     }
   });
