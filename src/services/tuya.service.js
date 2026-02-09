@@ -202,6 +202,8 @@ export async function getDeviceLogsForRoutine(query) {
     const responseData = handleResponse(response);
 
     if (responseData.success && responseData.data) return responseData;
+    // Preserve Tuya API error code (e.g. 28841004 quota exceeded) so callers can abort early
+    if (!responseData.success && responseData.code != null) return responseData;
     return { success: false, error: 'No logs found' };
   } catch (error) {
     console.error('[getDeviceLogsForRoutine] Error fetching device logs:', error.message);

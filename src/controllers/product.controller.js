@@ -1765,34 +1765,32 @@ function getRandomCoordinateInMexico(mexicoCities) {
    ====================================================== */
 
 /**
- * Routine para obtener logs de productos whitelist y guardarlos en la BD
- * Se puede ejecutar manualmente via endpoint o con un cron job
+ * Runs the actual logs fetch in the background (no HTTP response).
+ * Used so the API can return 202 immediately and not block login/other requests.
  */
-export const fetchLogsRoutine = async (req, res) => {
+async function runFetchLogsRoutineInBackground() {
+  // Re-fetch product list for this run
+  const enabledProducts = await Product.find({ tuya_logs_routine_enabled: true })
+    .select('id product_type')
+    .lean();
+  const productosWhitelist = (enabledProducts || []).map((p) => ({
+    id: p.id,
+    type: p.product_type || 'Osmosis',
+  }));
+  if (!productosWhitelist || productosWhitelist.length === 0) {
+    console.warn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
+    return;
+  }
+  console.log('🔄 [fetchLogsRoutine] Iniciando rutina en segundo plano...');
+  console.log(`📋 [fetchLogsRoutine] Procesando ${productosWhitelist.length} productos...`);
+  await doFetchLogsRoutineWork(productosWhitelist);
+}
+
+/**
+ * Core work for fetchLogsRoutine (shared by background and optional sync path).
+ */
+async function doFetchLogsRoutineWork(productosWhitelist) {
   try {
-    console.log('🔄 [fetchLogsRoutine] Iniciando rutina de obtención de logs...');
-
-    // ====== PRODUCTOS CON RUTINA DE LOGS HABILITADA ======
-    // Products enabled in Personalización > Productos rutina logs (tuya_logs_routine_enabled)
-    const enabledProducts = await Product.find({ tuya_logs_routine_enabled: true })
-      .select('id product_type')
-      .lean();
-    const productosWhitelist = (enabledProducts || []).map((p) => ({
-      id: p.id,
-      type: p.product_type || 'Osmosis',
-    }));
-
-    // Si no hay productos habilitados, responder con error
-    if (!productosWhitelist || productosWhitelist.length === 0) {
-      console.warn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
-      return res.status(400).json({
-        success: false,
-        message: 'No products with Tuya logs routine enabled. Enable them in Personalización > Productos rutina logs.',
-      });
-    }
-
-    console.log(`📋 [fetchLogsRoutine] Procesando ${productosWhitelist.length} productos...`);
-
     // ====== CONFIGURACIÓN DE TIEMPO ======
     const now = Date.now();
     // Ventana de búsqueda: 1 hora para capturar dispositivos que reportan con menor frecuencia.
@@ -1851,8 +1849,13 @@ export const fetchLogsRoutine = async (req, res) => {
       totalLogsInserted: 0,
     };
 
+    /** Tuya error 28841004 = "Trial Edition quota used up". Abort routine immediately to avoid blocking login/API for minutes. */
+    const TUYA_QUOTA_EXCEEDED_CODE = 28841004;
+    let tuyaQuotaExceeded = false;
+
     // ====== PROCESAR CADA PRODUCTO ======
     for (const productConfig of productosWhitelist) {
+      if (tuyaQuotaExceeded) break;
       const productId = productConfig.id;
       const productType = productConfig.type;
       const logCodes = logCodesByType[productType] || logCodesByType['Osmosis'];
@@ -1889,6 +1892,11 @@ export const fetchLogsRoutine = async (req, res) => {
 
             const response = await tuyaService.getDeviceLogsForRoutine(filters);
 
+            if (response.code === TUYA_QUOTA_EXCEEDED_CODE) {
+              tuyaQuotaExceeded = true;
+              console.warn(`⚠️ [fetchLogsRoutine] Tuya Trial quota exceeded (${TUYA_QUOTA_EXCEEDED_CODE}). Aborting routine to avoid blocking API/login.`);
+              break;
+            }
             if (response.success && response.data && response.data.logs && response.data.logs.length > 0) {
               const codeLogs = response.data.logs;
               allTuyaLogs.push(...codeLogs);
@@ -2041,28 +2049,58 @@ export const fetchLogsRoutine = async (req, res) => {
       }
     }
 
-    // ====== RESPUESTA FINAL ======
+    if (tuyaQuotaExceeded) {
+      console.log('✅ [fetchLogsRoutine] Rutina abortada por cuota Tuya agotada');
+      return;
+    }
+
+    // ====== FIN ======
     console.log('✅ [fetchLogsRoutine] Rutina completada');
     console.log(`📊 [fetchLogsRoutine] Resumen: ${results.success.length} exitosos, ${results.errors.length} errores`);
     console.log(`📊 [fetchLogsRoutine] Total logs insertados: ${results.totalLogsInserted}`);
-
-    return res.json({
-      success: true,
-      message: 'Logs routine completed',
-      summary: {
-        productsProcessed: productosWhitelist.length,
-        successfulProducts: results.success.length,
-        failedProducts: results.errors.length,
-        totalLogsInserted: results.totalLogsInserted,
-      },
-      details: {
-        success: results.success,
-        errors: results.errors,
-      },
-    });
-
   } catch (error) {
     console.error('❌ [fetchLogsRoutine] Error general en rutina:', error);
+    throw error;
+  }
+}
+
+/**
+ * Routine para obtener logs de productos whitelist y guardarlos en la BD.
+ * Responde 202 de inmediato y ejecuta la rutina en segundo plano para no bloquear login/otros requests.
+ * Se puede llamar manualmente o por cron.
+ */
+export const fetchLogsRoutine = async (req, res) => {
+  try {
+    const enabledProducts = await Product.find({ tuya_logs_routine_enabled: true })
+      .select('id product_type')
+      .lean();
+    const productosWhitelist = (enabledProducts || []).map((p) => ({
+      id: p.id,
+      type: p.product_type || 'Osmosis',
+    }));
+
+    if (!productosWhitelist || productosWhitelist.length === 0) {
+      console.warn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
+      return res.status(400).json({
+        success: false,
+        message: 'No products with Tuya logs routine enabled. Enable them in Personalización > Productos rutina logs.',
+      });
+    }
+
+    res.status(202).json({
+      success: true,
+      message: 'Logs routine started in background. Check server logs for completion.',
+      startedAt: new Date().toISOString(),
+      productsQueued: productosWhitelist.length,
+    });
+
+    setImmediate(() => {
+      runFetchLogsRoutineInBackground().catch((err) => {
+        console.error('❌ [fetchLogsRoutine] Background run failed:', err.message);
+      });
+    });
+  } catch (error) {
+    console.error('❌ [fetchLogsRoutine] Error starting routine:', error);
     return res.status(500).json({
       success: false,
       message: 'Error executing logs routine',
