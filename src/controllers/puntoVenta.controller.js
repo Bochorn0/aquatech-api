@@ -204,17 +204,19 @@ export const getPuntoVentaById = async (req, res) => {
     const productos = puntoConEstado.productos || [];
     const nivelProducts = productos.filter((p) => p && (p.product_type === 'Nivel' || p.product_type === 'nivel'));
     if (nivelProducts.length > 0) {
-      const todayStr = moment().format('YYYY-MM-DD');
+      // Rango últimos 2 días para que el histórico muestre varias horas (una por hora con datos, último valor por hora)
+      const endDate = moment().format('YYYY-MM-DD');
+      const startDate = moment().subtract(1, 'day').format('YYYY-MM-DD');
       await Promise.all(
         nivelProducts.map(async (product) => {
           try {
             const result = await generateProductLogsReport(
               product.id,
-              todayStr,
+              endDate,
               product,
               true, // useLastValue: last value per hour for charts
-              null,
-              null
+              startDate,
+              endDate
             );
             if (result.success && result.data && result.data.hours_with_data && result.data.hours_with_data.length > 0) {
               product.historico = { hours_with_data: result.data.hours_with_data };

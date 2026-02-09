@@ -143,22 +143,20 @@ export async function generateProductLogsReport(product_id, date, product = null
 
     // ====== AGRUPAR LOGS POR HORA ======
     const hoursMap = {};
+    const useRangeMode = !!(startDate && endDate);
 
-    // Inicializar estructura para las 24 horas según tipo de producto
-    for (let hour = 0; hour < 24; hour++) {
-      const hourKey = hour.toString().padStart(2, '0');
-      
+    const ensureHourBucket = (key, horaLabel) => {
+      if (hoursMap[key]) return;
       if (productType === 'Nivel') {
-        hoursMap[hourKey] = {
-          hora: `${hourKey}:00`,
+        hoursMap[key] = {
+          hora: horaLabel,
           liquid_depth_agrupado: [],
           liquid_level_percent_agrupado: [],
           total_logs: 0,
         };
       } else {
-        // Por defecto: Osmosis
-        hoursMap[hourKey] = {
-          hora: `${hourKey}:00`,
+        hoursMap[key] = {
+          hora: horaLabel,
           tds_agrupado: [],
           flujo_produccion_agrupado: [],
           flujo_rechazo_agrupado: [],
@@ -167,6 +165,14 @@ export async function generateProductLogsReport(product_id, date, product = null
           total_logs: 0,
         };
       }
+    };
+
+    if (!useRangeMode) {
+      // Un solo día: pre-inicializar 24 horas (comportamiento original)
+      for (let hour = 0; hour < 24; hour++) {
+        const hourKey = hour.toString().padStart(2, '0');
+        ensureHourBucket(hourKey, `${hourKey}:00`);
+      }
     }
 
     // Agrupar logs por hora según tipo de producto
@@ -174,14 +180,18 @@ export async function generateProductLogsReport(product_id, date, product = null
       const logDate = moment(log.date);
       const hour = logDate.format('HH'); // Hora en formato 00-23
       const hourMinute = logDate.format('HH:mm'); // Hora:Minuto
+      // En range mode: una entrada por (fecha, hora) para que el histórico muestre varias horas
+      const bucketKey = useRangeMode ? `${logDate.format('YYYY-MM-DD')}_${hour}` : hour;
+      const horaLabel = useRangeMode ? `${logDate.format('YYYY-MM-DD')} ${hour}:00` : `${hour}:00`;
+      ensureHourBucket(bucketKey, horaLabel);
 
-      if (hoursMap[hour]) {
+      if (hoursMap[bucketKey]) {
         if (productType === 'Nivel') {
           // Para productos tipo Nivel, usar liquid_depth y liquid_level_percent
           // (mapeados temporalmente a flujo_produccion y flujo_rechazo)
           
           if (log.flujo_produccion !== undefined && log.flujo_produccion !== null && log.flujo_produccion !== 0) {
-            hoursMap[hour].liquid_depth_agrupado.push({
+            hoursMap[bucketKey].liquid_depth_agrupado.push({
               liquid_depth: log.flujo_produccion, // Mapeo temporal
               hora: hourMinute,
               timestamp: log.date,
@@ -189,7 +199,7 @@ export async function generateProductLogsReport(product_id, date, product = null
           }
 
           if (log.flujo_rechazo !== undefined && log.flujo_rechazo !== null && log.flujo_rechazo !== 0) {
-            hoursMap[hour].liquid_level_percent_agrupado.push({
+            hoursMap[bucketKey].liquid_level_percent_agrupado.push({
               liquid_level_percent: log.flujo_rechazo, // Mapeo temporal
               hora: hourMinute,
               timestamp: log.date,
@@ -201,7 +211,7 @@ export async function generateProductLogsReport(product_id, date, product = null
           
           // TDS (excluir si es 0) - sin conversión especial
           if (log.tds !== undefined && log.tds !== null && log.tds !== 0) {
-            hoursMap[hour].tds_agrupado.push({
+            hoursMap[bucketKey].tds_agrupado.push({
               tds: log.tds,
               hora: hourMinute,
               timestamp: log.date,
@@ -211,7 +221,7 @@ export async function generateProductLogsReport(product_id, date, product = null
           // Flujo Producción (excluir si es 0) - aplicar conversiones
           if (log.flujo_produccion !== undefined && log.flujo_produccion !== null && log.flujo_produccion !== 0) {
             const valorConvertido = applySpecialProductLogic('flowrate_speed_1', log.flujo_produccion);
-            hoursMap[hour].flujo_produccion_agrupado.push({
+            hoursMap[bucketKey].flujo_produccion_agrupado.push({
               flujo_produccion: valorConvertido,
               hora: hourMinute,
               timestamp: log.date,
@@ -221,7 +231,7 @@ export async function generateProductLogsReport(product_id, date, product = null
           // Flujo Rechazo (excluir si es 0) - aplicar conversiones
           if (log.flujo_rechazo !== undefined && log.flujo_rechazo !== null && log.flujo_rechazo !== 0) {
             const valorConvertido = applySpecialProductLogic('flowrate_speed_2', log.flujo_rechazo);
-            hoursMap[hour].flujo_rechazo_agrupado.push({
+            hoursMap[bucketKey].flujo_rechazo_agrupado.push({
               flujo_rechazo: valorConvertido,
               hora: hourMinute,
               timestamp: log.date,
@@ -231,7 +241,7 @@ export async function generateProductLogsReport(product_id, date, product = null
           // Production Volume (excluir si es 0) - aplicar conversiones
           if (log.production_volume !== undefined && log.production_volume !== null && log.production_volume !== 0) {
             const valorConvertido = applySpecialProductLogic('flowrate_total_1', log.production_volume);
-            hoursMap[hour].production_volume_agrupado.push({
+            hoursMap[bucketKey].production_volume_agrupado.push({
               production_volume: valorConvertido,
               hora: hourMinute,
               timestamp: log.date,
@@ -241,7 +251,7 @@ export async function generateProductLogsReport(product_id, date, product = null
           // Rejected Volume (excluir si es 0) - aplicar conversiones
           if (log.rejected_volume !== undefined && log.rejected_volume !== null && log.rejected_volume !== 0) {
             const valorConvertido = applySpecialProductLogic('flowrate_total_2', log.rejected_volume);
-            hoursMap[hour].rejected_volume_agrupado.push({
+            hoursMap[bucketKey].rejected_volume_agrupado.push({
               rejected_volume: valorConvertido,
               hora: hourMinute,
               timestamp: log.date,
@@ -249,13 +259,16 @@ export async function generateProductLogsReport(product_id, date, product = null
           }
         }
 
-        hoursMap[hour].total_logs++;
+        hoursMap[bucketKey].total_logs++;
       }
     });
 
     // ====== FILTRAR SOLO HORAS CON DATOS Y ORDENAR POR HORA ======
-    // Obtener las horas ordenadas numéricamente (00, 01, 02, ..., 23)
-    const sortedHourKeys = Object.keys(hoursMap).sort((a, b) => parseInt(a) - parseInt(b));
+    // En range mode ordenar por clave YYYY-MM-DD_HH (orden cronológico); en un solo día por número de hora
+    const sortedHourKeys = Object.keys(hoursMap).sort((a, b) => {
+      if (useRangeMode) return a.localeCompare(b); // "2026-02-08_09" < "2026-02-09_10"
+      return parseInt(a, 10) - parseInt(b, 10);
+    });
     
     // Filtrar solo horas con datos y mantener el orden
     const hoursWithData = sortedHourKeys
