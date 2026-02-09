@@ -199,6 +199,33 @@ export const getPuntoVentaById = async (req, res) => {
       online: tieneControladorOnline,
     };
 
+    // V1-only: attach historico to Nivel products so "Histórico de Nivel" charts have data.
+    // Uses report.controller (MongoDB ProductLog); does not touch V2 or sensorDataV2.
+    const productos = puntoConEstado.productos || [];
+    const nivelProducts = productos.filter((p) => p && (p.product_type === 'Nivel' || p.product_type === 'nivel'));
+    if (nivelProducts.length > 0) {
+      const todayStr = moment().format('YYYY-MM-DD');
+      await Promise.all(
+        nivelProducts.map(async (product) => {
+          try {
+            const result = await generateProductLogsReport(
+              product.id,
+              todayStr,
+              product,
+              true, // useLastValue: last value per hour for charts
+              null,
+              null
+            );
+            if (result.success && result.data && result.data.hours_with_data && result.data.hours_with_data.length > 0) {
+              product.historico = { hours_with_data: result.data.hours_with_data };
+            }
+          } catch (err) {
+            console.warn(`[getPuntoVentaById] Histórico para Nivel ${product.id} (${product.name}):`, err.message);
+          }
+        })
+      );
+    }
+
     res.json(puntoConEstado);
   } catch (error) {
     console.error('Error fetching punto de venta by ID:', error);
