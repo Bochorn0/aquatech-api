@@ -820,8 +820,77 @@ export const getProductLogsById = async (req, res) => {
       console.warn('⚠️ Error al obtener logs de Tuya:', err.message);
     }
 
-    // ====== Si Tuya no devolvió datos, usar base de datos local ======
+    // ====== Si Tuya no devolvió datos: para Nivel, intentar sync-on-read (guardar en ProductLog y luego leer de DB) ======
     if (!rawLogs.length) {
+      if (isNivel) {
+        try {
+          const productForSync = await Product.findOne({ id }).select('_id').lean();
+          if (productForSync) {
+            const nivelCodes = ['liquid_level_percent', 'liquid_depth'];
+            const allTuyaLogs = [];
+            for (const code of nivelCodes) {
+              try {
+                const resp = await tuyaService.getDeviceLogsForRoutine({
+                  id,
+                  start_date: numericStartDate,
+                  end_date: numericEndDate,
+                  fields: code,
+                  size: Math.min(numericLimit * 5, 100),
+                });
+                if (resp.success && resp.data?.logs?.length > 0) {
+                  allTuyaLogs.push(...resp.data.logs);
+                }
+                await new Promise((r) => setTimeout(r, 200));
+              } catch (codeErr) {
+                console.warn(`[getProductLogsById] Nivel sync: error fetching ${code}:`, codeErr.message);
+              }
+            }
+            if (allTuyaLogs.length > 0) {
+              const groupedByTs = {};
+              allTuyaLogs.forEach((log) => {
+                const ts = log.event_time;
+                if (!groupedByTs[ts]) {
+                  groupedByTs[ts] = {
+                    product_id: id,
+                    producto: productForSync._id,
+                    date: new Date(ts),
+                    source: 'tuya',
+                    flujo_produccion: null,
+                    flujo_rechazo: null,
+                  };
+                }
+                if (log.code === 'liquid_level_percent') groupedByTs[ts].flujo_rechazo = Number(log.value) || 0;
+                if (log.code === 'liquid_depth') groupedByTs[ts].flujo_produccion = Number(log.value) || 0;
+              });
+              const toSave = Object.values(groupedByTs).filter(
+                (l) => (l.flujo_produccion != null && l.flujo_produccion !== 0) || (l.flujo_rechazo != null && l.flujo_rechazo !== 0)
+              );
+              if (toSave.length > 0) {
+                const dates = toSave.map((l) => l.date);
+                const existing = await ProductLog.find({ product_id: id, date: { $in: dates } }).select('date').lean();
+                const existingSet = new Set(existing.map((e) => e.date.getTime()));
+                const toInsert = toSave
+                  .filter((l) => !existingSet.has(l.date.getTime()))
+                  .map((l) => ({
+                    product_id: id,
+                    producto: l.producto,
+                    date: l.date,
+                    flujo_produccion: l.flujo_produccion ?? undefined,
+                    flujo_rechazo: l.flujo_rechazo ?? undefined,
+                    source: 'tuya',
+                  }));
+                if (toInsert.length > 0) {
+                  await ProductLog.insertMany(toInsert);
+                  console.log(`📥 [getProductLogsById] Nivel sync-on-read: guardados ${toInsert.length} logs en ProductLog`);
+                }
+              }
+            }
+          }
+        } catch (nivelSyncErr) {
+          console.warn('[getProductLogsById] Nivel sync-on-read error:', nivelSyncErr.message);
+        }
+      }
+
       console.log('🔁 Consultando logs desde base de datos local...');
       const query = { product_id: id };
 
@@ -838,10 +907,9 @@ export const getProductLogsById = async (req, res) => {
         .lean(); // Usar lean() para mejor rendimiento
 
       // Asegurar que todos los logs de MongoDB tengan source='database'
-      // Forzar 'database' sin importar qué tengan guardado, ya que vienen de MongoDB
-      rawLogs = rawLogs.map(log => ({
+      rawLogs = rawLogs.map((log) => ({
         ...log,
-        source: 'database', // Forzar source='database' para todos los logs de MongoDB
+        source: 'database',
       }));
 
       console.log(`✅ Logs obtenidos desde DB (${rawLogs.length})`);
