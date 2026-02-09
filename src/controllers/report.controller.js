@@ -327,30 +327,25 @@ export async function generateProductLogsReport(product_id, date, product = null
             ? sortedLiquidPercent[0].liquid_level_percent
             : 0;
 
-          // Log de comparación: promedio vs último valor usado
-          if (sortedLiquidPercent.length > 0) {
-            console.log(`📊 [useLastValue=true] Hora ${hourData.hora}: Promedio=${avgLiquidPercent}% | Último valor usado=${liquidPercentValue}% (de ${sortedLiquidPercent.length} registros)`);
-          }
-        } else {
-          // Usar el promedio (comportamiento por defecto para reportes)
-          const avgLiquidDepth = hourData.liquid_depth_agrupado?.length > 0
-            ? (hourData.liquid_depth_agrupado.reduce((sum, item) => sum + item.liquid_depth, 0) / hourData.liquid_depth_agrupado.length).toFixed(2)
-            : 0;
+        }
 
-          const avgLiquidPercent = hourData.liquid_level_percent_agrupado?.length > 0
-            ? (hourData.liquid_level_percent_agrupado.reduce((sum, item) => sum + item.liquid_level_percent, 0) / hourData.liquid_level_percent_agrupado.length).toFixed(2)
-            : 0;
+        const estadisticas = {
+          liquid_depth_promedio: parseFloat(Number(liquidDepthValue).toFixed(2)),
+          liquid_level_percent_promedio: parseFloat(Number(liquidPercentValue).toFixed(2)),
+        };
 
-          liquidDepthValue = parseFloat(avgLiquidDepth);
-          liquidPercentValue = parseFloat(avgLiquidPercent);
+        // Para Nivel con useLastValue: devolver solo hora, total_logs y estadisticas (un valor por hora) para reducir payload
+        if (useLastValue) {
+          return {
+            hora: hourData.hora,
+            total_logs: hourData.total_logs,
+            estadisticas,
+          };
         }
 
         return {
           ...hourData,
-          estadisticas: {
-            liquid_depth_promedio: parseFloat(Number(liquidDepthValue).toFixed(2)),
-            liquid_level_percent_promedio: parseFloat(Number(liquidPercentValue).toFixed(2)),
-          },
+          estadisticas,
         };
       } else {
         // Estadísticas para productos tipo Osmosis
