@@ -122,18 +122,18 @@ export async function generateProductLogsReport(product_id, date, product = null
     const useRangeMode = !!(startDate && endDate);
 
     // ====== NIVEL + RANGO (V1 only): agregar por hora en MongoDB ======
-    // Por cada hora (product_id + hora en America/Hermosillo) tomamos el ÚLTIMO registro por date (timestamp).
-    // Ej: 10:00 tiene [0:10, 1:20, 2:5] → mostramos 5 (el más reciente en esa hora).
+    // Tuya envía Nivel (%) y Profundidad (cm) en logs separados: unos tienen flujo_rechazo, otros flujo_produccion.
+    // Por cada hora usamos el ÚLTIMO valor no nulo de cada métrica (el más reciente en esa hora que tenga ese campo).
     const REPORT_TZ = 'America/Hermosillo';
     if (productType === 'Nivel' && useLastValue && useRangeMode) {
       const buckets = await ProductLog.aggregate([
         { $match: { product_id, date: { $gte: startOfDay, $lte: endOfDay } } },
-        { $sort: { date: 1 } }, // orden ascendente para que $last sea el más reciente en cada grupo
+        { $sort: { date: 1 } },
         {
           $group: {
             _id: { $dateToString: { format: '%Y-%m-%d_%H', date: '$date', timezone: REPORT_TZ } },
             hora: { $first: { $dateToString: { format: '%Y-%m-%d %H:00', date: '$date', timezone: REPORT_TZ } } },
-            lastDoc: { $last: '$$ROOT' },
+            docs: { $push: { date: '$date', flujo_rechazo: '$flujo_rechazo', flujo_produccion: '$flujo_produccion' } },
             total_logs: { $sum: 1 },
           },
         },
@@ -142,9 +142,50 @@ export async function generateProductLogsReport(product_id, date, product = null
             _id: 0,
             hora: 1,
             total_logs: 1,
+            withRechazo: {
+              $filter: {
+                input: '$docs',
+                as: 'd',
+                cond: { $and: [{ $ne: ['$$d.flujo_rechazo', null] }, { $gt: ['$$d.flujo_rechazo', 0] }] },
+              },
+            },
+            withProd: {
+              $filter: {
+                input: '$docs',
+                as: 'd',
+                cond: { $and: [{ $ne: ['$$d.flujo_produccion', null] }, { $gt: ['$$d.flujo_produccion', 0] }] },
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            hora: 1,
+            total_logs: 1,
+            lastRechazo: {
+              $cond: {
+                if: { $gt: [{ $size: '$withRechazo' }, 0] },
+                then: { $arrayElemAt: ['$withRechazo', { $subtract: [{ $size: '$withRechazo' }, 1] }] },
+                else: null,
+              },
+            },
+            lastProd: {
+              $cond: {
+                if: { $gt: [{ $size: '$withProd' }, 0] },
+                then: { $arrayElemAt: ['$withProd', { $subtract: [{ $size: '$withProd' }, 1] }] },
+                else: null,
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            hora: 1,
+            total_logs: 1,
             estadisticas: {
-              liquid_depth_promedio: { $round: [{ $ifNull: ['$lastDoc.flujo_produccion', 0] }, 2] },
-              liquid_level_percent_promedio: { $round: [{ $ifNull: ['$lastDoc.flujo_rechazo', 0] }, 2] },
+              liquid_level_percent_promedio: { $round: [{ $ifNull: ['$lastRechazo.flujo_rechazo', 0] }, 2] },
+              liquid_depth_promedio: { $round: [{ $ifNull: ['$lastProd.flujo_produccion', 0] }, 2] },
             },
           },
         },
