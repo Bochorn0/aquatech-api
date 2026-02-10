@@ -34,6 +34,12 @@ export const getReports = async (req, res) => {
 
 /* ======================================================
    📊 REPORTE DE LOGS DE PRODUCTO AGRUPADOS POR HORA
+   ======================================================
+   V1 ONLY: This block uses MongoDB (ProductLog) only. Used by:
+   - GET /api/v1.0/puntoVentas/:id?historicoRange=... (Nivel historico)
+   - GET /api/v1.0/reportes/product-logs
+   - GET /api/v1.0/reportes/mensual
+   Does not affect v2 API or PostgreSQL.
    ====================================================== */
 
 /**
@@ -115,15 +121,17 @@ export async function generateProductLogsReport(product_id, date, product = null
 
     const useRangeMode = !!(startDate && endDate);
 
-    // ====== NIVEL + RANGO: agregar por hora en MongoDB (evita cargar miles de logs en memoria) ======
+    // ====== NIVEL + RANGO (V1 only): agregar por hora en MongoDB ======
+    // Timezone America/Hermosillo para etiquetas del gráfico en zona México (v1 detalle PV).
+    const REPORT_TZ = 'America/Hermosillo';
     if (productType === 'Nivel' && useLastValue && useRangeMode) {
       const buckets = await ProductLog.aggregate([
         { $match: { product_id, date: { $gte: startOfDay, $lte: endOfDay } } },
         { $sort: { date: 1 } },
         {
           $group: {
-            _id: { $dateToString: { format: '%Y-%m-%d_%H', date: '$date' } },
-            hora: { $first: { $dateToString: { format: '%Y-%m-%d %H:00', date: '$date' } } },
+            _id: { $dateToString: { format: '%Y-%m-%d_%H', date: '$date', timezone: REPORT_TZ } },
+            hora: { $first: { $dateToString: { format: '%Y-%m-%d %H:00', date: '$date', timezone: REPORT_TZ } } },
             lastDepth: { $last: '$flujo_produccion' },
             lastPercent: { $last: '$flujo_rechazo' },
             total_logs: { $sum: 1 },
@@ -156,8 +164,8 @@ export async function generateProductLogsReport(product_id, date, product = null
       };
     }
 
-    // ====== OSMOSIS: agregar por hora en MongoDB cuando hay muchos logs (evita cargar miles en memoria) ======
-    const USE_AGGREGATION_THRESHOLD = 2000; // use aggregation when we'd otherwise load more than this
+    // ====== OSMOSIS (V1 only): agregar por hora en MongoDB cuando hay muchos logs ======
+    const USE_AGGREGATION_THRESHOLD = 2000;
     if (productType !== 'Nivel') {
       const count = await ProductLog.countDocuments({
         product_id,
@@ -167,12 +175,12 @@ export async function generateProductLogsReport(product_id, date, product = null
         const isSpecial = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'].includes(product_id);
         const buckets = await ProductLog.aggregate([
           { $match: { product_id, date: { $gte: startOfDay, $lte: endOfDay } } },
-          {
-            $group: {
-              _id: { $dateToString: { format: '%Y-%m-%d_%H', date: '$date' } },
-              hora: { $first: { $dateToString: { format: '%Y-%m-%d %H:00', date: '$date' } } },
-              total_logs: { $sum: 1 },
-              avgTds: { $avg: { $cond: [{ $and: [{ $ne: ['$tds', null] }, { $ne: ['$tds', 0] }] }, '$tds', null] } },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d_%H', date: '$date', timezone: 'America/Hermosillo' } },
+            hora: { $first: { $dateToString: { format: '%Y-%m-%d %H:00', date: '$date', timezone: 'America/Hermosillo' } } },
+            total_logs: { $sum: 1 },
+            avgTds: { $avg: { $cond: [{ $and: [{ $ne: ['$tds', null] }, { $ne: ['$tds', 0] }] }, '$tds', null] } },
               avgFlujoProd: { $avg: { $cond: [{ $and: [{ $ne: ['$flujo_produccion', null] }, { $ne: ['$flujo_produccion', 0] }] }, '$flujo_produccion', null] } },
               avgFlujoRech: { $avg: { $cond: [{ $and: [{ $ne: ['$flujo_rechazo', null] }, { $ne: ['$flujo_rechazo', 0] }] }, '$flujo_rechazo', null] } },
               sumProdVol: { $sum: { $cond: [{ $and: [{ $ne: ['$production_volume', null] }, { $gt: ['$production_volume', 0] }] }, '$production_volume', 0] } },
