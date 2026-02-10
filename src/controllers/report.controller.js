@@ -122,18 +122,18 @@ export async function generateProductLogsReport(product_id, date, product = null
     const useRangeMode = !!(startDate && endDate);
 
     // ====== NIVEL + RANGO (V1 only): agregar por hora en MongoDB ======
-    // Timezone America/Hermosillo para etiquetas del gráfico en zona México (v1 detalle PV).
+    // Por cada hora (product_id + hora en America/Hermosillo) tomamos el ÚLTIMO registro por date (timestamp).
+    // Ej: 10:00 tiene [0:10, 1:20, 2:5] → mostramos 5 (el más reciente en esa hora).
     const REPORT_TZ = 'America/Hermosillo';
     if (productType === 'Nivel' && useLastValue && useRangeMode) {
       const buckets = await ProductLog.aggregate([
         { $match: { product_id, date: { $gte: startOfDay, $lte: endOfDay } } },
-        { $sort: { date: 1 } },
+        { $sort: { date: 1 } }, // orden ascendente para que $last sea el más reciente en cada grupo
         {
           $group: {
             _id: { $dateToString: { format: '%Y-%m-%d_%H', date: '$date', timezone: REPORT_TZ } },
             hora: { $first: { $dateToString: { format: '%Y-%m-%d %H:00', date: '$date', timezone: REPORT_TZ } } },
-            lastDepth: { $last: '$flujo_produccion' },
-            lastPercent: { $last: '$flujo_rechazo' },
+            lastDoc: { $last: '$$ROOT' },
             total_logs: { $sum: 1 },
           },
         },
@@ -143,8 +143,8 @@ export async function generateProductLogsReport(product_id, date, product = null
             hora: 1,
             total_logs: 1,
             estadisticas: {
-              liquid_depth_promedio: { $round: [{ $ifNull: ['$lastDepth', 0] }, 2] },
-              liquid_level_percent_promedio: { $round: [{ $ifNull: ['$lastPercent', 0] }, 2] },
+              liquid_depth_promedio: { $round: [{ $ifNull: ['$lastDoc.flujo_produccion', 0] }, 2] },
+              liquid_level_percent_promedio: { $round: [{ $ifNull: ['$lastDoc.flujo_rechazo', 0] }, 2] },
             },
           },
         },
