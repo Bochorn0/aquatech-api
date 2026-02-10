@@ -20,6 +20,9 @@ const ProductLogSchema = new mongoose.Schema({
   timestamps: true  // Crea createdAt y updatedAt
 });
 
+// Index for fast range queries by product and date (historico, reportes)
+ProductLogSchema.index({ product_id: 1, date: 1 });
+
 const ProductLog = mongoose.model('ProductLog', ProductLogSchema);
 
 export default ProductLog;
