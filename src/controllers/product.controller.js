@@ -517,6 +517,39 @@ export const updateProduct = async (req, res) => {
   }
 };
 
+/**
+ * Returns the Unix timestamp (seconds) to show as "Última vez actualizado":
+ * the greater of product.update_time and the date of the latest ProductLog
+ * that has at least one non-zero value (tds, production_volume, rejected_volume,
+ * temperature, flujo_produccion, flujo_rechazo).
+ */
+async function getLastUpdatedDisplay(productId, updateTimeSeconds) {
+  try {
+    const latestLog = await ProductLog.findOne({
+      product_id: productId,
+      $or: [
+        { tds: { $nin: [null, 0] } },
+        { production_volume: { $nin: [null, 0] } },
+        { rejected_volume: { $nin: [null, 0] } },
+        { temperature: { $nin: [null, 0] } },
+        { flujo_produccion: { $nin: [null, 0] } },
+        { flujo_rechazo: { $nin: [null, 0] } },
+      ],
+    })
+      .sort({ date: -1 })
+      .select('date')
+      .lean();
+
+    const productTime = updateTimeSeconds && Number(updateTimeSeconds) > 0 ? Number(updateTimeSeconds) : 0;
+    if (!latestLog || !latestLog.date) return productTime || undefined;
+    const logTime = Math.floor(new Date(latestLog.date).getTime() / 1000);
+    return Math.max(productTime, logTime);
+  } catch (err) {
+    console.error('[getLastUpdatedDisplay]', err.message);
+    return updateTimeSeconds && Number(updateTimeSeconds) > 0 ? Number(updateTimeSeconds) : undefined;
+  }
+}
+
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -536,7 +569,12 @@ export const getProductById = async (req, res) => {
       
       console.log('response product detail', response)
       if (!response.success) {
-        if (product) { return res.json(product); }
+        if (product) {
+          const lastDisplayFail = await getLastUpdatedDisplay(id, product.update_time);
+          const outFail = product.toObject ? product.toObject() : { ...product };
+          outFail.last_updated_display = lastDisplayFail != null ? lastDisplayFail : outFail.update_time;
+          return res.json(outFail);
+        }
         return res.status(400).json({ message: response.error, code: response.code });
       }
       if (response && response.data) {
@@ -615,12 +653,18 @@ export const getProductById = async (req, res) => {
             return stat;
           });
         }
-        return res.json(product);
+        const lastDisplay = await getLastUpdatedDisplay(id, product.update_time);
+        const out = product.toObject ? product.toObject() : { ...product };
+        out.last_updated_display = lastDisplay != null ? lastDisplay : out.update_time;
+        return res.json(out);
       }
 
       // If Tuya API doesn't return data, return the existing MongoDB product
       console.log('Tuya API did not return data. Returning existing MongoDB product.');
-      return res.json(product);
+      const lastDisplayExisting = await getLastUpdatedDisplay(id, product.update_time);
+      const outExisting = product.toObject ? product.toObject() : { ...product };
+      outExisting.last_updated_display = lastDisplayExisting != null ? lastDisplayExisting : outExisting.update_time;
+      return res.json(outExisting);
     } 
 
     // If product does not exist in MongoDB, fetch from Tuya API
@@ -718,7 +762,10 @@ export const getProductById = async (req, res) => {
         return stat;
       });
     }
-    res.json(newProduct);
+    const lastDisplayNew = await getLastUpdatedDisplay(id, newProduct.update_time);
+    const outNew = newProduct.toObject ? newProduct.toObject() : { ...newProduct };
+    outNew.last_updated_display = lastDisplayNew != null ? lastDisplayNew : outNew.update_time;
+    res.json(outNew);
     
   } catch (error) {
     console.error('Error fetching product details:', error);
