@@ -667,9 +667,8 @@ export const generateDailyData = async (req, res) => {
 };
 
 /**
- * Generate one mock sensor snapshot for this punto with current timestamp and persist to PostgreSQL.
- * Same payload structure as generate-daily-data but single message, no MQTT — uses the same
- * persistence path as simulate (mapTiwaterDataToStandard + saveMultipleSensorsFromMQTT).
+ * Generate one mock sensor snapshot for this punto with current timestamp and send to MQTT only.
+ * Same payload structure as generate-daily-data; consumer persists to PostgreSQL.
  */
 export const generateMockDataNow = async (req, res) => {
   try {
@@ -707,8 +706,20 @@ export const generateMockDataNow = async (req, res) => {
       });
     }
 
+    if (!mqttService.isConnected) {
+      mqttService.connect();
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (!mqttService.isConnected) {
+        return res.status(503).json({
+          success: false,
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.'
+        });
+      }
+    }
+
     codigoTienda = codigoTienda.toUpperCase();
     const timestampUnix = Math.floor(Date.now() / 1000);
+    const topic = `tiwater/${codigoTienda}/data`;
 
     // One payload, same structure as one hour in generateDailyData, with random plausible values
     const nivelPurificada = Math.round((25 + Math.random() * 55) * 10) / 10;
@@ -735,27 +746,18 @@ export const generateMockDataNow = async (req, res) => {
       timestamp: timestampUnix
     };
 
-    const mapped = mqttService.mapTiwaterDataToStandard(tiwaterPayload);
-    const persistPayload = {
-      ...mapped,
-      codigo_tienda: codigoTienda,
-      timestamp: timestampUnix,
-      source: 'tiwater',
-      metadata: { topic_format: 'tiwater', from: 'generate_mock_data_now' }
-    };
-    const context = { codigo_tienda: codigoTienda, resource_type: 'tiwater' };
-    const saved = await PostgresService.saveMultipleSensorsFromMQTT(persistPayload, context);
-    const readingsSaved = Array.isArray(saved) ? saved.length : (saved != null ? 1 : 0);
+    const message = JSON.stringify(tiwaterPayload);
+    await mqttService.publish(topic, message);
 
-    console.log(`[generateMockDataNow] ${codigoTienda}: ${readingsSaved} lecturas guardadas`);
+    console.log(`[generateMockDataNow] Enviado a MQTT ${topic} (timestamp actual)`);
 
     return res.json({
       success: true,
-      message: 'Datos mock generados y guardados (timestamp actual)',
+      message: 'Datos mock enviados a MQTT (timestamp actual)',
       data: {
         puntoVentaId: id,
         codigoTienda,
-        readingsSaved,
+        topic,
         timestamp: new Date(timestampUnix * 1000).toISOString()
       }
     });
@@ -838,23 +840,6 @@ export const simulateBajoNivelCruda = async (req, res) => {
     await mqttService.publish(topic, message);
 
     console.log(`[Simulate Bajo Nivel Cruda] Publicado en ${topic}: nivel cruda ${nivelCrudaPercent}% (payload completo)`);
-
-    // Persist full payload to PostgreSQL so detalle updates immediately
-    try {
-      const mapped = mqttService.mapTiwaterDataToStandard(fullPayload);
-      const persistPayload = {
-        ...mapped,
-        codigo_tienda: codigoTienda,
-        timestamp: timestampUnix,
-        source: 'tiwater',
-        metadata: { topic_format: 'tiwater' }
-      };
-      const context = { codigo_tienda: codigoTienda, resource_type: 'tiwater' };
-      await PostgresService.saveMultipleSensorsFromMQTT(persistPayload, context);
-      console.log(`[Simulate Bajo Nivel Cruda] Persistido en PostgreSQL para ${codigoTienda}`);
-    } catch (pgErr) {
-      console.warn('[Simulate Bajo Nivel Cruda] No se pudo persistir en PostgreSQL:', pgErr.message);
-    }
 
     res.json({
       success: true,
@@ -945,23 +930,6 @@ export const simulateNivelCrudaNormalizado = async (req, res) => {
     await mqttService.publish(topic, message);
 
     console.log(`[Simulate Nivel Cruda Normalizado] Publicado en ${topic}: nivel cruda ${nivelCrudaPercent}% (payload completo)`);
-
-    // Persist full payload to PostgreSQL so detalle updates immediately
-    try {
-      const mapped = mqttService.mapTiwaterDataToStandard(fullPayload);
-      const persistPayload = {
-        ...mapped,
-        codigo_tienda: codigoTienda,
-        timestamp: timestampUnix,
-        source: 'tiwater',
-        metadata: { topic_format: 'tiwater' }
-      };
-      const context = { codigo_tienda: codigoTienda, resource_type: 'tiwater' };
-      await PostgresService.saveMultipleSensorsFromMQTT(persistPayload, context);
-      console.log(`[Simulate Nivel Cruda Normalizado] Persistido en PostgreSQL para ${codigoTienda}`);
-    } catch (pgErr) {
-      console.warn('[Simulate Nivel Cruda Normalizado] No se pudo persistir en PostgreSQL:', pgErr.message);
-    }
 
     res.json({
       success: true,
