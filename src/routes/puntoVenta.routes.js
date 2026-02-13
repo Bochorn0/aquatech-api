@@ -17,12 +17,41 @@ import { authenticate, requirePermission } from '../middlewares/auth.middleware.
 
 const router = Router();
 
-// Cron or dashboard: X-Cron-Secret (cron) or JWT with /puntoVenta (manual)
-// Secret can be CRON_DEV_MODE_SECRET or TIWATER_API_KEY (one less env var if you already have it)
+// Cron or dashboard: X-Cron-Secret, X-TIWater-API-Key (cron/script) or JWT with /puntoVenta (manual)
+// Secret can be CRON_DEV_MODE_SECRET or TIWATER_API_KEY
 const cronOrAuthDevMode = (req, res, next) => {
   const secret = req.headers['x-cron-secret'];
+  const apiKey = req.headers['x-tiwater-api-key'] || req.headers['x-api-key'];
   const validSecret = process.env.CRON_DEV_MODE_SECRET || process.env.TIWATER_API_KEY;
+  const validApiKey = process.env.TIWATER_API_KEY;
   if (secret && validSecret && secret === validSecret) return next();
+  if (apiKey && validApiKey && apiKey === validApiKey) return next();
+  authenticate(req, res, (err) => {
+    if (err) return next(err);
+    requirePermission('/puntoVenta')(req, res, next);
+  });
+};
+
+/**
+ * Mount-level middleware: for generate-mock-data-now routes, allow X-Cron-Secret or X-TIWater-API-Key
+ * to bypass JWT auth. Must run BEFORE authenticate in index.js.
+ */
+export const puntoVentaAuthOrCron = (req, res, next) => {
+  const isGenerateMockPath =
+    req.path.includes('generate-mock-data-now') || req.originalUrl.includes('generate-mock-data-now');
+  if (!isGenerateMockPath) {
+    return authenticate(req, res, (err) => {
+      if (err) return next(err);
+      requirePermission('/puntoVenta')(req, res, next);
+    });
+  }
+  const secret = req.headers['x-cron-secret'];
+  const apiKey = req.headers['x-tiwater-api-key'] || req.headers['x-api-key'];
+  const validSecret = process.env.CRON_DEV_MODE_SECRET || process.env.TIWATER_API_KEY;
+  const validApiKey = process.env.TIWATER_API_KEY;
+  if ((secret && validSecret && secret === validSecret) || (apiKey && validApiKey && apiKey === validApiKey)) {
+    return next();
+  }
   authenticate(req, res, (err) => {
     if (err) return next(err);
     requirePermission('/puntoVenta')(req, res, next);

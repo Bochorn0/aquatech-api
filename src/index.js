@@ -20,7 +20,7 @@ import roleRoutes from './routes/role.routes.js';  // Use `import` for roleRoute
 import clientRoutes from './routes/client.routes.js';  // Use `import` for clientRoutes'
 import reportRoutes from './routes/report.routes.js';  // Use `import` for reportRoutes
 import controllerRoutes from './routes/controller.routes.js' // Use `import` for controllerRouters
-import puntoVentaRoutes from './routes/puntoVenta.routes.js' // Use `import` for PuntoVenta
+import puntoVentaRoutes, { puntoVentaAuthOrCron } from './routes/puntoVenta.routes.js' // Use `import` for PuntoVenta
 import sensorDataRoutes from './routes/sensorData.routes.js';  // Use `import` for sensorDataRoutes
 import sensorDataV2Routes from './routes/sensorDataV2.routes.js';  // Use `import` for sensorDataV2Routes (v2.0)
 import customizationV2Routes from './routes/customizationV2.routes.js';  // Use `import` for customizationV2Routes (v2.0)
@@ -244,7 +244,7 @@ app.use('/api/v1.0/reportes', authenticate, requirePermission('/'), reportRoutes
 app.use('/api/v1.0/metrics', authenticate, requirePermission('/'), metricRoutes);
 app.use('/api/v1.0/cities', authenticate, requirePermission('/'), cityRoutes);
 app.use('/api/v1.0/controllers', authenticate, requirePermission('/controladores'), controllerRoutes);
-app.use('/api/v1.0/puntoVentas', authenticate, requirePermission('/puntoVenta'), puntoVentaRoutes);
+app.use('/api/v1.0/puntoVentas', puntoVentaAuthOrCron, puntoVentaRoutes);
 app.use('/api/v1.0/sensor-data', authenticate, requirePermission('/'), sensorDataRoutes);
 
 // v2.0 API routes - PostgreSQL based (TI Water - no auth on these or add if needed)
