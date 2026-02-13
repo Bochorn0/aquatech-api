@@ -64,24 +64,27 @@ function getRangeForSensor(sensorConfig) {
   };
 }
 
-/** Map sensor_type to the key name the MQTT consumer (mapTiwaterDataToStandard) expects. */
-const SENSOR_TYPE_TO_MQTT_KEY = {
-  flujo_produccion: 'caudal_purificada',
-  flujo_rechazo: 'caudal_rechazo',
-  flujo_recuperacion: 'caudal_recuperacion',
-  tds: 'tds',
-  electronivel_purificada: 'porcentaje_nivel_purificada',
-  electronivel_recuperada: 'porcentaje_nivel_recuperada',
-  electronivel_cruda: 'porcentaje_nivel_cruda',
-  nivel_purificada: 'nivel_purificada',
-  nivel_cruda: 'nivel_cruda',
-  caudal_cruda: 'caudal_cruda',
-  caudal_cruda_lmin: 'caudal_cruda_l_min',
-  acumulado_cruda: 'acumulado_cruda',
+/**
+ * Same key names as generate-daily-data (puntoVenta.controller.js) so MQTT messages
+ * have the same structure and are never empty.
+ */
+const SENSOR_TYPE_TO_TIWATER_KEY = {
+  flujo_produccion: 'CAUDAL PURIFICADA',
+  flujo_rechazo: 'CAUDAL RECHAZO',
+  flujo_recuperacion: 'CAUDAL RECUPERACION',
+  tds: 'TDS',
+  electronivel_purificada: 'PORCENTAJE NIVEL PURIFICADA',
+  electronivel_recuperada: 'PORCENTAJE NIVEL RECUPERADA',
+  electronivel_cruda: 'PORCENTAJE NIVEL CRUDA',
+  nivel_purificada: 'NIVEL PURIFICADA',
+  nivel_cruda: 'NIVEL CRUDA',
+  caudal_cruda: 'CAUDAL CRUDA',
+  caudal_cruda_lmin: 'CAUDAL CRUDA L/min',
+  acumulado_cruda: 'ACUMULADO CRUDA',
   presion_in: 'pressure_in',
   presion_out: 'pressure_out',
-  presion_co2: 'presion_co2',
-  eficiencia: 'eficiencia',
+  presion_co2: 'PRESION CO2',
+  eficiencia: 'EFICIENCIA',
   vida: 'vida',
   water_level: 'water_level',
   corriente_ch1: 'ch1',
@@ -91,10 +94,35 @@ const SENSOR_TYPE_TO_MQTT_KEY = {
   corriente_total: 'total_corriente'
 };
 
+/** Default full tiwater payload (same structure as generate-daily-data). Ensures message is never empty. */
+function getDefaultTiwaterPayload() {
+  const nivelPurificada = 40 + Math.random() * 20;
+  const nivelCruda = 50 + Math.random() * 20;
+  return {
+    'CAUDAL PURIFICADA': 0.4,
+    'CAUDAL RECUPERACION': 2.5,
+    'CAUDAL RECHAZO': 0.2,
+    'NIVEL PURIFICADA': nivelPurificada,
+    'PORCENTAJE NIVEL PURIFICADA': parseFloat((nivelPurificada / 10).toFixed(1)),
+    'NIVEL CRUDA': nivelCruda,
+    'PORCENTAJE NIVEL CRUDA': parseFloat((nivelCruda / 10).toFixed(1)),
+    'CAUDAL CRUDA': 2.0,
+    'ACUMULADO CRUDA': 2000,
+    'CAUDAL CRUDA L/min': 24,
+    vida: 80,
+    'PRESION CO2': 300,
+    ch1: 2.6,
+    ch2: 2.9,
+    ch3: 1.1,
+    ch4: 2.3,
+    EFICIENCIA: 51,
+    TDS: 80 + Math.random() * 40
+  };
+}
+
 /**
- * Build MQTT payloads (tiwater format) for all dev_mode puntos.
- * Topic: tiwater/{codigo_tienda}/data. Message: JSON with timestamp (Unix s) and sensor keys.
- * The MQTT consumer will receive and save to PostgreSQL.
+ * Build MQTT payloads (tiwater format, same as generate-daily-data).
+ * Topic: tiwater/{codigo_tienda}/data. Message: JSON with timestamp (Unix s) and tiwater keys.
  * @returns {Promise<{ payloads: Array<{ topic: string, message: string }>, puntosProcessed: number, errors: string[] }>}
  */
 export async function getMqttPayloadsForDevModePuntos() {
@@ -117,30 +145,28 @@ export async function getMqttPayloadsForDevModePuntos() {
         continue;
       }
 
-      let sensors;
+      let sensors = [];
       try {
         sensors = await PuntoVentaSensorModel.findByPuntoVentaId(puntoId);
       } catch (err) {
         result.errors.push(`Punto ${puntoId}: failed to load sensors: ${err.message}`);
-        continue;
       }
 
       const enabledSensors = sensors.filter(s => s.enabled !== false);
-      if (enabledSensors.length === 0) {
-        continue;
-      }
 
-      const payload = { timestamp: timestampUnix, source: 'dev_mode_generator' };
+      // Start from default tiwater payload (same as 24h generator) so message is never empty
+      const payload = { ...getDefaultTiwaterPayload(), timestamp: timestampUnix };
       for (const sensor of enabledSensors) {
         const type = sensor.sensorType || sensor.sensor_type;
         const { min, max } = getRangeForSensor(sensor);
         const value = randomInRange(min, max);
-        const key = SENSOR_TYPE_TO_MQTT_KEY[type] || type;
+        const key = SENSOR_TYPE_TO_TIWATER_KEY[type] || type;
         payload[key] = value;
       }
 
       const topic = `tiwater/${codigoTienda}/data`;
-      result.payloads.push({ topic, message: JSON.stringify(payload) });
+      const message = JSON.stringify(payload);
+      result.payloads.push({ topic, message });
       result.puntosProcessed += 1;
     }
 

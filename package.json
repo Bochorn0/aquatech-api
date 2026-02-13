@@ -31,7 +31,7 @@
     "fix:pm2": "sudo bash scripts/fix_pm2_issues.sh",
     "check:resources": "bash scripts/check_system_resources.sh",
     "fix:codigo-tienda-index": "node scripts/fix-codigo-tienda-index.js",
-    "dev-mode-data-gen": "node scripts/run-dev-mode-data-generator.js"
+    "dev-mode-data-gen": "DEV_MODE_USE_MQTT=true node scripts/run-dev-mode-data-generator.js"
   },
   "dependencies": {
     "@tuya/tuya-connector-nodejs": "^2.1.2",

@@ -3,8 +3,8 @@
 // Standalone script to run the dev mode random data generator.
 // Use from system crontab: */5 * * * * cd /path/to/Aquatech_api && node scripts/run-dev-mode-data-generator.js
 //
-// Set DEV_MODE_USE_MQTT=true to publish to MQTT (tiwater/{codigo_tienda}/data).
-// The MQTT consumer will receive and save to PostgreSQL. Otherwise data is written directly to PostgreSQL.
+// Set DEV_MODE_USE_MQTT=true to publish to MQTT (tiwater/{codigo_tienda}/data). npm run dev-mode-data-gen sets this.
+// Otherwise data is written directly to PostgreSQL. For TLS (port 8883) set MQTT_CA_CERT_PATH or MQTT_CA_CERT.
 
 import dotenv from 'dotenv';
 import fs from 'fs';
@@ -28,17 +28,22 @@ function createMqttClient() {
   const protocol = MQTT_USE_TLS ? 'mqtts' : 'mqtt';
   const url = `${protocol}://${MQTT_BROKER}:${MQTT_PORT}`;
   const options = {
-    clientId: process.env.MQTT_CLIENT_ID || 'tiwater-dev-mode-script',
+    clientId: process.env.MQTT_CLIENT_ID || 'tiwater-dev-mode-script-' + Date.now(),
     reconnectPeriod: 0,
-    connectTimeout: 10000
+    connectTimeout: 15000,
+    rejectUnauthorized: process.env.MQTT_TLS_REJECT_UNAUTHORIZED !== 'false'
   };
   if (MQTT_USERNAME) options.username = MQTT_USERNAME;
   if (MQTT_PASSWORD) options.password = MQTT_PASSWORD;
-  if (MQTT_USE_TLS && process.env.MQTT_CA_CERT_PATH) {
-    try {
-      options.ca = fs.readFileSync(process.env.MQTT_CA_CERT_PATH);
-    } catch (e) {
-      console.warn('[run-dev-mode-data-generator] MQTT TLS CA file not loaded:', e.message);
+  if (MQTT_USE_TLS) {
+    if (process.env.MQTT_CA_CERT_PATH) {
+      try {
+        options.ca = fs.readFileSync(process.env.MQTT_CA_CERT_PATH);
+      } catch (e) {
+        console.warn('[run-dev-mode-data-generator] MQTT CA file not loaded:', e.message);
+      }
+    } else if (process.env.MQTT_CA_CERT) {
+      options.ca = process.env.MQTT_CA_CERT;
     }
   }
   return mqtt.connect(url, options);
