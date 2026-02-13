@@ -73,13 +73,20 @@ async function main() {
         client.on('error', reject);
         setTimeout(() => reject(new Error('MQTT connect timeout')), 10000);
       });
-      for (const { topic, message } of payloads) {
+      for (let i = 0; i < payloads.length; i++) {
+        const { topic, message } = payloads[i];
         await new Promise((resolve, reject) => {
           client.publish(topic, message, { qos: 0 }, (err) => (err ? reject(err) : resolve()));
         });
         console.log(`[run-dev-mode-data-generator] Published to ${topic}`);
+        if (i < payloads.length - 1) {
+          await new Promise((r) => setTimeout(r, 150));
+        }
       }
+      // Let the socket flush before closing (otherwise messages may not reach the broker)
+      await new Promise((r) => setTimeout(r, 1200));
       client.end();
+      await new Promise((r) => setTimeout(r, 500));
       console.log(`[run-dev-mode-data-generator] MQTT: ${puntosProcessed} puntos, ${payloads.length} messages published`);
     } catch (error) {
       console.error('[run-dev-mode-data-generator] MQTT Error:', error.message);
