@@ -1075,10 +1075,12 @@ export const updatePuntoVentaV2 = async (req, res) => {
       puntoVentaData.address = JSON.stringify(puntoVentaData.address);
     }
     
-    // Handle meta - convert to JSON string if it's an object
-    if (puntoVentaData.meta && typeof puntoVentaData.meta === 'object') {
-      puntoVentaData.meta = JSON.stringify(puntoVentaData.meta);
+    // Persist dev_mode column for cron (dev mode data generator)
+    if (puntoVentaData.devMode !== undefined) {
+      puntoVentaData.dev_mode = !!puntoVentaData.devMode;
     }
+    
+    // meta: pass as object to model (model stringifies for DB)
     
     // Handle codigo_tienda
     if (puntoVentaData.codigo_tienda) {

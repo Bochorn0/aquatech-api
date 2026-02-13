@@ -217,7 +217,8 @@ class PuntoVentaModel {
       long,
       address,
       contactId,
-      meta
+      meta,
+      dev_mode
     } = data;
 
     const updateQuery = `
@@ -232,8 +233,9 @@ class PuntoVentaModel {
         address = COALESCE($7, address),
         contactid = COALESCE($8, contactid),
         meta = COALESCE($9, meta),
+        dev_mode = COALESCE($10, dev_mode),
         updatedat = CURRENT_TIMESTAMP
-      WHERE id = $10
+      WHERE id = $11
       RETURNING *
     `;
 
@@ -247,6 +249,7 @@ class PuntoVentaModel {
       address || null,
       contactId || null,
       meta ? JSON.stringify(meta) : null,
+      dev_mode !== undefined ? !!dev_mode : null,
       id
     ];
 
@@ -263,20 +266,13 @@ class PuntoVentaModel {
   }
 
   /**
-   * Find all puntoVentas that have dev mode enabled (meta.dev_mode === true)
+   * Find all puntoVentas that have dev mode enabled (dev_mode column = true)
    * Used by the dev mode random data generator cron
    * @returns {Promise<Array>} Array of puntoVenta records
    */
   static async findAllWithDevModeEnabled() {
-    // Match meta.dev_mode as boolean true or string 'true'
     const result = await query(
-      `SELECT * FROM puntoventa
-       WHERE meta IS NOT NULL
-         AND (
-           (meta::jsonb) @> '{"dev_mode": true}'
-           OR (meta::jsonb)->>'dev_mode' = 'true'
-         )
-       ORDER BY id ASC`
+      `SELECT * FROM puntoventa WHERE dev_mode = true ORDER BY id ASC`
     );
     return result.rows.map(row => this.parseRow(row));
   }
@@ -365,7 +361,8 @@ class PuntoVentaModel {
       long: row.long !== null && row.long !== undefined ? parseFloat(row.long) : null,
       address: row.address || null,
       contactId: row.contactid || row.contactId || null,
-      meta: row.meta ? (typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta) : null
+      meta: row.meta ? (typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta) : null,
+      dev_mode: row.dev_mode === true
     };
   }
 }
