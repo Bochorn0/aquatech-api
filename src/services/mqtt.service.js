@@ -421,21 +421,12 @@ class MQTTService {
         console.log(`[MQTT] ⚠️ No se encontraron corrientes después del mapeo`);
       }
       
-      // Buscar el punto de venta por código_tienda (solo para referencia, no es crítico)
-      let puntoVenta = null;
-      if (codigo_tienda) {
-        puntoVenta = await PuntoVenta.findOne({ codigo_tienda: codigo_tienda.toUpperCase() });
-        
-        if (!puntoVenta) {
-          console.log(`[MQTT] ℹ️  Punto de venta no encontrado en MongoDB para codigo_tienda: ${codigo_tienda} (se creará automáticamente en PostgreSQL)`);
-        }
-      }
-      
-      // Preparar datos para guardar en MongoDB
+      // MQTT data → PostgreSQL only. Punto/cliente se resuelven por codigo_tienda en PostgresService.
+      // (MongoDB solo se usa para logs de MQTT si aplica; no para datos tiwater.)
       const sensorDataPayload = {
         codigo_tienda: codigo_tienda ? codigo_tienda.toUpperCase() : null,
-        punto_venta: puntoVenta?._id,
-        cliente: puntoVenta?.cliente,
+        punto_venta: null,
+        cliente: null,
         
         // Sensores mapeados
         ...mappedData,
