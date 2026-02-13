@@ -720,32 +720,7 @@ export const generateMockDataNow = async (req, res) => {
     codigoTienda = codigoTienda.toUpperCase();
     const timestampUnix = Math.floor(Date.now() / 1000);
     const topic = `tiwater/${codigoTienda}/data`;
-
-    // One payload, same structure as one hour in generateDailyData, with random plausible values
-    const nivelPurificada = Math.round((25 + Math.random() * 55) * 10) / 10;
-    const nivelCruda = Math.round((35 + Math.random() * 45) * 10) / 10;
-    const tiwaterPayload = {
-      'CAUDAL PURIFICADA': parseFloat((0.5 + Math.random() * 1.5).toFixed(2)),
-      'CAUDAL RECUPERACION': parseFloat((1.5 + Math.random() * 1.2).toFixed(2)),
-      'CAUDAL RECHAZO': parseFloat((0.1 + Math.random() * 0.3).toFixed(2)),
-      'NIVEL PURIFICADA': nivelPurificada,
-      'NIVEL CRUDA': nivelCruda,
-      'PORCENTAJE NIVEL PURIFICADA': nivelPurificada,
-      'PORCENTAJE NIVEL CRUDA': nivelCruda,
-      'CAUDAL CRUDA': parseFloat((1.5 + Math.random() * 1.0).toFixed(2)),
-      'ACUMULADO CRUDA': parseFloat((1500 + Math.random() * 3000).toFixed(1)),
-      'CAUDAL CRUDA L/min': parseFloat((18 + Math.random() * 8).toFixed(3)),
-      vida: Math.floor(50 + Math.random() * 150),
-      TDS: Math.round(40 + Math.random() * 120),
-      'PRESION CO2': parseFloat((40 + Math.random() * 60).toFixed(2)),
-      ch1: parseFloat((2 + Math.random() * 3).toFixed(2)),
-      ch2: parseFloat((2 + Math.random() * 3).toFixed(2)),
-      ch3: parseFloat((1 + Math.random() * 2).toFixed(2)),
-      ch4: parseFloat((2 + Math.random() * 2.5).toFixed(2)),
-      EFICIENCIA: parseFloat((45 + Math.random() * 25).toFixed(1)),
-      timestamp: timestampUnix
-    };
-
+    const tiwaterPayload = buildMockTiwaterPayload(timestampUnix);
     const message = JSON.stringify(tiwaterPayload);
     await mqttService.publish(topic, message);
 
@@ -766,6 +741,107 @@ export const generateMockDataNow = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error al generar datos mock',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Build one mock tiwater payload (current timestamp, random plausible values).
+ * Shared by generateMockDataNow and generateMockDataNowAllDevMode.
+ */
+function buildMockTiwaterPayload(timestampUnix = Math.floor(Date.now() / 1000)) {
+  const nivelPurificada = Math.round((25 + Math.random() * 55) * 10) / 10;
+  const nivelCruda = Math.round((35 + Math.random() * 45) * 10) / 10;
+  return {
+    'CAUDAL PURIFICADA': parseFloat((0.5 + Math.random() * 1.5).toFixed(2)),
+    'CAUDAL RECUPERACION': parseFloat((1.5 + Math.random() * 1.2).toFixed(2)),
+    'CAUDAL RECHAZO': parseFloat((0.1 + Math.random() * 0.3).toFixed(2)),
+    'NIVEL PURIFICADA': nivelPurificada,
+    'NIVEL CRUDA': nivelCruda,
+    'PORCENTAJE NIVEL PURIFICADA': nivelPurificada,
+    'PORCENTAJE NIVEL CRUDA': nivelCruda,
+    'CAUDAL CRUDA': parseFloat((1.5 + Math.random() * 1.0).toFixed(2)),
+    'ACUMULADO CRUDA': parseFloat((1500 + Math.random() * 3000).toFixed(1)),
+    'CAUDAL CRUDA L/min': parseFloat((18 + Math.random() * 8).toFixed(3)),
+    vida: Math.floor(50 + Math.random() * 150),
+    TDS: Math.round(40 + Math.random() * 120),
+    'PRESION CO2': parseFloat((40 + Math.random() * 60).toFixed(2)),
+    ch1: parseFloat((2 + Math.random() * 3).toFixed(2)),
+    ch2: parseFloat((2 + Math.random() * 3).toFixed(2)),
+    ch3: parseFloat((1 + Math.random() * 2).toFixed(2)),
+    ch4: parseFloat((2 + Math.random() * 2.5).toFixed(2)),
+    EFICIENCIA: parseFloat((45 + Math.random() * 25).toFixed(1)),
+    timestamp: timestampUnix
+  };
+}
+
+/**
+ * Generate mock data now for all puntos with dev_mode enabled. Sends each to MQTT (same as single-punto flow).
+ * Used by cron; auth: X-Cron-Secret header or JWT with /puntoVenta.
+ */
+export const generateMockDataNowAllDevMode = async (req, res) => {
+  try {
+    const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+    const puntos = await PuntoVentaModel.findAllWithDevModeEnabled();
+
+    if (puntos.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No hay puntos con dev_mode habilitado',
+        data: { puntosProcessed: 0, errors: [] }
+      });
+    }
+
+    if (!mqttService.isConnected) {
+      mqttService.connect();
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (!mqttService.isConnected) {
+        return res.status(503).json({
+          success: false,
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.'
+        });
+      }
+    }
+
+    const timestampUnix = Math.floor(Date.now() / 1000);
+    const errors = [];
+    let puntosProcessed = 0;
+
+    for (const punto of puntos) {
+      const codigoTienda = (punto.codigo_tienda || punto.code || '').toString().toUpperCase();
+      if (!codigoTienda) {
+        errors.push(`Punto id ${punto.id}: sin codigo_tienda`);
+        continue;
+      }
+      try {
+        const topic = `tiwater/${codigoTienda}/data`;
+        const tiwaterPayload = buildMockTiwaterPayload(timestampUnix);
+        const message = JSON.stringify(tiwaterPayload);
+        await mqttService.publish(topic, message);
+        puntosProcessed += 1;
+      } catch (err) {
+        errors.push(`Punto ${codigoTienda}: ${err.message}`);
+      }
+    }
+
+    if (puntosProcessed > 0) {
+      console.log(`[generateMockDataNowAllDevMode] ${puntosProcessed} puntos enviados a MQTT`);
+    }
+    if (errors.length > 0) {
+      errors.forEach((e) => console.warn('[generateMockDataNowAllDevMode]', e));
+    }
+
+    return res.json({
+      success: true,
+      message: `Datos mock enviados a MQTT para ${puntosProcessed} punto(s) con dev_mode`,
+      data: { puntosProcessed, errors }
+    });
+  } catch (error) {
+    console.error('[generateMockDataNowAllDevMode] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al generar datos mock para dev_mode',
       error: error.message
     });
   }
