@@ -268,9 +268,14 @@ class PuntoVentaModel {
    * @returns {Promise<Array>} Array of puntoVenta records
    */
   static async findAllWithDevModeEnabled() {
+    // Match meta.dev_mode as boolean true or string 'true'
     const result = await query(
       `SELECT * FROM puntoventa
-       WHERE meta IS NOT NULL AND (meta->>'dev_mode') = 'true'
+       WHERE meta IS NOT NULL
+         AND (
+           (meta::jsonb) @> '{"dev_mode": true}'
+           OR (meta::jsonb)->>'dev_mode' = 'true'
+         )
        ORDER BY id ASC`
     );
     return result.rows.map(row => this.parseRow(row));
