@@ -24,6 +24,13 @@ const MQTT_USE_TLS = process.env.MQTT_USE_TLS === 'true' || MQTT_PORT === 8883;
 const MQTT_USERNAME = process.env.MQTT_USERNAME || null;
 const MQTT_PASSWORD = process.env.MQTT_PASSWORD || null;
 
+// When connecting by IP, cert often has hostname only → skip hostname check so TLS still works
+const isIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(MQTT_BROKER);
+const rejectUnauthorized = !(
+  process.env.MQTT_TLS_REJECT_UNAUTHORIZED === 'false' ||
+  (MQTT_USE_TLS && isIp)
+);
+
 function createMqttClient() {
   const protocol = MQTT_USE_TLS ? 'mqtts' : 'mqtt';
   const url = `${protocol}://${MQTT_BROKER}:${MQTT_PORT}`;
@@ -31,7 +38,7 @@ function createMqttClient() {
     clientId: process.env.MQTT_CLIENT_ID || 'tiwater-dev-mode-script-' + Date.now(),
     reconnectPeriod: 0,
     connectTimeout: 15000,
-    rejectUnauthorized: process.env.MQTT_TLS_REJECT_UNAUTHORIZED !== 'false'
+    rejectUnauthorized
   };
   if (MQTT_USERNAME) options.username = MQTT_USERNAME;
   if (MQTT_PASSWORD) options.password = MQTT_PASSWORD;
