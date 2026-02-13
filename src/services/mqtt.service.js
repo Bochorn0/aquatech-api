@@ -662,26 +662,34 @@ class MQTTService {
   }
 
   // Guardar datos de sensores en MongoDB y PostgreSQL (dual write)
+  // Tiwater: guardar primero en PostgreSQL para que mensajes del script/cron siempre entren en sensores aunque MongoDB falle
   async saveSensorData(data) {
+    const isTiwater = data.source === 'tiwater' || data.metadata?.topic_format === 'tiwater';
+    let mongoDoc = null;
+
     try {
-      // Save to MongoDB (existing functionality)
-      const sensorData = new SensorData(data);
-      const mongoDoc = await sensorData.save();
-      
-      // Save to PostgreSQL (new functionality - non-blocking)
-      // We don't want PostgreSQL errors to break MongoDB writes
-      // Para formato tiwater, guardamos múltiples sensores (uno por tipo)
-      if (data.source === 'tiwater' || data.metadata?.topic_format === 'tiwater') {
-        this.saveMultipleSensorsToPostgreSQL(data, mongoDoc._id.toString()).catch(error => {
-          console.error('[MQTT] ⚠️  Error saving multiple sensors to PostgreSQL (non-critical):', error.message);
-        });
-      } else {
-        this.saveToPostgreSQL(data, mongoDoc._id.toString()).catch(error => {
+      if (isTiwater) {
+        await this.saveMultipleSensorsToPostgreSQL(data, null);
+      }
+
+      try {
+        const sensorData = new SensorData(data);
+        mongoDoc = await sensorData.save();
+      } catch (mongoError) {
+        if (isTiwater) {
+          console.warn('[MQTT] ⚠️  MongoDB save skipped (PostgreSQL updated):', mongoError.message);
+        } else {
+          throw mongoError;
+        }
+      }
+
+      if (!isTiwater) {
+        this.saveToPostgreSQL(data, mongoDoc?._id?.toString() || null).catch(error => {
           console.error('[MQTT] ⚠️  Error saving to PostgreSQL (non-critical):', error.message);
         });
       }
-      
-      return sensorData;
+
+      return mongoDoc;
     } catch (error) {
       console.error('[MQTT] ❌ Error al guardar datos de sensores:', error);
       throw error;
