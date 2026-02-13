@@ -19,9 +19,7 @@ import { generateRandomDataForDevModePuntos } from '../src/services/devModeDataG
 async function main() {
   try {
     const result = await generateRandomDataForDevModePuntos();
-    if (result.puntosProcessed > 0) {
-      console.log(`[run-dev-mode-data-generator] Done: ${result.puntosProcessed} puntos, ${result.readingsCreated} readings`);
-    }
+    console.log(`[run-dev-mode-data-generator] ${result.puntosProcessed} puntos, ${result.readingsCreated} readings`);
     if (result.errors.length > 0) {
       result.errors.forEach((e) => console.warn('[run-dev-mode-data-generator]', e));
     }
