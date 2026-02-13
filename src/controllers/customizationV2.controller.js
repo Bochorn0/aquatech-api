@@ -992,9 +992,10 @@ export const addPuntoVentaV2 = async (req, res) => {
       puntoVentaData.address = JSON.stringify(puntoVentaData.address);
     }
     
-    // Handle meta - convert to JSON string if it's an object
+    // Strip dev_mode from meta - column is sole source, never persist in JSON
     if (puntoVentaData.meta && typeof puntoVentaData.meta === 'object') {
-      puntoVentaData.meta = JSON.stringify(puntoVentaData.meta);
+      const { dev_mode: _dm, devMode: _dm2, ...metaClean } = puntoVentaData.meta;
+      puntoVentaData.meta = Object.keys(metaClean).length ? JSON.stringify(metaClean) : null;
     }
     
     // Extract codigo_tienda if provided
@@ -1075,21 +1076,23 @@ export const updatePuntoVentaV2 = async (req, res) => {
       puntoVentaData.address = JSON.stringify(puntoVentaData.address);
     }
     
-    // Persist dev_mode column for cron (dev mode data generator)
-    // Only update when explicitly sent; log when changing from true→false to help trace resets
+    // dev_mode: ONLY the boolean column - never read/write from meta (JSON)
     if (puntoVentaData.devMode !== undefined) {
       const newDevMode = !!puntoVentaData.devMode;
       const existing = await PuntoVentaModel.findById(parseInt(id, 10));
       if (existing && existing.dev_mode === true && newDevMode === false) {
         console.warn(
           `[updatePuntoVentaV2] dev_mode changed true→false for puntoVenta id=${id} (${existing.codigo_tienda || existing.code}). ` +
-            'Source: PATCH from dashboard. Check if form save sent devMode:false unintentionally.'
+            'Source: PATCH from dashboard.'
         );
       }
       puntoVentaData.dev_mode = newDevMode;
     }
-    
-    // meta: pass as object to model (model stringifies for DB)
+    // Strip dev_mode from meta so it's never persisted in JSON - column is sole source
+    if (puntoVentaData.meta && typeof puntoVentaData.meta === 'object') {
+      const { dev_mode: _dm, devMode: _dm2, ...metaWithoutDev } = puntoVentaData.meta;
+      puntoVentaData.meta = Object.keys(metaWithoutDev).length ? metaWithoutDev : puntoVentaData.meta;
+    }
     
     // Handle codigo_tienda
     if (puntoVentaData.codigo_tienda) {

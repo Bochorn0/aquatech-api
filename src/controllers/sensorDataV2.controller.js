@@ -687,8 +687,7 @@ export const getPuntosVentaV2 = async (req, res) => {
           meta: pv.meta || null,
           createdAt: pv.createdAt || null,
           updatedAt: pv.updatedAt || null,
-          dev_mode: pv.dev_mode === true,
-          devMode: pv.dev_mode === true
+          dev_mode: pv.dev_mode === true
         };
       })
     );
@@ -821,6 +820,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       createdAt: puntoFromPG.createdAt,
       updatedAt: puntoFromPG.updatedAt,
       meta: puntoFromPG.meta,
+      dev_mode: puntoFromPG.dev_mode === true,
       toObject: function() {
         return {
           _id: this._id,
