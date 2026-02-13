@@ -1947,4 +1947,299 @@ function getUnitForSensor(sensorName) {
   return '';
 }
 
+/** Evaluate sensor value against metric rules; returns 'normal' | 'preventivo' | 'critico' */
+function evaluateLevelFromRules(value, rules) {
+  if (value == null || Number.isNaN(Number(value))) return 'critico';
+  const rulesArr = Array.isArray(rules) ? rules : [];
+  if (rulesArr.length === 0) return 'normal';
+
+  const v = Number(value);
+  for (const rule of rulesArr) {
+    const min = rule.min != null ? Number(rule.min) : null;
+    const max = rule.max != null ? Number(rule.max) : null;
+    const inRange = (min === null || v >= min) && (max === null || v <= max);
+    if (!inRange) continue;
+
+    // Prefer explicit severity (stored in metrics, no label parsing)
+    const s = (rule.severity || '').toLowerCase();
+    if (s === 'critico') return 'critico';
+    if (s === 'preventivo') return 'preventivo';
+    if (s === 'normal') return 'normal';
+
+    // Fallback for legacy rules without severity: infer from label
+    const label = (rule.label || '').toLowerCase();
+    if (label.includes('critico') || label.includes('crítico') || label.includes('correctivo') || label.includes('danger') || label.includes('peligro') || label.includes('muy bajo') || label.includes('urgente')) {
+      return 'critico';
+    }
+    if (label.includes('preventivo') || label.includes('warning') || label.includes('advertencia') || label.includes('precaucion') || label.includes('bajo') || label.includes('nivel bajo')) {
+      return 'preventivo';
+    }
+    if (label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo') || label.includes('buen') || label.includes('buen estado')) {
+      return 'normal';
+    }
+    return 'preventivo';
+  }
+  return 'normal'; // Value outside all rules: default normal
+}
+
+/** Check if metric applies to nivel purificada (water level, not flow). Do not match flujo_produccion so we use level rules, not production rules. */
+function isNivelPurificadaMetric(m) {
+  const mt = (m.metric_type || '').toLowerCase().replace(/\s+/g, '_');
+  const st = (m.sensor_type || '').toLowerCase();
+  const mn = (m.metric_name || '').toLowerCase();
+  return mt === 'nivel_agua_purificada' || (mn.includes('purificada') && mn.includes('nivel'))
+    || st === 'nivel_purificada' || st === 'electronivel_purificada' || st === 'level_purificada';
+}
+
+/** Check if metric applies to nivel cruda (metric_type, sensor_type, or metric_name) */
+function isNivelCrudaMetric(m) {
+  const mt = (m.metric_type || '').toLowerCase().replace(/\s+/g, '_');
+  const st = (m.sensor_type || '').toLowerCase();
+  const mn = (m.metric_name || '').toLowerCase();
+  return mt === 'nivel_agua_cruda' || (mn.includes('cruda') && mn.includes('nivel'))
+    || st === 'nivel_cruda' || st === 'electronivel_cruda' || st === 'level_cruda' || st === 'caudal_cruda';
+}
+
+/**
+ * Get global metrics for Main Dashboard V2 (summary of all puntos de venta).
+ * Flow: 1) Get all PVs with latest sensor data 2) Get metrics by punto venta
+ * 3) Map PV sensors evaluating metrics 4) Aggregate for dashboard 5) Return
+ * @route   GET /api/v2.0/dashboard/global-metrics
+ * @access  Private
+ */
+export const getMainDashboardV2Metrics = async (req, res) => {
+  try {
+    const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+    const MetricModel = (await import('../models/postgres/metric.model.js')).default;
+
+    // 1. Get all puntos venta
+    const puntosPG = await PuntoVentaModel.find({}, { limit: 1000, offset: 0 });
+    const puntosVentaCount = puntosPG.length;
+
+    if (puntosVentaCount === 0) {
+      return res.json({
+        puntosVentaCount: 0,
+        productionSum: 0,
+        rechazoSum: 0,
+        eficienciaAvg: null,
+        nivelPurificadaAvg: null,
+        nivelCrudaAvg: null,
+        byLevel: {
+          nivelPurificada: { normal: 0, preventivo: 0, critico: 0 },
+          nivelCruda: { normal: 0, preventivo: 0, critico: 0 },
+        },
+        perPvMetrics: [],
+      });
+    }
+
+    // 1b. Get latest sensor data per codigotienda
+    const latestSensorsQuery = `
+      SELECT DISTINCT ON (UPPER(TRIM(codigotienda)), COALESCE(NULLIF(TRIM(type), ''), name))
+        UPPER(TRIM(codigotienda)) AS codigotienda,
+        type,
+        name,
+        value
+      FROM sensores
+      WHERE (
+        type IN (
+          'flujo_produccion', 'flujo_rechazo', 'eficiencia',
+          'electronivel_purificada', 'electronivel_cruda', 'electronivel_recuperada',
+          'level_purificada', 'level_cruda',
+          'nivel_purificada', 'nivel_cruda',
+          'liquid_level_percent', 'water_level'
+        )
+        OR name IN ('Nivel Purificada', 'Nivel Cruda (%)', 'Nivel Purificada (absoluto)', 'Nivel Cruda (absoluto)', 'Nivel Recuperada')
+      )
+        AND codigotienda IS NOT NULL
+        AND TRIM(codigotienda) != ''
+      ORDER BY UPPER(TRIM(codigotienda)), COALESCE(NULLIF(TRIM(type), ''), name),
+        COALESCE(timestamp, createdat) DESC NULLS LAST
+    `;
+    const { rows: latestRows } = await query(latestSensorsQuery);
+    console.log(`[getMainDashboardV2Metrics] Sensores raw rows: ${latestRows?.length ?? 0}`);
+
+    const perPvSensors = new Map();
+    for (const row of latestRows) {
+      const codigo = (row.codigotienda || '').toString().trim().toUpperCase();
+      if (!codigo) continue;
+      if (!perPvSensors.has(codigo)) perPvSensors.set(codigo, {});
+      const v = parseFloat(row.value);
+      if (Number.isNaN(v)) continue;
+      const type = (row.type || '').toString().trim();
+      const name = (row.name || '').toString().trim();
+      if (type === 'flujo_produccion') perPvSensors.get(codigo).flujo_produccion = v;
+      else if (type === 'flujo_rechazo') perPvSensors.get(codigo).flujo_rechazo = v;
+      else if (type === 'eficiencia') perPvSensors.get(codigo).eficiencia = v;
+      else if (type === 'electronivel_purificada' || type === 'level_purificada' || name === 'Nivel Purificada') {
+        const p = perPvSensors.get(codigo);
+        if (p.nivelPurificada == null) p.nivelPurificada = v;
+      } else if (type === 'nivel_purificada' && v >= 0 && v <= 100) {
+        const p = perPvSensors.get(codigo);
+        if (p.nivelPurificada == null) p.nivelPurificada = v;
+      } else if (type === 'electronivel_cruda' || type === 'level_cruda' || type === 'electronivel_recuperada' || name === 'Nivel Cruda (%)' || name === 'Nivel Recuperada') {
+        const p = perPvSensors.get(codigo);
+        if (p.nivelCruda == null) p.nivelCruda = v;
+      } else if (type === 'nivel_cruda' && v >= 0 && v <= 100) {
+        const p = perPvSensors.get(codigo);
+        if (p.nivelCruda == null) p.nivelCruda = v;
+      } else if (type === 'liquid_level_percent' || type === 'water_level') {
+        const p = perPvSensors.get(codigo);
+        if (p.nivelPurificada == null) p.nivelPurificada = v;
+        if (p.nivelCruda == null) p.nivelCruda = v;
+      }
+    }
+
+    for (const [codigo, sensors] of perPvSensors) {
+      console.log(`[getMainDashboardV2Metrics] Sensors by codigo ${codigo}:`, {
+        flujo_produccion: sensors.flujo_produccion,
+        flujo_rechazo: sensors.flujo_rechazo,
+        eficiencia: sensors.eficiencia,
+        nivelPurificada: sensors.nivelPurificada,
+        nivelCruda: sensors.nivelCruda,
+      });
+    }
+
+    // 2. Get metrics by punto venta (all enabled metrics for all PVs in one query)
+    const metricsByPv = new Map();
+    const pvIds = puntosPG.map((pv) => parseInt(pv.id, 10)).filter((id) => !isNaN(id));
+    if (pvIds.length > 0) {
+      try {
+        const { rows: metricsRows } = await query(
+          `SELECT * FROM metrics WHERE enabled = true AND punto_venta_id = ANY($1::int[]) ORDER BY punto_venta_id, display_order ASC, createdat DESC`,
+          [pvIds]
+        );
+        for (const row of metricsRows || []) {
+          const pvId = row.punto_venta_id ? parseInt(row.punto_venta_id, 10) : null;
+          if (pvId == null) continue;
+          const metric = MetricModel.parseRow ? MetricModel.parseRow(row) : row;
+          if (!metricsByPv.has(pvId)) metricsByPv.set(pvId, []);
+          metricsByPv.get(pvId).push(metric);
+        }
+      } catch (err) {
+        console.warn('[getMainDashboardV2Metrics] Error fetching metrics:', err.message);
+      }
+    }
+    for (const [pvId, metrics] of metricsByPv) {
+      const nivelMetrics = metrics.filter((m) => isNivelPurificadaMetric(m) || isNivelCrudaMetric(m));
+      if (nivelMetrics.length > 0) {
+        console.log(`[getMainDashboardV2Metrics] Metrics for PV ${pvId}:`, nivelMetrics.map((m) => ({ metric_type: m.metric_type, sensor_type: m.sensor_type, rulesCount: m.rules?.length ?? 0 })));
+      }
+    }
+
+    let productionSum = 0;
+    let rechazoSum = 0;
+    const eficiencias = [];
+    const nivelesPurificada = [];
+    const nivelesCruda = [];
+    const byLevel = {
+      nivelPurificada: { normal: 0, preventivo: 0, critico: 0 },
+      nivelCruda: { normal: 0, preventivo: 0, critico: 0 },
+    };
+    const debugPerPv = []; // Temporary: remove after debugging
+    const perPvMetrics = []; // Per-PV values for nivel/produccion/rechazo/eficiencia charts
+
+    // 3–4. Map every PV: evaluate sensors against metrics, push into aggregates
+    for (const pv of puntosPG) {
+      const codigo = (pv.codigo_tienda || pv.code || '').toString().trim().toUpperCase();
+      if (!codigo) continue;
+      const pvId = parseInt(pv.id, 10);
+      const sensors = perPvSensors.get(codigo) || {};
+      const metrics = metricsByPv.get(pvId) || [];
+      const hasSensors = Object.keys(sensors).length > 0;
+      console.log(`[getMainDashboardV2Metrics] PV ${pvId} "${pv.name}" codigo=${codigo} sensorsMatch=${hasSensors} nivelPurificada=${sensors.nivelPurificada ?? '—'} nivelCruda=${sensors.nivelCruda ?? '—'} metricsCount=${metrics.length}`);
+
+      // Production, rechazo, eficiencia: sum/avg from sensors (no metric evaluation needed)
+      if (sensors.flujo_produccion != null) productionSum += sensors.flujo_produccion;
+      if (sensors.flujo_rechazo != null) rechazoSum += sensors.flujo_rechazo;
+      if (sensors.eficiencia != null) eficiencias.push(sensors.eficiencia);
+
+      // Nivel purificada: evaluate against PV metrics; if no metrics, default normal
+      const purifMetric = metrics.find(isNivelPurificadaMetric);
+      let nivelPurificadaLevel = null;
+      if (sensors.nivelPurificada != null) {
+        nivelesPurificada.push(sensors.nivelPurificada);
+        nivelPurificadaLevel = purifMetric ? evaluateLevelFromRules(sensors.nivelPurificada, purifMetric.rules) : 'normal';
+        byLevel.nivelPurificada[nivelPurificadaLevel] += 1;
+      } else if (purifMetric) {
+        nivelPurificadaLevel = 'critico';
+        byLevel.nivelPurificada.critico += 1; // has metric but no data
+      } else {
+        nivelPurificadaLevel = 'normal';
+        byLevel.nivelPurificada.normal += 1; // no metrics = default normal
+      }
+
+      // Nivel cruda: same
+      const crudaMetric = metrics.find(isNivelCrudaMetric);
+      let nivelCrudaLevel = null;
+      if (sensors.nivelCruda != null) {
+        nivelesCruda.push(sensors.nivelCruda);
+        nivelCrudaLevel = crudaMetric ? evaluateLevelFromRules(sensors.nivelCruda, crudaMetric.rules) : 'normal';
+        byLevel.nivelCruda[nivelCrudaLevel] += 1;
+      } else if (crudaMetric) {
+        nivelCrudaLevel = 'critico';
+        byLevel.nivelCruda.critico += 1;
+      } else {
+        nivelCrudaLevel = 'normal';
+        byLevel.nivelCruda.normal += 1;
+      }
+
+      const produccion = sensors.flujo_produccion ?? null;
+      const rechazo = sensors.flujo_rechazo ?? null;
+      const eficiencia = sensors.eficiencia ?? null;
+
+      debugPerPv.push({
+        pvId,
+        name: pv.name,
+        codigo,
+        nivelPurificada: sensors.nivelPurificada ?? null,
+        hasPurifMetric: !!purifMetric,
+        purifRules: purifMetric?.rules ?? null,
+        nivelPurificadaLevel: nivelPurificadaLevel ?? (purifMetric ? 'critico (no data)' : 'normal'),
+        nivelCruda: sensors.nivelCruda ?? null,
+        hasCrudaMetric: !!crudaMetric,
+        crudaRules: crudaMetric?.rules ?? null,
+        nivelCrudaLevel: nivelCrudaLevel ?? (crudaMetric ? 'critico (no data)' : 'normal'),
+      });
+
+      perPvMetrics.push({
+        pvId: String(pvId),
+        name: pv.name || `PV ${pvId}`,
+        codigo,
+        nivelPurificada: sensors.nivelPurificada != null ? Math.round(sensors.nivelPurificada * 10) / 10 : null,
+        nivelCruda: sensors.nivelCruda != null ? Math.round(sensors.nivelCruda * 10) / 10 : null,
+        nivelPurificadaLevel: nivelPurificadaLevel ?? null,
+        nivelCrudaLevel: nivelCrudaLevel ?? null,
+        produccion: produccion != null ? Math.round(produccion * 10) / 10 : null,
+        rechazo: rechazo != null ? Math.round(rechazo * 10) / 10 : null,
+        eficiencia: eficiencia != null ? Math.round(eficiencia * 10) / 10 : null,
+      });
+    }
+
+    const eficienciaAvg = eficiencias.length > 0 ? eficiencias.reduce((a, b) => a + b, 0) / eficiencias.length : null;
+    const nivelPurificadaAvg = nivelesPurificada.length > 0 ? nivelesPurificada.reduce((a, b) => a + b, 0) / nivelesPurificada.length : null;
+    const nivelCrudaAvg = nivelesCruda.length > 0 ? nivelesCruda.reduce((a, b) => a + b, 0) / nivelesCruda.length : null;
+
+    res.json({
+      puntosVentaCount,
+      productionSum: Math.round(productionSum * 10) / 10,
+      rechazoSum: Math.round(rechazoSum * 10) / 10,
+      eficienciaAvg: eficienciaAvg != null ? Math.round(eficienciaAvg * 10) / 10 : null,
+      nivelPurificadaAvg: nivelPurificadaAvg != null ? Math.round(nivelPurificadaAvg * 10) / 10 : null,
+      nivelCrudaAvg: nivelCrudaAvg != null ? Math.round(nivelCrudaAvg * 10) / 10 : null,
+      byLevel,
+      perPvMetrics,
+      debug: {
+        sensorsCodigos: [...perPvSensors.keys()],
+        metricsPvIds: [...metricsByPv.keys()],
+        perPv: debugPerPv,
+      },
+    });
+  } catch (error) {
+    console.error('[getMainDashboardV2Metrics]', error);
+    res.status(500).json({
+      message: 'Error al obtener métricas globales del dashboard',
+      error: error.message,
+    });
+  }
+};
 
