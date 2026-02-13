@@ -263,6 +263,20 @@ class PuntoVentaModel {
   }
 
   /**
+   * Find all puntoVentas that have dev mode enabled (meta.dev_mode === true)
+   * Used by the dev mode random data generator cron
+   * @returns {Promise<Array>} Array of puntoVenta records
+   */
+  static async findAllWithDevModeEnabled() {
+    const result = await query(
+      `SELECT * FROM puntoventa
+       WHERE meta IS NOT NULL AND (meta->>'dev_mode') = 'true'
+       ORDER BY id ASC`
+    );
+    return result.rows.map(row => this.parseRow(row));
+  }
+
+  /**
    * Find all puntoVentas with optional filters
    * @param {Object} filters - Filter criteria
    * @param {Object} options - Query options (limit, offset)
