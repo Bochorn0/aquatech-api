@@ -667,6 +667,109 @@ export const generateDailyData = async (req, res) => {
 };
 
 /**
+ * Generate one mock sensor snapshot for this punto with current timestamp and persist to PostgreSQL.
+ * Same payload structure as generate-daily-data but single message, no MQTT — uses the same
+ * persistence path as simulate (mapTiwaterDataToStandard + saveMultipleSensorsFromMQTT).
+ */
+export const generateMockDataNow = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    let punto = null;
+    let codigoTienda = null;
+    const isNumericId = /^\d+$/.test(id);
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+
+    if (isNumericId) {
+      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+      punto = await PuntoVentaModel.findById(parseInt(id, 10));
+      if (!punto) punto = await PuntoVentaModel.findByCode(id);
+      if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
+    } else if (isValidObjectId) {
+      punto = await PuntoVenta.findById(id).populate('productos');
+      if (punto) codigoTienda = (punto.codigo_tienda || '').toUpperCase();
+    } else {
+      const codigoDirecto = id.toUpperCase();
+      punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
+      if (punto) codigoTienda = (punto.codigo_tienda || codigoDirecto).toUpperCase();
+    }
+
+    if (!punto) {
+      return res.status(404).json({
+        success: false,
+        message: `Punto de venta no encontrado con ID/código: ${id}`
+      });
+    }
+    if (!codigoTienda) {
+      return res.status(400).json({
+        success: false,
+        message: 'El punto de venta no tiene código de tienda configurado'
+      });
+    }
+
+    codigoTienda = codigoTienda.toUpperCase();
+    const timestampUnix = Math.floor(Date.now() / 1000);
+
+    // One payload, same structure as one hour in generateDailyData, with random plausible values
+    const nivelPurificada = Math.round((25 + Math.random() * 55) * 10) / 10;
+    const nivelCruda = Math.round((35 + Math.random() * 45) * 10) / 10;
+    const tiwaterPayload = {
+      'CAUDAL PURIFICADA': parseFloat((0.5 + Math.random() * 1.5).toFixed(2)),
+      'CAUDAL RECUPERACION': parseFloat((1.5 + Math.random() * 1.2).toFixed(2)),
+      'CAUDAL RECHAZO': parseFloat((0.1 + Math.random() * 0.3).toFixed(2)),
+      'NIVEL PURIFICADA': nivelPurificada,
+      'NIVEL CRUDA': nivelCruda,
+      'PORCENTAJE NIVEL PURIFICADA': nivelPurificada,
+      'PORCENTAJE NIVEL CRUDA': nivelCruda,
+      'CAUDAL CRUDA': parseFloat((1.5 + Math.random() * 1.0).toFixed(2)),
+      'ACUMULADO CRUDA': parseFloat((1500 + Math.random() * 3000).toFixed(1)),
+      'CAUDAL CRUDA L/min': parseFloat((18 + Math.random() * 8).toFixed(3)),
+      vida: Math.floor(50 + Math.random() * 150),
+      TDS: Math.round(40 + Math.random() * 120),
+      'PRESION CO2': parseFloat((40 + Math.random() * 60).toFixed(2)),
+      ch1: parseFloat((2 + Math.random() * 3).toFixed(2)),
+      ch2: parseFloat((2 + Math.random() * 3).toFixed(2)),
+      ch3: parseFloat((1 + Math.random() * 2).toFixed(2)),
+      ch4: parseFloat((2 + Math.random() * 2.5).toFixed(2)),
+      EFICIENCIA: parseFloat((45 + Math.random() * 25).toFixed(1)),
+      timestamp: timestampUnix
+    };
+
+    const mapped = mqttService.mapTiwaterDataToStandard(tiwaterPayload);
+    const persistPayload = {
+      ...mapped,
+      codigo_tienda: codigoTienda,
+      timestamp: timestampUnix,
+      source: 'tiwater',
+      metadata: { topic_format: 'tiwater', from: 'generate_mock_data_now' }
+    };
+    const context = { codigo_tienda: codigoTienda, resource_type: 'tiwater' };
+    const saved = await PostgresService.saveMultipleSensorsFromMQTT(persistPayload, context);
+    const readingsSaved = Array.isArray(saved) ? saved.length : (saved != null ? 1 : 0);
+
+    console.log(`[generateMockDataNow] ${codigoTienda}: ${readingsSaved} lecturas guardadas`);
+
+    return res.json({
+      success: true,
+      message: 'Datos mock generados y guardados (timestamp actual)',
+      data: {
+        puntoVentaId: id,
+        codigoTienda,
+        readingsSaved,
+        timestamp: new Date(timestampUnix * 1000).toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('[generateMockDataNow] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al generar datos mock',
+      error: error.message
+    });
+  }
+};
+
+/**
  * Simular bajo nivel de agua cruda (< 70%): publica un mensaje MQTT para que el nivel se actualice
  * y se muestre la alerta en la sección Agua Cruda (y en Dashboard V2).
  */
