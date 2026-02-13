@@ -686,7 +686,9 @@ export const getPuntosVentaV2 = async (req, res) => {
           contactId: pv.contactId ? String(pv.contactId) : null,
           meta: pv.meta || null,
           createdAt: pv.createdAt || null,
-          updatedAt: pv.updatedAt || null
+          updatedAt: pv.updatedAt || null,
+          dev_mode: pv.dev_mode === true,
+          devMode: pv.dev_mode === true
         };
       })
     );

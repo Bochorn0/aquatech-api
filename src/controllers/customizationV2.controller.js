@@ -1076,8 +1076,17 @@ export const updatePuntoVentaV2 = async (req, res) => {
     }
     
     // Persist dev_mode column for cron (dev mode data generator)
+    // Only update when explicitly sent; log when changing from true→false to help trace resets
     if (puntoVentaData.devMode !== undefined) {
-      puntoVentaData.dev_mode = !!puntoVentaData.devMode;
+      const newDevMode = !!puntoVentaData.devMode;
+      const existing = await PuntoVentaModel.findById(parseInt(id, 10));
+      if (existing && existing.dev_mode === true && newDevMode === false) {
+        console.warn(
+          `[updatePuntoVentaV2] dev_mode changed true→false for puntoVenta id=${id} (${existing.codigo_tienda || existing.code}). ` +
+            'Source: PATCH from dashboard. Check if form save sent devMode:false unintentionally.'
+        );
+      }
+      puntoVentaData.dev_mode = newDevMode;
     }
     
     // meta: pass as object to model (model stringifies for DB)
