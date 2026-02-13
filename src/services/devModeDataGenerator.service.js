@@ -64,6 +64,94 @@ function getRangeForSensor(sensorConfig) {
   };
 }
 
+/** Map sensor_type to the key name the MQTT consumer (mapTiwaterDataToStandard) expects. */
+const SENSOR_TYPE_TO_MQTT_KEY = {
+  flujo_produccion: 'caudal_purificada',
+  flujo_rechazo: 'caudal_rechazo',
+  flujo_recuperacion: 'caudal_recuperacion',
+  tds: 'tds',
+  electronivel_purificada: 'porcentaje_nivel_purificada',
+  electronivel_recuperada: 'porcentaje_nivel_recuperada',
+  electronivel_cruda: 'porcentaje_nivel_cruda',
+  nivel_purificada: 'nivel_purificada',
+  nivel_cruda: 'nivel_cruda',
+  caudal_cruda: 'caudal_cruda',
+  caudal_cruda_lmin: 'caudal_cruda_l_min',
+  acumulado_cruda: 'acumulado_cruda',
+  presion_in: 'pressure_in',
+  presion_out: 'pressure_out',
+  presion_co2: 'presion_co2',
+  eficiencia: 'eficiencia',
+  vida: 'vida',
+  water_level: 'water_level',
+  corriente_ch1: 'ch1',
+  corriente_ch2: 'ch2',
+  corriente_ch3: 'ch3',
+  corriente_ch4: 'ch4',
+  corriente_total: 'total_corriente'
+};
+
+/**
+ * Build MQTT payloads (tiwater format) for all dev_mode puntos.
+ * Topic: tiwater/{codigo_tienda}/data. Message: JSON with timestamp (Unix s) and sensor keys.
+ * The MQTT consumer will receive and save to PostgreSQL.
+ * @returns {Promise<{ payloads: Array<{ topic: string, message: string }>, puntosProcessed: number, errors: string[] }>}
+ */
+export async function getMqttPayloadsForDevModePuntos() {
+  const result = { payloads: [], puntosProcessed: 0, errors: [] };
+
+  try {
+    const puntos = await PuntoVentaModel.findAllWithDevModeEnabled();
+    if (puntos.length === 0) {
+      return result;
+    }
+
+    const timestampUnix = Math.floor(Date.now() / 1000);
+
+    for (const punto of puntos) {
+      const puntoId = parseInt(punto.id, 10);
+      const codigoTienda = (punto.codigo_tienda || punto.code || '').toString().toUpperCase();
+
+      if (!codigoTienda) {
+        result.errors.push(`Punto venta ID ${puntoId} has no code/codigo_tienda, skipping`);
+        continue;
+      }
+
+      let sensors;
+      try {
+        sensors = await PuntoVentaSensorModel.findByPuntoVentaId(puntoId);
+      } catch (err) {
+        result.errors.push(`Punto ${puntoId}: failed to load sensors: ${err.message}`);
+        continue;
+      }
+
+      const enabledSensors = sensors.filter(s => s.enabled !== false);
+      if (enabledSensors.length === 0) {
+        continue;
+      }
+
+      const payload = { timestamp: timestampUnix, source: 'dev_mode_generator' };
+      for (const sensor of enabledSensors) {
+        const type = sensor.sensorType || sensor.sensor_type;
+        const { min, max } = getRangeForSensor(sensor);
+        const value = randomInRange(min, max);
+        const key = SENSOR_TYPE_TO_MQTT_KEY[type] || type;
+        payload[key] = value;
+      }
+
+      const topic = `tiwater/${codigoTienda}/data`;
+      result.payloads.push({ topic, message: JSON.stringify(payload) });
+      result.puntosProcessed += 1;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('[DevModeDataGenerator] getMqttPayloads Fatal error:', error);
+    result.errors.push(error.message);
+    throw error;
+  }
+}
+
 /**
  * Generate random sensor data for all puntos de venta that have dev_mode enabled.
  * For each punto, loads its sensors from puntoventasensors and inserts one random
@@ -161,4 +249,4 @@ export async function generateRandomDataForDevModePuntos() {
   }
 }
 
-export default { generateRandomDataForDevModePuntos };
+export default { generateRandomDataForDevModePuntos, getMqttPayloadsForDevModePuntos };

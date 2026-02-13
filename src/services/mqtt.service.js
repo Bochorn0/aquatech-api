@@ -509,6 +509,8 @@ class MQTTService {
       caudal_cruda: data['CAUDAL CRUDA'] || data['caudal_cruda'] || null,
       caudal_cruda_lmin: data['CAUDAL CRUDA L/min'] || data['caudal_cruda_l_min'] || null,
       acumulado_cruda: data['ACUMULADO CRUDA'] || data['acumulado_cruda'] || null,
+      presion_in: data['presion_in'] || data['pressure_in'] || null,
+      presion_out: data['presion_out'] || data['pressure_out'] || null,
       presion_co2: data['PRESION CO2'] || data['presion_co2'] || null,
       eficiencia: data['EFICIENCIA'] || data['eficiencia'] || null,
       vida: data['vida'] || data['VIDA'] || null,
