@@ -518,6 +518,26 @@ export const updateProduct = async (req, res) => {
 };
 
 /**
+ * Delete a product by id (MongoDB _id or Tuya device id). Admin only.
+ */
+export const deleteProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const isMongoId = mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === id;
+    const product = isMongoId
+      ? await Product.findByIdAndDelete(id)
+      : await Product.findOneAndDelete({ id });
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    return res.status(200).json({ message: 'Product deleted', product });
+  } catch (error) {
+    console.error('Error deleting product:', error);
+    return res.status(500).json({ message: 'Error deleting product' });
+  }
+};
+
+/**
  * Returns the Unix timestamp (seconds) to show as "Última vez actualizado":
  * the greater of product.update_time and the date of the latest ProductLog
  * that has at least one non-zero value (tds, production_volume, rejected_volume,

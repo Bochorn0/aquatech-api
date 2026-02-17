@@ -1,7 +1,7 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, updateProduct } from '../controllers/product.controller.js'; // Named imports
-import { authenticate, requirePermission } from '../middlewares/auth.middleware.js';
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, updateProduct, deleteProduct } from '../controllers/product.controller.js'; // Named imports
+import { authenticate, requirePermission, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
@@ -16,6 +16,9 @@ router.get('/:id', authenticate, getProductById);
 
 // Update product (cliente, city, product_type) - for Equipos / personalización (access by permission at mount)
 router.patch('/:id', authenticate, updateProduct);
+
+// Delete product - admin only (Personalización v1 > Equipos tab)
+router.delete('/:id', authenticate, authorizeRoles('admin'), deleteProduct);
 
 // Get specific product logs by ID
 router.get('/:id/logs', authenticate, getProductLogsById);
