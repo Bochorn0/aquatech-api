@@ -262,6 +262,9 @@ export const getAllProducts = async (req, res) => {
             if (flujos_total_codes.includes(stat.code)) {
               stat.value = (stat.value / 10).toFixed(2);
             }
+          } else if (flujos_total_codes.includes(stat.code)) {
+            // Tuya sends flowrate_total_1/2 in 0.1 L units; convert to liters for all products
+            stat.value = (Number(stat.value) / 10).toFixed(2);
           }
           
           const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
@@ -593,6 +596,13 @@ export const getProductById = async (req, res) => {
           const lastDisplayFail = await getLastUpdatedDisplay(id, product.update_time);
           const outFail = product.toObject ? product.toObject() : { ...product };
           outFail.last_updated_display = lastDisplayFail != null ? lastDisplayFail : outFail.update_time;
+          const productosEspecialesFail = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
+          if (outFail.status && Array.isArray(outFail.status) && !productosEspecialesFail.includes(id)) {
+            outFail.status = outFail.status.map((s) => {
+              if (s.code === 'flowrate_total_1' || s.code === 'flowrate_total_2') s.value = (Number(s.value) / 10).toFixed(2);
+              return s;
+            });
+          }
           return res.json(outFail);
         }
         return res.status(400).json({ message: response.error, code: response.code });
@@ -660,15 +670,22 @@ export const getProductById = async (req, res) => {
           }
         }
         
+        const flujos_total_codes = ['flowrate_total_1', 'flowrate_total_2'];
         if (PRODUCTOS_ESPECIALES.includes(id)) {
           const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
-          const flujos_total_codes = [ "flowrate_total_1", "flowrate_total_2"]
           product.status.map((stat) => {
             if (flujos_codes.includes(stat.code)) {
               stat.value = (stat.value * 1.6).toFixed(2);
             }
             if (flujos_total_codes.includes(stat.code)) {
               stat.value = (stat.value / 10).toFixed(2);
+            }
+            return stat;
+          });
+        } else {
+          product.status = product.status.map((stat) => {
+            if (flujos_total_codes.includes(stat.code)) {
+              stat.value = (Number(stat.value) / 10).toFixed(2);
             }
             return stat;
           });
@@ -684,6 +701,15 @@ export const getProductById = async (req, res) => {
       const lastDisplayExisting = await getLastUpdatedDisplay(id, product.update_time);
       const outExisting = product.toObject ? product.toObject() : { ...product };
       outExisting.last_updated_display = lastDisplayExisting != null ? lastDisplayExisting : outExisting.update_time;
+      // Apply same flowrate_total_1/2 ÷10 for display (Tuya uses 0.1 L units)
+      const productosEspeciales = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
+      const flujosTotalCodes = ['flowrate_total_1', 'flowrate_total_2'];
+      if (outExisting.status && Array.isArray(outExisting.status) && !productosEspeciales.includes(id)) {
+        outExisting.status = outExisting.status.map((stat) => {
+          if (flujosTotalCodes.includes(stat.code)) stat.value = (Number(stat.value) / 10).toFixed(2);
+          return stat;
+        });
+      }
       return res.json(outExisting);
     } 
 
@@ -769,15 +795,22 @@ export const getProductById = async (req, res) => {
       'ebf9738480d78e0132gnru',
       'ebea4ffa2ab1483940nrqn'
     ];
+    const flujos_total_codes = ['flowrate_total_1', 'flowrate_total_2'];
     if (PRODUCTOS_ESPECIALES.includes(newProduct.id)) {
       const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
-      const flujos_total_codes = [ "flowrate_total_1", "flowrate_total_2"]
       newProduct.status.map((stat) => {
         if (flujos_codes.includes(stat.code)) {
           stat.value = (stat.value * 1.6).toFixed(2);
         }
         if (flujos_total_codes.includes(stat.code)) {
           stat.value = (stat.value / 10).toFixed(2);
+        }
+        return stat;
+      });
+    } else if (newProduct.status && Array.isArray(newProduct.status)) {
+      newProduct.status = newProduct.status.map((stat) => {
+        if (flujos_total_codes.includes(stat.code)) {
+          stat.value = (Number(stat.value) / 10).toFixed(2);
         }
         return stat;
       });
@@ -1955,6 +1988,8 @@ async function runFetchLogsRoutineInBackground() {
 
 /**
  * Core work for fetchLogsRoutine (shared by background and optional sync path).
+ * Safe to run at any cron interval (e.g. every 5, 15, or 30 min): each run fetches the last 1 hour
+ * from Tuya and skips inserts for (product_id, date) that already exist, so no data is missed.
  */
 async function doFetchLogsRoutineWork(productosWhitelist) {
   try {
