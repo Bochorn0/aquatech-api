@@ -28,8 +28,11 @@ In **Azure Portal → App Service (lccapp) → Configuration → Application set
 | `POSTGRES_USER` | `AdminTiWater` |
 | `POSTGRES_PASSWORD` | Your tiwaterprod admin password |
 | `POSTGRES_SSL` | `true` |
+| `SECRET_KEY` | A random string for JWT signing (e.g. `openssl rand -base64 32`) |
 
 These override any `.env` in the deployment and ensure the running app uses the correct database.
+
+**Important:** `SECRET_KEY` is required for login. Without it you'll get `secretOrPrivateKey must have a value`.
 
 ### 3. Azure PostgreSQL Firewall (tiwaterprod)
 

@@ -8,11 +8,16 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// On Azure (POSTGRES_SSL=true), use same postgres DB; ti_water doesn't exist there
+const isAzure = process.env.POSTGRES_SSL === 'true';
+const defaultTiwaterDb = isAzure ? 'postgres' : 'ti_water';
+const tiwaterDb = process.env.POSTGRES_TIWATER_DB || defaultTiwaterDb;
+
 // Create connection pool for TI_water database
 const pool = new Pool({
   host: process.env.POSTGRES_TIWATER_HOST || process.env.POSTGRES_HOST || 'localhost',
   port: parseInt(process.env.POSTGRES_TIWATER_PORT || process.env.POSTGRES_PORT || '5432'),
-  database: process.env.POSTGRES_TIWATER_DB || 'ti_water',
+  database: tiwaterDb,
   user: process.env.POSTGRES_TIWATER_USER || process.env.POSTGRES_USER || 'tiwater_user',
   password: process.env.POSTGRES_TIWATER_PASSWORD || process.env.POSTGRES_PASSWORD,
   max: parseInt(process.env.POSTGRES_TIWATER_MAX_CONNECTIONS || process.env.POSTGRES_MAX_CONNECTIONS || '20'),
@@ -43,7 +48,7 @@ pool.on('error', (err, client) => {
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {
     console.warn('[PostgreSQL TI_water] ⚠️  Connection test failed (this is OK if PostgreSQL is not set up yet):', err.message);
-    console.warn('[PostgreSQL TI_water]    Database name:', process.env.POSTGRES_TIWATER_DB || 'ti_water');
+    console.warn('[PostgreSQL TI_water]    Database name:', tiwaterDb);
   } else {
     console.log('[PostgreSQL TI_water] ✅ Connected successfully');
     console.log('[PostgreSQL TI_water] Server time:', res.rows[0].now);
