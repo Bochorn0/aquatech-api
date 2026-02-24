@@ -1,0 +1,55 @@
+name: Deploy API to Azure App Service
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  AZURE_WEBAPP_NAME: lccapp
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for OIDC
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create deployment package
+        run: |
+          npm prune --omit=dev
+          zip -r deploy.zip . -x ".git/*" -x ".github/*" -x "*.log" -x ".env" -x "node_modules/.cache/*"
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_BC1C1C66E9DB4CE1AB2F96CD142C2F5D }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_F4570927D5B64BDD898578142BB42DC0 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_224F7C54CA8F4969AA0F3D164F65EBDE }}
+          id-token: true
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: deploy.zip
+
+      - name: Deployment summary
+        run: |
+          echo "✅ API deployed to Azure App Service"
+          echo "App: ${{ env.AZURE_WEBAPP_NAME }}"
+          echo "Commit: ${{ github.sha }}"
