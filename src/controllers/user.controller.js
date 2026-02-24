@@ -1,32 +1,20 @@
-// src/controllers/product.controller.js
- import User from '../models/user.model.js';
- import Client from '../models/client.model.js';
- import Role from '../models/role.model.js';
+import UserModel from '../models/postgres/user.model.js';
+import ClientModel from '../models/postgres/client.model.js';
+import RoleModel from '../models/postgres/role.model.js';
+import bcrypt from 'bcrypt';
 
 export const getUsers = async (req, res) => {
   try {
-    console.log('Fetching Users from MongoDB...');
-    
-    // Check if products exist in MongoDB
-    let users = await User.find({});
-
+    const users = await UserModel.find({ status: 'active,pending' });
     if (users.length === 0) {
-
-      // Return stored products
-      users = [
-        {
-          id: '001',
-          name: 'LuisFer Cordova',
-          company: 'Consultor',
-          isVerified: true,
-          avatarUrl: `/assets/images/avatar/avatar-lf.webp`,
-          status: 'active',
-          role: 'Consultor'
-        }
-      ];
+      return res.json([
+        { id: '001', name: 'LuisFer Cordova', company: 'Consultor', isVerified: true, avatarUrl: '/assets/images/avatar/avatar-lf.webp', status: 'active', role: 'Consultor' }
+      ]);
     }
-
-    res.json(users);
+    res.json(users.map(u => {
+      const { password, ...rest } = u;
+      return rest;
+    }));
   } catch (error) {
     console.error('Error fetching users:', error);
     res.status(500).json({ message: 'Error fetching users' });
@@ -35,92 +23,61 @@ export const getUsers = async (req, res) => {
 
 export const getActiveUsers = async (req, res) => {
   try {
-    const clientes = await Client.find();
-    const roles = await Role.find();
-    console.log('Fetching Active Users from MongoDB...');
-
     const { status, role, cliente } = req.query;
-
-    // Build the query object dynamically
-    const filters = {};
-
-    if (status) {
-      filters.status = { $in: status.split(',') }; // Allow multiple statuses (e.g., "active,pending")
-    } else {
-      filters.status = { $in: ['active', 'pending'] }; // Default to active & pending
-    }
-
-    if (role) {
-      filters.role = role; // Filter by role if provided
-    }
-
-    if (cliente) {
-      filters.cliente = cliente; // Filter by client if provided
-    }
-
-    const clienteMap = new Map(clientes.map(cliente => [cliente._id.toString(), cliente.name]));
-    const roleMap = new Map(roles.map(role => [role._id.toString(), role.name]));
-    // Use populate to include the 'role.name' and 'cliente' (assuming client is referenced)
-    const users = await User.find(filters)
-    const mappedResults = users.map(user => {
-      const clientName = clienteMap.get(user.cliente.toString()) || ''; // Use map for faster lookup
-      const roleName = roleMap.get(user.role.toString()) || ''; // Use map for faster lookup
+    const users = await UserModel.find({ status, role, cliente });
+    const mapped = users.map(u => {
+      const { password, ...rest } = u;
       return {
-        ...user.toObject(), // Convert metric to plain object if it's a Mongoose document
-        client_name: clientName,
-        role_name: roleName,
+        ...rest,
+        client_name: u.client_name || '',
+        role_name: u.roleName || ''
       };
     });
-    res.json(mappedResults);
+    res.json(mapped);
   } catch (error) {
     console.error('Error fetching active users:', error);
     res.status(500).json({ message: 'Error fetching active users' });
   }
 };
 
-
-
-
 export const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
     const updatedUser = req.body;
 
-    const user = await User.findById(id);
+    const user = await UserModel.findById(id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Validate avatar size if it's a base64 string
     if (updatedUser.avatar && updatedUser.avatar.startsWith('data:image/')) {
-      const base64Data = updatedUser.avatar.split(',')[1]; // Remove the data type prefix
-      const bufferLength = Buffer.byteLength(base64Data, 'base64'); // Get size in bytes
-      
-      const maxSize = 2048 * 1024; // 2 MB
+      const base64Data = updatedUser.avatar.split(',')[1];
+      const bufferLength = Buffer.byteLength(base64Data, 'base64');
+      const maxSize = 2048 * 1024;
       if (bufferLength > maxSize) {
         return res.status(400).json({ message: 'Avatar image size exceeds 100 KB' });
       }
     }
 
-    // Si se actualiza el password, también actualizar mqtt_zip_password con el mismo valor
-    // Solo actualizar si el password es nuevo (no está hasheado)
+    const data = { ...updatedUser };
+    delete data.password;
     if (updatedUser.password && updatedUser.password.trim() !== '') {
-      // Verificar si el password es nuevo (no está hasheado)
-      // Los hashes de bcrypt empiezan con $2b$ o $2a$
       const isNewPassword = !updatedUser.password.startsWith('$2b$') && !updatedUser.password.startsWith('$2a$');
       if (isNewPassword) {
-        // Guardar el password en texto plano en mqtt_zip_password antes de que se hashee
-        updatedUser.mqtt_zip_password = updatedUser.password;
+        data.password = await bcrypt.hash(updatedUser.password, 10);
+        data.mqtt_zip_password = updatedUser.password;
       }
     }
-    
-    // Update user fields
-    user.set(updatedUser);
-    await user.save();
 
-    res.json(user);
+    const allowed = ['nombre', 'puesto', 'avatar', 'status', 'role_id', 'client_id', 'postgres_client_id', 'password', 'mqtt_zip_password'];
+    const toUpdate = {};
+    for (const k of allowed) {
+      if (data[k] !== undefined) toUpdate[k] = data[k];
+    }
 
+    const updated = await UserModel.update(id, toUpdate);
+    if (!updated) return res.status(500).json({ message: 'Error updating user' });
+
+    const { password, ...rest } = updated;
+    res.json(rest);
   } catch (error) {
     console.error('Error updating user:', error);
     res.status(500).json({ message: 'Error updating user' });
@@ -130,44 +87,63 @@ export const updateUser = async (req, res) => {
 export const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
-
-    const user = await
-    User.findById
-    (id);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    } else {
-      await User.deleteOne({ _id: id
-      });
-      res.json(user);
-    }
-  }
-  catch (error) {
+    const user = await UserModel.findById(id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    await UserModel.delete(id);
+    const { password, ...rest } = user;
+    res.json(rest);
+  } catch (error) {
     console.error('Error deleting user:', error);
     res.status(500).json({ message: 'Error deleting user' });
   }
-}
+};
 
 export const addUser = async (req, res) => {
   try {
     const userData = req.body;
     delete userData._id;
-    const currentUser = await User.findOne({ email: userData.email });
-    if (currentUser) {
-      return res.status(409).json({ message: 'User already exists' });
+
+    const existing = await UserModel.findByEmail(userData.email);
+    if (existing) return res.status(409).json({ message: 'User already exists' });
+
+    const password = userData.password?.trim() || '';
+    if (password.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' });
+
+    const hash = await bcrypt.hash(password, 10);
+    const mqttZip = userData.mqtt_zip_password || password;
+
+    const { query } = await import('../config/postgres.config.js');
+    let roleId = userData.role_id;
+    if (!roleId && userData.role) {
+      const roleRes = await query('SELECT id FROM roles WHERE LOWER(name) = LOWER($1) OR id = $2 LIMIT 1', [userData.role, userData.role]);
+      roleId = roleRes.rows?.[0]?.id;
     }
-    
-    // Si se proporciona un password, también establecer mqtt_zip_password con el mismo valor
-    if (userData.password && userData.password.trim() !== '') {
-      userData.mqtt_zip_password = userData.password;
+    if (!roleId) {
+      const def = await query('SELECT id FROM roles WHERE LOWER(name) = $1 LIMIT 1', ['cliente']);
+      roleId = def.rows?.[0]?.id;
     }
-    
-    const newUser = new User(userData);
-    await newUser.save();
-    res.status(201).json(newUser);
-  }
-  catch (error) {
+    const clientRes = await query('SELECT id FROM clients ORDER BY id LIMIT 1');
+    const clientId = userData.client_id || userData.cliente || clientRes.rows?.[0]?.id;
+
+    if (!roleId || !clientId) return res.status(400).json({ message: 'Invalid role or client' });
+
+    const created = await UserModel.create({
+      email: userData.email,
+      password: hash,
+      role_id: roleId,
+      client_id: clientId,
+      postgres_client_id: userData.postgres_client_id || clientId,
+      status: userData.status || 'pending',
+      nombre: userData.nombre || '',
+      puesto: userData.puesto || '',
+      mqtt_zip_password: mqttZip
+    });
+
+    const user = await UserModel.findById(created.id);
+    const { password: _, ...rest } = user;
+    res.status(201).json(rest);
+  } catch (error) {
     console.error('Error adding user:', error);
     res.status(500).json({ message: 'Error adding user' });
   }
-}
+};

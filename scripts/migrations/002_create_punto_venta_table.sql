@@ -73,10 +73,16 @@ COMMENT ON COLUMN puntoventa.long IS 'Longitude coordinate';
 COMMENT ON COLUMN puntoventa.address IS 'Physical address';
 COMMENT ON COLUMN puntoventa.meta IS 'Additional metadata in JSON format';
 
--- Grant permissions (adjust user as needed)
--- Use double quotes to preserve case-sensitive username
-GRANT ALL PRIVILEGES ON TABLE puntoventa TO "TIWater_user";
-GRANT USAGE, SELECT ON SEQUENCE puntoventa_id_seq TO "TIWater_user";
+-- Grant permissions (optional - skip if TIWater_user role does not exist, e.g. on Azure)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'TIWater_user') THEN
+    EXECUTE 'GRANT ALL PRIVILEGES ON TABLE puntoventa TO "TIWater_user"';
+    EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE puntoventa_id_seq TO "TIWater_user"';
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL; -- Ignore grant errors (e.g. Azure uses different user)
+END $$;
 
 -- Display success message
 DO $$

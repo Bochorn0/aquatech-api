@@ -2,7 +2,7 @@
 // Service to evaluate sensor data against metric alerts and create notifications
 
 import Notification from '../models/notification.model.js';
-import User from '../models/user.model.js';
+import UserModel from '../models/postgres/user.model.js';
 import MetricModel from '../models/postgres/metric.model.js';
 import MetricAlertModel from '../models/postgres/metricAlert.model.js';
 import MetricEmailLogModel from '../models/postgres/metricEmailLog.model.js';
@@ -424,7 +424,7 @@ class MetricNotificationService {
   static async getUsersToNotify(alert, clientId) {
     try {
       if (alert.correo) {
-        const userByEmail = await User.findOne({ email: alert.correo });
+        const userByEmail = await UserModel.findByEmail(alert.correo);
         if (userByEmail) {
           return [userByEmail];
         }

@@ -7,7 +7,6 @@ import express from 'express';  // Import express
 import cors from 'cors';  // Import cors
 import helmet from 'helmet';  // Import helmet
 import morgan from 'morgan';  // Import morgan
-import mongoose from 'mongoose';  // Import mongoose
 import bodyParser from 'body-parser';  // Import body-parser
 
 import notificationRoutes from './routes/notification.routes.js';  // Use `import` for notificationRoutes
@@ -268,21 +267,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Something went wrong!' });
 });
 
-// Database connection
-mongoose
-  .connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => {
-    console.log('Connected to MongoDB');
-    
-    // NOTA: MQTT ahora corre como proceso separado (mqtt-consumer.js)
-    // No iniciar MQTT aquí para evitar duplicados
-    // El consumidor MQTT se ejecuta como instancia separada en PM2
-    console.log('ℹ️  MQTT se ejecuta como proceso separado (mqtt-consumer)');
-  })
-  .catch((err) => console.error('MongoDB connection error:', err));
+// Database: PostgreSQL only (MongoDB removed)
+console.log('ℹ️  Using PostgreSQL for all data');
+// NOTA: MQTT corre como proceso separado (mqtt-consumer.js)
+console.log('ℹ️  MQTT se ejecuta como proceso separado (mqtt-consumer)');
 
 // Start server
 const PORT = process.env.PORT || 5000;
@@ -293,12 +281,7 @@ app.listen(PORT, () => {
 // Graceful shutdown (SIGINT = Ctrl+C, SIGTERM = PM2/systemd kill)
 const shutdown = (signal) => {
   console.log(`\nCerrando servidor... (${signal})`);
-  mongoose.connection.close().then(() => {
-    process.exit(0);
-  }).catch((err) => {
-    console.error('Error closing MongoDB:', err);
-    process.exit(1);
-  });
+  process.exit(0);
 };
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));

@@ -1,18 +1,17 @@
 // src/controllers/report.controller.js
-import Report from '../models/report.model.js';
-import ProductLog from '../models/product_logs.model.js';
-import Product from '../models/product.model.js';
-import PuntoVenta from '../models/puntoVenta.model.js';
+import ReportModel from '../models/postgres/report.model.js';
+import ProductLogModel from '../models/postgres/productLog.model.js';
+import ProductModel from '../models/postgres/product.model.js';
+import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import moment from 'moment';
 
 export const getReports = async (req, res) => {
   try {
     console.log('Fetching reports...');
-    
-    // Check if products exist in MongoDB
-    let report = await Report.find({});
 
-    if (report.length === 0) {
+    let report = await ReportModel.find({});
+
+    if (!report || report.length === 0) {
       // Store products in MongoDB
 
       // Return stored products
@@ -56,7 +55,7 @@ export async function generateProductLogsReport(product_id, date, product = null
 
     // Verificar que el producto existe (si no se pasó)
     if (!product) {
-      product = await Product.findOne({ id: product_id });
+      product = await ProductModel.findByDeviceId(product_id);
       if (!product) {
         return {
           success: false,
@@ -121,77 +120,33 @@ export async function generateProductLogsReport(product_id, date, product = null
 
     const useRangeMode = !!(startDate && endDate);
 
-    // ====== NIVEL + RANGO (V1 only): agregar por hora en MongoDB ======
-    // Tuya envía Nivel (%) y Profundidad (cm) en logs separados: unos tienen flujo_rechazo, otros flujo_produccion.
-    // Por cada hora usamos el ÚLTIMO valor no nulo de cada métrica (el más reciente en esa hora que tenga ese campo).
+    // ====== NIVEL + RANGO (V1): agregar por hora (Postgres) ======
     const REPORT_TZ = 'America/Hermosillo';
     if (productType === 'Nivel' && useLastValue && useRangeMode) {
-      const buckets = await ProductLog.aggregate([
-        { $match: { product_id, date: { $gte: startOfDay, $lte: endOfDay } } },
-        { $sort: { date: 1 } },
-        {
-          $group: {
-            _id: { $dateToString: { format: '%Y-%m-%d_%H', date: '$date', timezone: REPORT_TZ } },
-            hora: { $first: { $dateToString: { format: '%Y-%m-%d %H:00', date: '$date', timezone: REPORT_TZ } } },
-            docs: { $push: { date: '$date', flujo_rechazo: '$flujo_rechazo', flujo_produccion: '$flujo_produccion' } },
-            total_logs: { $sum: 1 },
-          },
+      const logs = await ProductLogModel.find({
+        product_id: product_id,
+        date: { $gte: startOfDay, $lte: endOfDay },
+      });
+      const bucketsMap = {};
+      logs.sort((a, b) => new Date(a.date) - new Date(b.date));
+      for (const log of logs) {
+        const d = moment(log.date).tz(REPORT_TZ);
+        const key = d.format('YYYY-MM-DD_HH');
+        const horaLabel = d.format('YYYY-MM-DD HH:00');
+        if (!bucketsMap[key]) bucketsMap[key] = { hora: horaLabel, total_logs: 0, lastRechazo: null, lastProd: null };
+        bucketsMap[key].total_logs++;
+        if (log.flujo_rechazo != null && log.flujo_rechazo !== 0) bucketsMap[key].lastRechazo = log.flujo_rechazo;
+        if (log.flujo_produccion != null && log.flujo_produccion !== 0) bucketsMap[key].lastProd = log.flujo_produccion;
+      }
+      const buckets = Object.entries(bucketsMap).map(([k, v]) => ({
+        hora: v.hora,
+        total_logs: v.total_logs,
+        estadisticas: {
+          liquid_level_percent_promedio: parseFloat(Number(v.lastRechazo ?? 0).toFixed(2)),
+          liquid_depth_promedio: parseFloat(Number(v.lastProd ?? 0).toFixed(2)),
         },
-        {
-          $project: {
-            _id: 0,
-            hora: 1,
-            total_logs: 1,
-            withRechazo: {
-              $filter: {
-                input: '$docs',
-                as: 'd',
-                cond: { $and: [{ $ne: ['$$d.flujo_rechazo', null] }, { $gt: ['$$d.flujo_rechazo', 0] }] },
-              },
-            },
-            withProd: {
-              $filter: {
-                input: '$docs',
-                as: 'd',
-                cond: { $and: [{ $ne: ['$$d.flujo_produccion', null] }, { $gt: ['$$d.flujo_produccion', 0] }] },
-              },
-            },
-          },
-        },
-        {
-          $project: {
-            hora: 1,
-            total_logs: 1,
-            lastRechazo: {
-              $cond: {
-                if: { $gt: [{ $size: '$withRechazo' }, 0] },
-                then: { $arrayElemAt: ['$withRechazo', { $subtract: [{ $size: '$withRechazo' }, 1] }] },
-                else: null,
-              },
-            },
-            lastProd: {
-              $cond: {
-                if: { $gt: [{ $size: '$withProd' }, 0] },
-                then: { $arrayElemAt: ['$withProd', { $subtract: [{ $size: '$withProd' }, 1] }] },
-                else: null,
-              },
-            },
-          },
-        },
-        {
-          $project: {
-            _id: 0,
-            hora: 1,
-            total_logs: 1,
-            estadisticas: {
-              liquid_level_percent_promedio: { $round: [{ $ifNull: ['$lastRechazo.flujo_rechazo', 0] }, 2] },
-              liquid_depth_promedio: { $round: [{ $ifNull: ['$lastProd.flujo_produccion', 0] }, 2] },
-            },
-          },
-        },
-        { $sort: { hora: 1 } },
-      ]);
-      console.log(`📊 [generateProductLogsReport] Nivel agregado por hora: ${buckets.length} buckets (sin cargar logs en memoria)`);
+      })).sort((a, b) => a.hora.localeCompare(b.hora));
+      console.log(`📊 [generateProductLogsReport] Nivel agregado por hora: ${buckets.length} buckets (Postgres)`);
       return {
         success: true,
         data: {
@@ -205,45 +160,42 @@ export async function generateProductLogsReport(product_id, date, product = null
       };
     }
 
-    // ====== OSMOSIS (V1 only): agregar por hora en MongoDB cuando hay muchos logs ======
+    // ====== OSMOSIS (V1): agregar por hora en Postgres cuando hay muchos logs ======
     const USE_AGGREGATION_THRESHOLD = 2000;
     if (productType !== 'Nivel') {
-      const count = await ProductLog.countDocuments({
+      const count = await ProductLogModel.count({
         product_id,
         date: { $gte: startOfDay, $lte: endOfDay },
       });
       if (count >= USE_AGGREGATION_THRESHOLD) {
         const isSpecial = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'].includes(product_id);
-        const buckets = await ProductLog.aggregate([
-          { $match: { product_id, date: { $gte: startOfDay, $lte: endOfDay } } },
-        {
-          $group: {
-            _id: { $dateToString: { format: '%Y-%m-%d_%H', date: '$date', timezone: 'America/Hermosillo' } },
-            hora: { $first: { $dateToString: { format: '%Y-%m-%d %H:00', date: '$date', timezone: 'America/Hermosillo' } } },
-            total_logs: { $sum: 1 },
-            avgTds: { $avg: { $cond: [{ $and: [{ $ne: ['$tds', null] }, { $ne: ['$tds', 0] }] }, '$tds', null] } },
-              avgFlujoProd: { $avg: { $cond: [{ $and: [{ $ne: ['$flujo_produccion', null] }, { $ne: ['$flujo_produccion', 0] }] }, '$flujo_produccion', null] } },
-              avgFlujoRech: { $avg: { $cond: [{ $and: [{ $ne: ['$flujo_rechazo', null] }, { $ne: ['$flujo_rechazo', 0] }] }, '$flujo_rechazo', null] } },
-              sumProdVol: { $sum: { $cond: [{ $and: [{ $ne: ['$production_volume', null] }, { $gt: ['$production_volume', 0] }] }, '$production_volume', 0] } },
-              sumRejVol: { $sum: { $cond: [{ $and: [{ $ne: ['$rejected_volume', null] }, { $gt: ['$rejected_volume', 0] }] }, '$rejected_volume', 0] } },
-            },
-          },
-          { $sort: { _id: 1 } },
-          {
-            $project: {
-              _id: 0,
-              hora: 1,
-              total_logs: 1,
-              raw: {
-                avgTds: { $ifNull: ['$avgTds', 0] },
-                avgFlujoProd: { $ifNull: ['$avgFlujoProd', 0] },
-                avgFlujoRech: { $ifNull: ['$avgFlujoRech', 0] },
-                sumProdVol: '$sumProdVol',
-                sumRejVol: '$sumRejVol',
-              },
-            },
-          },
-        ]);
+        const osmLogs = await ProductLogModel.find({
+          product_id,
+          date: { $gte: startOfDay, $lte: endOfDay },
+        });
+        const osmBucketsMap = {};
+        for (const log of osmLogs) {
+          const d = moment(log.date).tz('America/Hermosillo');
+          const key = d.format('YYYY-MM-DD_HH');
+          const horaLabel = d.format('YYYY-MM-DD HH:00');
+          if (!osmBucketsMap[key]) osmBucketsMap[key] = { hora: horaLabel, total_logs: 0, tds: [], flujoProd: [], flujoRech: [], prodVol: 0, rejVol: 0 };
+          osmBucketsMap[key].total_logs++;
+          if (log.tds != null && log.tds !== 0) osmBucketsMap[key].tds.push(log.tds);
+          if (log.flujo_produccion != null && log.flujo_produccion !== 0) osmBucketsMap[key].flujoProd.push(log.flujo_produccion);
+          if (log.flujo_rechazo != null && log.flujo_rechazo !== 0) osmBucketsMap[key].flujoRech.push(log.flujo_rechazo);
+          if (log.production_volume != null && log.production_volume > 0) osmBucketsMap[key].prodVol += log.production_volume;
+          if (log.rejected_volume != null && log.rejected_volume > 0) osmBucketsMap[key].rejVol += log.rejected_volume;
+        }
+        const buckets = Object.entries(osmBucketsMap).map(([k, v]) => {
+          const avgTds = v.tds.length ? v.tds.reduce((a, b) => a + b, 0) / v.tds.length : 0;
+          const avgFlujoProd = v.flujoProd.length ? v.flujoProd.reduce((a, b) => a + b, 0) / v.flujoProd.length : 0;
+          const avgFlujoRech = v.flujoRech.length ? v.flujoRech.reduce((a, b) => a + b, 0) / v.flujoRech.length : 0;
+          return {
+            hora: v.hora,
+            total_logs: v.total_logs,
+            raw: { avgTds, avgFlujoProd, avgFlujoRech, sumProdVol: v.prodVol, sumRejVol: v.rejVol },
+          };
+        }).sort((a, b) => a.hora.localeCompare(b.hora));
         const hoursWithStats = buckets.map((b) => {
           const r = b.raw || b;
           let flujoProd = r.avgFlujoProd;
@@ -284,13 +236,10 @@ export async function generateProductLogsReport(product_id, date, product = null
     }
 
     // ====== OBTENER LOGS DEL DÍA (Osmosis o un solo día) ======
-    const logs = await ProductLog.find({
+    const logs = await ProductLogModel.find({
       product_id: product_id,
       date: { $gte: startOfDay, $lte: endOfDay },
-    })
-      .select('date tds flujo_produccion flujo_rechazo production_volume rejected_volume')
-      .sort({ date: 1 })
-      .lean();
+    });
 
     console.log(`📊 [generateProductLogsReport] ${logs.length} logs encontrados`);
 
@@ -658,7 +607,7 @@ export const reporteMensual = async (req, res) => {
     }
 
     // Cargar punto de venta y sus productos
-    const punto = await PuntoVenta.findById(puntoVentaId).populate('productos').lean();
+    const punto = await PuntoVentaModel.findById(parseInt(puntoVentaId, 10)) ?? await PuntoVentaModel.findByCode(puntoVentaId);
     if (!punto) {
       return res.status(404).json({
         success: false,
@@ -746,7 +695,7 @@ export const reporteMensual = async (req, res) => {
     });
 
     // Conteo diagnóstico: logs en rango sin filtrar por valor (para saber si hay datos)
-    const totalInRange = await ProductLog.countDocuments({
+    const totalInRange = await ProductLogModel.count({
       product_id: { $in: productIds },
       date: { $gte: startDate, $lte: endDate },
     });
@@ -757,7 +706,7 @@ export const reporteMensual = async (req, res) => {
     }
 
     // Incluir logs que tengan al menos un campo de reporte presente (aunque sea 0)
-    const logs = await ProductLog.find({
+    const logs = await ProductLogModel.find({
       product_id: { $in: productIds },
       date: { $gte: startDate, $lte: endDate },
       $or: [

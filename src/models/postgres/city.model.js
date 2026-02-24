@@ -51,6 +51,19 @@ class CityModel {
    * @param {Object} options - Query options (limit, offset)
    * @returns {Promise<Array>} Array of city records
    */
+  static async findAll() {
+    const result = await query('SELECT * FROM cities ORDER BY state, city');
+    return (result.rows || []).map(row => this.parseRow(row));
+  }
+
+  static async findByName(name) {
+    const result = await query(
+      'SELECT * FROM cities WHERE LOWER(city) = LOWER($1) OR LOWER(state) = LOWER($1) LIMIT 1',
+      [name]
+    );
+    return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+  }
+
   static async find(filters = {}, options = {}) {
     const {
       limit = 100,

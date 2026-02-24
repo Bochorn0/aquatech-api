@@ -1,40 +1,39 @@
-import Metric from "../models/metric.model.js";
-import User from "../models/user.model.js";
-import Client from "../models/client.model.js";
-import { validate as validateUUID } from 'uuid';
+import ClientMetricModel from '../models/postgres/clientMetric.model.js';
+import UserModel from '../models/postgres/user.model.js';
+import ClientModel from '../models/postgres/client.model.js';
 
-// Controller to get all metrics
+const validateMetric = (metric, existingMetric, metricId) => {
+  const errors = [];
+  const clientId = metric.cliente ?? metric.client_id;
+  if (existingMetric && String(existingMetric.client_id) === String(clientId)) {
+    if (!metricId || String(metricId) !== String(existingMetric.id)) {
+      errors.push('Ya existe una métrica para este cliente');
+    }
+  }
+  if (!metric.tds_range || metric.tds_range < 0) errors.push('El rango TDS debe ser mayor a 0');
+  if (!metric.production_volume_range || metric.production_volume_range < 0) errors.push('El rango de volumen de producción debe ser mayor a 0');
+  if (!metric.temperature_range || metric.temperature_range < 0) errors.push('El rango de temperatura debe ser mayor a 0');
+  if (!metric.rejected_volume_range || metric.rejected_volume_range < 0) errors.push('El rango de volumen rechazado debe ser mayor a 0');
+  if (!metric.flow_rate_speed_range || metric.flow_rate_speed_range < 0) errors.push('El rango de velocidad de flujo debe ser mayor a 0');
+  if (errors.length > 0) throw new Error(errors.join(' | '));
+};
+
 export const getMetrics = async (req, res) => {
   try {
-    // Fetch the list of clients
-    const clientes = await Client.find();
+    const clientes = await ClientModel.find();
     const user = req.user;
-    const userId = user.id;
+    const userData = await UserModel.findById(user.id);
     const filtros = {};
-
-    // Fetch user data and populate the 'cliente' field
-    const userData = await User.findById(userId).populate('cliente');
-
-    // Check if userData and cliente exist, and filter if necessary
-    if (userData && userData.cliente && userData.cliente.name !== 'All') {
-      filtros.cliente = userData.cliente._id;
+    if (userData?.client_id && userData.clienteName && userData.clienteName !== 'All') {
+      const client = clientes.find(c => c.name === userData.clienteName);
+      if (client) filtros.client_id = client.id;
     }
-
-    // Fetch metrics based on filters
-    const metrics = await Metric.find(filtros);
-
-    // Create a lookup map for clients for faster access
-    const clienteMap = new Map(clientes.map(cliente => [cliente._id.toString(), cliente.name]));
-
-    // Map metrics with the corresponding client name using the lookup map
-    const mappedResults = metrics.map(metric => {
-      const clientName = clienteMap.get(metric.cliente.toString()) || ''; // Use map for faster lookup
-      return {
-        ...metric.toObject(), // Convert metric to plain object if it's a Mongoose document
-        client_name: clientName,
-      };
-    });
-    // Return the results
+    const metrics = await ClientMetricModel.find(filtros);
+    const clienteMap = new Map(clientes.map(c => [String(c.id), c.name]));
+    const mappedResults = metrics.map(m => ({
+      ...m,
+      client_name: clienteMap.get(String(m.client_id)) || ''
+    }));
     res.status(200).json(mappedResults);
   } catch (error) {
     console.error('Error fetching metrics:', error);
@@ -42,116 +41,54 @@ export const getMetrics = async (req, res) => {
   }
 };
 
-
-
-// Controller to get a specific metric by its ID
 export const getMetricById = async (req, res) => {
   try {
     const { metricId } = req.params;
-    
-    // Find the metric by ID
-    const metric = await Metric.findOne({ _id: metricId });
-    if (!metric) {
-      return res.status(404).json({ message: 'Métrica no encontrada' });
-    }
-
+    const metric = await ClientMetricModel.findById(metricId);
+    if (!metric) return res.status(404).json({ message: 'Métrica no encontrada' });
     res.status(200).json(metric);
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Error fetching metric:', error);
     res.status(500).json({ message: 'Error al obtener métrica', error });
   }
-}
+};
 
-// Controller to add a new metric
 export const addMetric = async (req, res) => {
   try {
-    // Check if metric already exists for the given client
-    const existingMetric = await Metric.findOne({ cliente: req.body.cliente });
-    // Validate the metric
     delete req.body._id;
+    const existingMetric = await ClientMetricModel.findByClientId(req.body.cliente ?? req.body.client_id);
     validateMetric(req.body, existingMetric, null);
-    
-    // If validation passes, create and save the new metric
-    const newMetric = new Metric(req.body);
-    await newMetric.save();
-    
-    res.status(201).json(newMetric); // Return the new metric
+    const newMetric = await ClientMetricModel.create(req.body);
+    res.status(201).json(newMetric);
   } catch (error) {
     console.error('Error adding metric:', error);
-    // Send the error back to the frontend with proper message and status code
-    res.status(400).json({
-      message: error.message || 'Error agregando métrica',  // Send the error message or fallback to a default one
-      error: error.message, // Include the error message for debugging
-    });
+    res.status(400).json({ message: error.message || 'Error agregando métrica', error: error.message });
   }
 };
 
-
-// Controller to update a metric by its ID
 export const updateMetric = async (req, res) => {
   try {
     const { metricId } = req.params;
-    const existingMetric = await Metric.findOne({ _id: metricId });
+    const existingMetric = await ClientMetricModel.findById(metricId);
     delete req.body._id;
     validateMetric(req.body, existingMetric, metricId);
-    const updatedMetric = await Metric
-    .findOneAndUpdate({ _id: metricId }, req.body, { new: true });
-    if (!updatedMetric) {
-      return res.status(404).json({ message: 'Métrica no encontrada' });
-    }
+    const updatedMetric = await ClientMetricModel.update(metricId, req.body);
+    if (!updatedMetric) return res.status(404).json({ message: 'Métrica no encontrada' });
     res.status(200).json(updatedMetric);
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Error updating metric:', error);
-    res.status(500).json({ message: error || 'Error actualizando métrica', error });
+    res.status(500).json({ message: error?.message || 'Error actualizando métrica', error });
   }
-}
+};
 
-// Controller to remove a metric by its ID
 export const removeMetric = async (req, res) => {
   try {
     const { metricId } = req.params;
-    const deletedMetric = await Metric.findOneAndDelete({ _id: metricId });
-    if (!deletedMetric) {
-      return res.status(404).json({ message: 'Métrica no encontrada' });
-    }
-    res.status(200).json(deletedMetric);
-  }
-  catch (error) {
+    const deleted = await ClientMetricModel.delete(metricId);
+    if (!deleted) return res.status(404).json({ message: 'Métrica no encontrada' });
+    res.status(200).json({ message: 'Métrica eliminada' });
+  } catch (error) {
     console.error('Error deleting metric:', error);
     res.status(500).json({ message: 'Error eliminando métrica', error });
   }
-}
-
-const validateMetric = (metric, existingMetric, metricId) => {
-  const errors = [];
-  // Check for client uniqueness
-  if (existingMetric  && existingMetric.cliente.toString() === metric.cliente.toString()) {
-    if (!metricId || metricId !== existingMetric._id.toString()) {
-      errors.push('Ya existe una métrica para este cliente');
-    }
-  }
-  // Validate required fields and ranges
-  if (!metric.tds_range || metric.tds_range < 0) {
-    errors.push('El rango TDS debe ser mayor a 0');
-  }
-  if (!metric.production_volume_range || metric.production_volume_range < 0) {
-    errors.push('El rango de volumen de producción debe ser mayor a 0');
-  }
-  if (!metric.temperature_range || metric.temperature_range < 0) {
-    errors.push('El rango de temperatura debe ser mayor a 0');
-  }
-  if (!metric.rejected_volume_range || metric.rejected_volume_range < 0) {
-    errors.push('El rango de volumen rechazado debe ser mayor a 0');
-  }
-  if (!metric.flow_rate_speed_range || metric.flow_rate_speed_range < 0) {
-    errors.push('El rango de velocidad de flujo debe ser mayor a 0');
-  }
-
-
-  // If there are errors, throw them all together
-  if (errors.length > 0) {
-    throw new Error(errors.join(' | '));
-  }
-}
+};

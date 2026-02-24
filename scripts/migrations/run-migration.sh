@@ -45,11 +45,15 @@ setup_postgresql_path() {
 # Setup PostgreSQL PATH if on macOS
 setup_postgresql_path
 
-# Load environment variables
+# Load only POSTGRES_* env vars (from .env or already set in environment, e.g. CI)
 if [ -f .env ]; then
-    export $(cat .env | grep -v '^#' | xargs)
-else
-    echo -e "${RED}Error: .env file not found${NC}"
+    export $(grep -E '^POSTGRES_' .env 2>/dev/null | grep -v '^#' | xargs) 2>/dev/null || true
+    if [ -z "${POSTGRES_HOST:-}" ] && [ -z "${POSTGRES_DB:-}" ]; then
+        export $(grep -v '^#' .env | xargs) 2>/dev/null || true
+    fi
+fi
+if [ -z "${POSTGRES_HOST:-}" ] && [ -z "${POSTGRES_DB:-}" ]; then
+    echo -e "${RED}Error: PostgreSQL config missing. Set POSTGRES_* vars or create .env${NC}"
     exit 1
 fi
 
@@ -64,11 +68,11 @@ if [ ! -f "$MIGRATION_FILE" ]; then
     exit 1
 fi
 
-# Set PostgreSQL connection parameters
+# Set PostgreSQL connection parameters (defaults work with Homebrew PostgreSQL on macOS)
 PGHOST=${POSTGRES_HOST:-localhost}
 PGPORT=${POSTGRES_PORT:-5432}
-PGDATABASE=${POSTGRES_DB:-TIWater_timeseries}
-PGUSER=${POSTGRES_USER:-TIWater_user}
+PGDATABASE=${POSTGRES_DB:-tiwater_timeseries}
+PGUSER=${POSTGRES_USER:-$(whoami)}
 
 echo -e "${YELLOW}Running migration: $MIGRATION_FILE${NC}"
 echo -e "Host: $PGHOST"

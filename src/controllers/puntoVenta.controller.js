@@ -3,6 +3,9 @@ import Client from '../models/client.model.js';
 import Product from '../models/product.model.js';
 import Controller from '../models/controller.model.js';
 import City from '../models/city.model.js';
+import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
+import ClientModel from '../models/postgres/client.model.js';
+import CityModel from '../models/postgres/city.model.js';
 import { query } from '../config/postgres.config.js';
 import { generateProductLogsReport } from './report.controller.js';
 import moment from 'moment';
@@ -95,30 +98,79 @@ async function getLatestTiwaterPayloadForPublish(codigoTienda) {
   }
 }
 
+/** Build MongoDB-compatible punto response from Postgres record */
+async function buildPuntoResponseFromPostgres(pv) {
+  const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+  let online = false;
+  if (pv.codigo_tienda || pv.code) {
+    const codigoTienda = (pv.codigo_tienda || pv.code).toUpperCase();
+    const thresholdTime = new Date(Date.now() - ONLINE_THRESHOLD_MS);
+    try {
+      const onlineResult = await query(
+        `SELECT COUNT(*) as count FROM sensores WHERE codigotienda = $1 AND createdat >= $2 LIMIT 1`,
+        [codigoTienda, thresholdTime]
+      );
+      online = onlineResult.rows?.length > 0 && parseInt(onlineResult.rows[0].count, 10) > 0;
+    } catch (e) {
+      // ignore
+    }
+  }
+  let clienteData = null;
+  if (pv.clientId) {
+    try {
+      const clientId = typeof pv.clientId === 'string' ? parseInt(pv.clientId, 10) : pv.clientId;
+      if (!isNaN(clientId)) clienteData = await ClientModel.findById(clientId);
+    } catch (e) {
+      // ignore
+    }
+  }
+  let addressObj = null;
+  if (pv.address) {
+    try {
+      addressObj = typeof pv.address === 'string' ? JSON.parse(pv.address) : pv.address;
+    } catch (e) {
+      addressObj = pv.address;
+    }
+  }
+  let cityData = null;
+  if (addressObj?.city && addressObj?.state) {
+    try {
+      cityData = await CityModel.findByStateAndCity(addressObj.state, addressObj.city);
+    } catch (e) {
+      // ignore
+    }
+  }
+  return {
+    _id: String(pv.id),
+    id: String(pv.id),
+    name: pv.name || 'Sin nombre',
+    codigo_tienda: pv.codigo_tienda || pv.code || null,
+    cliente: clienteData ? { _id: String(clienteData.id), id: String(clienteData.id), name: clienteData.name, email: clienteData.email, phone: clienteData.phone } : null,
+    city: cityData ? { _id: String(cityData.id), id: String(cityData.id), city: cityData.city, state: cityData.state, lat: cityData.lat, lon: cityData.lon } : (addressObj ? { _id: null, city: addressObj.city, state: addressObj.state, lat: pv.lat, lon: pv.long } : { _id: null, city: null, state: null, lat: pv.lat, lon: pv.long }),
+    address: addressObj || null,
+    productos: [],
+    controladores: [],
+    online,
+    status: pv.status || 'active',
+    owner: pv.owner || null,
+    clientId: pv.clientId ? String(pv.clientId) : null,
+    lat: pv.lat ?? null,
+    long: pv.long ?? null,
+    contactId: pv.contactId ? String(pv.contactId) : null,
+    meta: pv.meta ?? null,
+    createdAt: pv.createdAt ?? null,
+    updatedAt: pv.updatedAt ?? null,
+    dev_mode: pv.dev_mode === true,
+  };
+}
+
 // Obtener todos los puntos de venta
 export const getPuntosVenta = async (req, res) => {
   try {
-    console.log('Fetching Puntos de Venta from MongoDB...');
+    console.log('Fetching Puntos de Venta from PostgreSQL...');
 
-    const puntos = await PuntoVenta.find({})
-      .populate('cliente')
-      .populate('city')
-      .populate('productos')
-      .populate('controladores');
-
-    const now = Date.now();
-    const ONLINE_THRESHOLD_MS = 5000;
-
-    const puntosConEstado = puntos.map(pv => {
-      const tieneControladorOnline = pv.controladores?.some(
-        ctrl => ctrl.last_time_active && (now - ctrl.last_time_active <= ONLINE_THRESHOLD_MS)
-      );
-
-      return {
-        ...pv.toObject(),
-        online: tieneControladorOnline,
-      };
-    });
+    const puntosPG = await PuntoVentaModel.find({}, { limit: 1000, offset: 0 });
+    const puntosConEstado = await Promise.all(puntosPG.map(pv => buildPuntoResponseFromPostgres(pv)));
 
     res.json(puntosConEstado);
   } catch (error) {

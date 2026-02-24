@@ -195,6 +195,19 @@ class ClientModel {
    * @param {Number} id - Client ID
    * @returns {Promise<Boolean>} True if deleted
    */
+  static async insertMany(items) {
+    const created = [];
+    for (const data of items) {
+      try {
+        const c = await this.create(data);
+        if (c) created.push(c);
+      } catch (e) {
+        console.warn('[ClientModel] insertMany skip:', e.message);
+      }
+    }
+    return created;
+  }
+
   static async delete(id) {
     const deleteQuery = 'DELETE FROM clients WHERE id = $1 RETURNING id';
     const result = await query(deleteQuery, [id]);

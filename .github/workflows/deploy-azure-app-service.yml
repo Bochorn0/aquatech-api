@@ -1,3 +1,7 @@
+# Deploy API to Azure App Service
+# Add GitHub secrets for DB setup: POSTGRES_HOST, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
+# (POSTGRES_PORT optional, defaults to 5432). If not set, DB setup is skipped.
+
 name: Deploy API to Azure App Service
 
 on:
@@ -27,9 +31,25 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
+        working-directory: Aquatech_api
         run: npm ci
 
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Setup database (migrations + seed)
+        if: ${{ secrets.POSTGRES_HOST != '' }}
+        working-directory: Aquatech_api
+        run: npm run setup
+        env:
+          POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+          POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+
       - name: Create deployment package
+        working-directory: Aquatech_api
         run: |
           npm prune --omit=dev
           zip -r deploy.zip . -x ".git/*" -x ".github/*" -x "*.log" -x ".env" -x "node_modules/.cache/*"

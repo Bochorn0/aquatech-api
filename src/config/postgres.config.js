@@ -4,15 +4,16 @@
 import pkg from 'pg';
 const { Pool } = pkg;
 import dotenv from 'dotenv';
+import os from 'os';
 
 dotenv.config();
 
-// Create connection pool
+// Create connection pool (default user = current OS user for local dev)
 const pool = new Pool({
   host: process.env.POSTGRES_HOST || 'localhost',
   port: parseInt(process.env.POSTGRES_PORT || '5432'),
   database: process.env.POSTGRES_DB || 'tiwater_timeseries',
-  user: process.env.POSTGRES_USER || 'tiwater_user',
+  user: process.env.POSTGRES_USER || os.userInfo().username,
   password: process.env.POSTGRES_PASSWORD,
   max: parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '20'), // Maximum number of clients in the pool
   idleTimeoutMillis: parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000'), // Close idle clients after 30 seconds

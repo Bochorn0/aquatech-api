@@ -1,47 +1,65 @@
-import User from '../models/user.model.js';
+import UserModel from '../models/postgres/user.model.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import config from '../config/config.js';
-import { body, validationResult } from 'express-validator';  // Using express-validator for input validation
+import { body, validationResult } from 'express-validator';
 import emailHelper from '../utils/email.helper.js';
 
-const SECRET_KEY = config.SECRET_KEY; // Store in env
+const SECRET_KEY = config.SECRET_KEY;
 
-// Register a new user with validation
+// Build user response for frontend (matches previous MongoDB shape)
+function toUserResponse(user) {
+  if (!user) return null;
+  const u = typeof user.role_id !== 'undefined' ? user : UserModel.parseRow(user);
+  const { password, ...rest } = u;
+  return {
+    ...rest,
+    role: {
+      _id: u.role_id,
+      name: u.roleName,
+      permissions: u.permissions || [],
+      dashboardVersion: u.dashboardVersion || 'v1'
+    },
+    cliente: u.client_id ? { _id: u.client_id, name: '' } : null,
+    postgresClientId: u.postgresClientId || null
+  };
+}
+
 export const registerUser = [
-  // Validation rules
   body('email').isEmail().withMessage('Email must be a valid email address'),
-  body('password')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters long'),
+  body('password').isLength({ min: 5 }).withMessage('Password must be at least 5 characters long'),
   body('nombre').optional().isString().withMessage('Name must be a string'),
   body('empresa').optional().isString().withMessage('Company must be a string'),
   body('puesto').optional().isString().withMessage('Position must be a string'),
 
-  // Register handler
   async (req, res) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { email, password, nombre, puesto } = req.body;
 
     try {
-      const existingUser = await User.findOne({ email });
+      const existingUser = await UserModel.findByEmail(email);
       if (existingUser) return res.status(400).json({ message: 'Usuario ya registrado' });
 
-      const newUser = new User({
+      const hash = await bcrypt.hash(password, 10);
+      const clienteRoleId = await getClienteRoleId();
+      const defaultClientId = await getDefaultClientId();
+      if (!clienteRoleId || !defaultClientId) {
+        return res.status(500).json({ message: 'Configuración de roles/clientes incompleta' });
+      }
+
+      await UserModel.create({
         email,
-        password,  // Don't hash here; the schema will handle it
-        role: '67d273b4219909a5e9b8b1d6',
+        password: hash,
+        role_id: clienteRoleId,
+        client_id: defaultClientId,
+        postgres_client_id: defaultClientId,
         nombre: nombre || '',
-        cliente: '67d26119cf18fdaf14ec2dc1',
-        puesto: puesto || 'Consultor',
+        puesto: puesto || 'Consultor'
       });
 
-      await newUser.save();
       res.status(201).json({ message: 'Usuario registrado, pendiente de activación' });
     } catch (error) {
       console.error('Registration Error:', error);
@@ -50,49 +68,40 @@ export const registerUser = [
   },
 ];
 
-// Login existing user with validation
-export const loginUser = [
-  // Validation rules
-  body('email').isEmail().withMessage('Correo electrónico debe ser una dirección de correo válida'),
-  body('password')
-    .isLength({ min: 6 })
-    .withMessage('La contraseña debe tener al menos 6 caracteres'),
+async function getClienteRoleId() {
+  const { query } = await import('../config/postgres.config.js');
+  const r = await query('SELECT id FROM roles WHERE LOWER(name) = $1 LIMIT 1', ['cliente']);
+  return r.rows?.[0]?.id ?? null;
+}
 
-  // Login handler
+async function getDefaultClientId() {
+  const { query } = await import('../config/postgres.config.js');
+  const r = await query('SELECT id FROM clients ORDER BY id LIMIT 1');
+  return r.rows?.[0]?.id ?? null;
+}
+
+export const loginUser = [
+  body('email').isEmail().withMessage('Correo electrónico debe ser una dirección de correo válida'),
+  body('password').isLength({ min: 5 }).withMessage('La contraseña debe tener al menos 5 caracteres'),
+
   async (req, res) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { email, password } = req.body;
 
     try {
-      const user = await User.findOne({ email })
-      .populate('role', 'name permissions dashboardVersion') // Populate 'role' with 'name', 'permissions', 'dashboardVersion'
-      .populate('cliente', 'name'); // Populate 'cliente' with 'name' and 'company' (assuming 'cliente' is a reference to a 'Client' model)
-      if (user && user.status === 'pending') return res.status(400).json({ message: 'Usuario pendiente de activación' });
+      const user = await UserModel.findByEmail(email);
       if (!user) return res.status(400).json({ message: 'Usuario no encontrado' });
+      if (user.status === 'pending') return res.status(400).json({ message: 'Usuario pendiente de activación' });
 
-      // Trim the password to avoid issues with leading/trailing spaces
       const trimmedPassword = password.trim();
-
-      // Compare entered password with stored hashed password
       const isMatch = await bcrypt.compare(trimmedPassword, user.password);
-
       if (!isMatch) return res.status(401).json({ message: 'Credenciales invalidas' });
 
-      // Generate Token if passwords match
-      const token = jwt.sign({ id: user._id, role: user.role }, SECRET_KEY, { expiresIn: '8h' });
+      const token = jwt.sign({ id: user.id, role: user.role_id }, SECRET_KEY, { expiresIn: '8h' });
 
-      delete user._doc.password; // Remove password from user object
-      
-      // Add postgresClientId to the response for dashboard v2 compatibility
-      const userResponse = {
-        ...user._doc,
-        postgresClientId: user.postgresClientId || null
-      };
-      
+      const userResponse = toUserResponse({ ...user, role_id: user.role_id });
       res.json({ token, user: userResponse });
     } catch (error) {
       console.error('Login Error:', error);
@@ -101,71 +110,49 @@ export const loginUser = [
   },
 ];
 
-// Request password reset
 export const requestPasswordReset = [
   body('email').isEmail().withMessage('Correo electrónico debe ser una dirección de correo válida'),
-  
+
   async (req, res) => {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
+      if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
       const { email } = req.body;
       console.log('[requestPasswordReset] Request received for email:', email);
 
-      const user = await User.findOne({ email });
-      
-      // Don't reveal if user exists or not (security best practice)
+      const user = await UserModel.findByEmail(email);
       if (!user) {
         console.log('[requestPasswordReset] User not found');
-        return res.json({ 
-          success: true, 
-          message: 'Si el correo existe, se enviará un enlace de recuperación' 
-        });
+        return res.json({ success: true, message: 'Si el correo existe, se enviará un enlace de recuperación' });
       }
 
-      // Check if user is active
       if (user.status !== 'active') {
         console.log('[requestPasswordReset] User not active:', user.status);
-        return res.status(400).json({ 
-          message: 'Tu cuenta no está activa. Contacta al administrador.' 
-        });
+        return res.status(400).json({ message: 'Tu cuenta no está activa. Contacta al administrador.' });
       }
 
-      // Generate reset token
       const resetToken = crypto.randomBytes(32).toString('hex');
       const resetTokenExpiry = new Date();
-      resetTokenExpiry.setHours(resetTokenExpiry.getHours() + 1); // Token expires in 1 hour
+      resetTokenExpiry.setHours(resetTokenExpiry.getHours() + 1);
 
-      // Save reset token to user
-      user.resetToken = resetToken;
-      user.resetTokenExpiry = resetTokenExpiry;
-      await user.save();
+      await UserModel.update(user.id, {
+        resetToken,
+        resetTokenExpiry
+      });
       console.log('[requestPasswordReset] Reset token saved for user:', user.email);
 
-      // Send password reset email
       const emailResult = await emailHelper.sendPasswordResetEmail({
         to: user.email,
         resetToken,
-        userName: user.nombre || user.email,
+        userName: user.nombre || user.email
       });
 
       if (!emailResult.success) {
         console.error('[requestPasswordReset] Error sending email:', emailResult.error);
-        // Still return success to user (don't reveal email issues)
-        return res.json({ 
-          success: true, 
-          message: 'Si el correo existe, se enviará un enlace de recuperación' 
-        });
       }
 
-      console.log('[requestPasswordReset] Password reset email sent successfully');
-      res.json({ 
-        success: true, 
-        message: 'Si el correo existe, se enviará un enlace de recuperación' 
-      });
+      res.json({ success: true, message: 'Si el correo existe, se enviará un enlace de recuperación' });
     } catch (error) {
       console.error('[requestPasswordReset] Password Reset Request Error:', error);
       res.status(500).json({ message: 'Server Error', error: error.message });
@@ -173,35 +160,28 @@ export const requestPasswordReset = [
   },
 ];
 
-// Verify reset token
 export const verifyResetToken = [
   body('token').notEmpty().withMessage('Token es requerido'),
-  
+
   async (req, res) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { token } = req.body;
 
     try {
-      const user = await User.findOne({
-        resetToken: token,
-        resetTokenExpiry: { $gt: new Date() }, // Token not expired
-      });
+      const { query } = await import('../config/postgres.config.js');
+      const r = await query(
+        'SELECT id, email FROM users WHERE reset_token = $1 AND reset_token_expiry > NOW() LIMIT 1',
+        [token]
+      );
+      const user = r.rows?.[0];
 
       if (!user) {
-        return res.status(400).json({ 
-          message: 'Token inválido o expirado' 
-        });
+        return res.status(400).json({ message: 'Token inválido o expirado' });
       }
 
-      res.json({ 
-        success: true, 
-        message: 'Token válido',
-        email: user.email 
-      });
+      res.json({ success: true, message: 'Token válido', email: user.email });
     } catch (error) {
       console.error('Verify Reset Token Error:', error);
       res.status(500).json({ message: 'Server Error' });
@@ -209,43 +189,36 @@ export const verifyResetToken = [
   },
 ];
 
-// Reset password
 export const resetPassword = [
   body('token').notEmpty().withMessage('Token es requerido'),
-  body('password')
-    .isLength({ min: 6 })
-    .withMessage('La contraseña debe tener al menos 6 caracteres'),
-  
+  body('password').isLength({ min: 5 }).withMessage('La contraseña debe tener al menos 5 caracteres'),
+
   async (req, res) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { token, password } = req.body;
 
     try {
-      const user = await User.findOne({
-        resetToken: token,
-        resetTokenExpiry: { $gt: new Date() }, // Token not expired
-      });
+      const { query } = await import('../config/postgres.config.js');
+      const r = await query(
+        'SELECT id FROM users WHERE reset_token = $1 AND reset_token_expiry > NOW() LIMIT 1',
+        [token]
+      );
+      const user = r.rows?.[0];
 
       if (!user) {
-        return res.status(400).json({ 
-          message: 'Token inválido o expirado' 
-        });
+        return res.status(400).json({ message: 'Token inválido o expirado' });
       }
 
-      // Update password (will be hashed by pre-save hook)
-      user.password = password;
-      user.resetToken = null;
-      user.resetTokenExpiry = null;
-      await user.save();
-
-      res.json({ 
-        success: true, 
-        message: 'Contraseña restablecida exitosamente' 
+      const hash = await bcrypt.hash(password, 10);
+      await UserModel.update(user.id, {
+        password: hash,
+        resetToken: null,
+        resetTokenExpiry: null
       });
+
+      res.json({ success: true, message: 'Contraseña restablecida exitosamente' });
     } catch (error) {
       console.error('Reset Password Error:', error);
       res.status(500).json({ message: 'Server Error' });

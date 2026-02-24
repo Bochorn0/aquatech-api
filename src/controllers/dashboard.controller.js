@@ -1,7 +1,8 @@
-// src/controllers/product.controller.js
+// src/controllers/dashboard.controller.js
 import { mockedProducts } from './product.controller.js';
-import User from '../models/user.model.js';
-import Metric from '../models/metric.model.js';
+import UserModel from '../models/postgres/user.model.js';
+import ClientMetricModel from '../models/postgres/clientMetric.model.js';
+import ClientModel from '../models/postgres/client.model.js';
 import moment from 'moment';
 
 const categories = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -12,8 +13,7 @@ export const getOldDashboardMetrics = async (req, res) => {
   try {
     console.log('Fetching dashboard Metrics from MongoDB...');
     
-    // Check if products exist in MongoDB
-    let metrics = await Metric.find({});
+    let metrics = await ClientMetricModel.find({});
     let total = 0;
     let totalOnline = 0;
     let totalRangoOnline = 0;
@@ -106,7 +106,8 @@ export const getOldDashboardMetrics = async (req, res) => {
 export const getDashboardMetrics = async (req, res) => {
   const user = req.user;
   const { id, role } = user;
-  const { cliente } = await User.findById(id, {cliente: 1});
+  const userData = await UserModel.findById(id);
+  const cliente = userData?.clienteName || (userData?.cliente ? String(userData.cliente) : null);
   const mockProducts = await mockedProducts();
   let productosByCliente = [];
   if (role === 'admin' || cliente === 'Aquatech') {
@@ -126,7 +127,10 @@ export const getDashboardMetrics = async (req, res) => {
 };
 
 const getMetricsByProds = async (productosByCliente, cliente) => {
-  const metricsData = await Metric.findOne({cliente});
+  const clients = await ClientModel.find();
+  const client = clients.find(c => c.name === cliente);
+  const metricsData = client ? await ClientMetricModel.findByClientId(client.id) : null;
+  if (!metricsData) return [];
   const tdsOnRangeProds = [];
   const tdsOffRangeProds = [];
   const proOnRangeProds = [];

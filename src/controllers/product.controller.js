@@ -1,10 +1,9 @@
-import mongoose from 'mongoose';
-import Product from '../models/product.model.js';
-import City from '../models/city.model.js';
-import User from '../models/user.model.js';
-import Client from '../models/client.model.js';
-import Controller from '../models/controller.model.js';
-import ProductLog from '../models/product_logs.model.js';
+import ProductModel from '../models/postgres/product.model.js';
+import CityModel from '../models/postgres/city.model.js';
+import UserModel from '../models/postgres/user.model.js';
+import ClientModel from '../models/postgres/client.model.js';
+import ControllerModel from '../models/postgres/controller.model.js';
+import ProductLogModel from '../models/postgres/productLog.model.js';
 import * as tuyaService from '../services/tuya.service.js';
 import moment from 'moment';
 
@@ -29,8 +28,7 @@ export const getAllProducts = async (req, res) => {
     if (!realProducts.success) {
       return res.status(400).json({ message: realProducts.error, code: realProducts.code });
     }
-    // Client List
-    const clientes = await Client.find();
+    const clientes = await ClientModel.find();
     // mocked products 
     if (query.mocked) {
       const mockProducts = await mockedProducts();
@@ -39,17 +37,18 @@ export const getAllProducts = async (req, res) => {
     const filtros = {};
     // Set cliente filter
     if (query.cliente) {
+      filtros.client_id = query.cliente;
       filtros.cliente = query.cliente;
     } else {
       const id = user.id;
-      const userData = await User.findById(id, { cliente: 1 });
-      if (userData && userData.cliente) {
-        filtros.cliente = userData.cliente;
+      const userData = await UserModel.findById(id);
+      if (userData && userData.client_id) {
+        filtros.client_id = userData.client_id;
       } else {
         return res.status(400).json({ message: 'Cliente not found for user' });
       }
     }
-    const currentclient = clientes.find(cliente => cliente._id.toString() === filtros.cliente.toString());
+    const currentclient = clientes.find(c => String(c.id) === String(filtros.cliente || filtros.client_id));
     if (filtros.cliente && currentclient.name === 'All') {
       delete filtros.cliente;
     }
@@ -82,83 +81,67 @@ export const getAllProducts = async (req, res) => {
       }
     }
 
-    console.log('Fetching products from MongoDB with filters:', filtros);
+    console.log('Fetching products from Tuya (source of truth) with filters:', filtros);
 
-    // 🔄 SINCRONIZAR PRODUCTOS DE TUYA CON MONGODB
-    console.log('🔄 [Sincronización] Iniciando sincronización de productos de Tuya con MongoDB...');
-    const clientesList = await Client.find();
+    const clientesList = await ClientModel.find();
     const defaultCliente = clientesList.find(c => c.name === 'Caffenio') || clientesList.find(c => c.name === 'All') || clientesList[0];
-    
-    let productosActualizados = 0;
-    let productosInsertados = 0;
-    let productosConError = 0;
+    const defCliente = clientes.find(c => c.name === 'Caffenio') || clientes.find(c => c.name === 'All') || clientes[0];
 
-    for (const tuyaProduct of realProducts.data) {
-      try {
-        // Buscar si el producto ya existe en MongoDB por su id (ID de Tuya)
-        const existingProduct = await Product.findOne({ id: tuyaProduct.id });
-        
-        // Preparar datos del producto (Tuya es la fuente de verdad)
-        // Los datos de Tuya tienen prioridad, pero preservamos campos que Tuya no proporciona
-        const productData = {
-          ...tuyaProduct, // Datos de Tuya primero (fuente de verdad)
-          // Campos que se preservan o asignan por defecto si no vienen de Tuya
-          cliente: tuyaProduct.cliente || existingProduct?.cliente || defaultCliente?._id,
-          product_type: tuyaProduct.product_type || existingProduct?.product_type || (productos_nivel.includes(tuyaProduct.id) ? 'Nivel' : 'Osmosis'),
-          city: tuyaProduct.city || existingProduct?.city || 'Hermosillo',
-          state: tuyaProduct.state || existingProduct?.state || 'Sonora',
-          drive: tuyaProduct.drive || existingProduct?.drive,
-        };
+    // Sync Tuya → PostgreSQL (non-blocking: Tuya is source of truth)
+    let dbProducts = [];
+    try {
+      console.log('🔄 [Sincronización] Iniciando sincronización de productos de Tuya con PostgreSQL...');
+      let productosActualizados = 0;
+      let productosInsertados = 0;
+      let productosConError = 0;
 
-        if (existingProduct) {
-          // Actualizar producto existente (Tuya es fuente de verdad)
-          // Actualizar todos los campos con los datos de Tuya
-          Object.keys(productData).forEach(key => {
-            if (productData[key] !== undefined && productData[key] !== null) {
-              existingProduct[key] = productData[key];
-            }
-          });
-          // Marcar el campo status como modificado si existe
-          if (productData.status) {
-            existingProduct.markModified('status');
+      for (const tuyaProduct of realProducts.data) {
+        try {
+          const existingProduct = await ProductModel.findByDeviceId(tuyaProduct.id);
+          if (existingProduct) {
+            productosActualizados++;
+            continue; // Already in DB, Tuya structure used for response
           }
-          await existingProduct.save();
-          productosActualizados++;
-          console.log(`✅ [Sincronización] Producto actualizado: ${tuyaProduct.name} (id: ${tuyaProduct.id})`);
-        } else {
-          // Insertar nuevo producto
-          const newProduct = new Product(productData);
-          await newProduct.save();
+          // Store Tuya product in DB only when it doesn't exist
+          const clientId = tuyaProduct.cliente || defaultCliente?.id;
+          const productData = {
+            ...tuyaProduct,
+            client_id: clientId,
+            cliente: clientId,
+            product_type: tuyaProduct.product_type || (productos_nivel.includes(tuyaProduct.id) ? 'Nivel' : 'Osmosis'),
+            city: tuyaProduct.city || 'Hermosillo',
+            state: tuyaProduct.state || 'Sonora',
+            drive: tuyaProduct.drive,
+          };
+          await ProductModel.create(productData);
           productosInsertados++;
-          console.log(`➕ [Sincronización] Producto insertado: ${tuyaProduct.name} (id: ${tuyaProduct.id})`);
+          console.log(`➕ [Sincronización] Producto almacenado desde Tuya: ${tuyaProduct.name} (id: ${tuyaProduct.id})`);
+        } catch (error) {
+          productosConError++;
+          console.error(`❌ [Sincronización] Error almacenando producto ${tuyaProduct.id} (${tuyaProduct.name}):`, error.message);
         }
-      } catch (error) {
-        productosConError++;
-        console.error(`❌ [Sincronización] Error procesando producto ${tuyaProduct.id} (${tuyaProduct.name}):`, error.message);
       }
+      console.log(`🔄 [Sincronización] Completada: ${productosInsertados} nuevos almacenados, ${productosActualizados} ya existían, ${productosConError} con error`);
+
+      dbProducts = await ProductModel.find(filtros);
+      console.log(`📦 Found ${dbProducts.length} products in database`);
+    } catch (dbErr) {
+      console.warn('[getAllProducts] DB sync/query failed, using Tuya data only:', dbErr.message);
     }
 
-    console.log(`🔄 [Sincronización] Completada: ${productosActualizados} actualizados, ${productosInsertados} insertados, ${productosConError} con error`);
+    console.log(`🌐 Found ${realProducts.data.length} products from Tuya (source of truth)`);
 
-    // Obtener productos de la BD (después de la sincronización)
-    let dbProducts = await Product.find(filtros);
-    console.log(`📦 Found ${dbProducts.length} products in database`);
-    console.log(`🌐 Found ${realProducts.data.length} products from Tuya`);
-
-    // Crear un mapa de productos de la BD para búsqueda rápida
     const dbProductsMap = new Map();
     dbProducts.forEach(p => {
       dbProductsMap.set(p.id, p);
     });
 
-    // Combinar productos: usar los de Tuya como base y enriquecerlos con info de la BD
+    // Combine: Tuya as base (source of truth), enrich with DB when available
     const products = realProducts.data.map(realProduct => {
       const dbProduct = dbProductsMap.get(realProduct.id);
-      
       if (dbProduct) {
-        // Si existe en BD, usar ese como base y actualizarlo con info de Tuya
         return {
-          ...dbProduct.toObject(),
+          ...dbProduct,
           online: realProduct.online,
           name: realProduct.name,
           ip: realProduct.ip,
@@ -166,18 +149,17 @@ export const getAllProducts = async (req, res) => {
           update_time: realProduct.update_time,
           active_time: realProduct.active_time,
         };
-      } else {
-        // Si no existe en BD, usar el producto de Tuya directamente
-        // Asignar cliente Caffenio por defecto y ciudad Hermosillo
-        const defaultCliente = clientes.find(c => c.name === 'Caffenio') || clientes.find(c => c.name === 'All') || clientes[0];
-        return {
-          ...realProduct,
-          cliente: defaultCliente?._id,
-          product_type: productos_nivel.includes(realProduct.id) ? 'Nivel' : 'Osmosis',
-          city: realProduct.city || 'Hermosillo',
-          state: realProduct.state || 'Sonora',
-        };
       }
+      // No DB record: use Tuya data with defaults
+      return {
+        ...realProduct,
+        id: realProduct.id,
+        cliente: defCliente?.id,
+        client_id: defCliente?.id,
+        product_type: productos_nivel.includes(realProduct.id) ? 'Nivel' : 'Osmosis',
+        city: realProduct.city || 'Hermosillo',
+        state: realProduct.state || 'Sonora',
+      };
     });
 
     console.log(`✅ Total products to show: ${products.length}`);
@@ -210,11 +192,11 @@ export const getAllProducts = async (req, res) => {
       //   const needsFlowSpeed2 = !flowSpeed2 || flowSpeed2.value === 0;
       
       //   if (needsFlowSpeed1 || needsFlowSpeed2) {
-      //     console.log(`🔍 [getAllProducts] Producto ${product.id}: flowrate en 0, consultando ProductLog...`);
+      //     console.log(`🔍 [getAllProducts] Producto ${product.id}: flowrate en 0, consultando ProductLogModel...`);
       
       //     try {
       //       // Obtener el registro más reciente de ProductLog
-      //       const latestLog = await ProductLog.findOne({ product_id: product.id })
+      //       const latestLog = await ProductLogModel.findOne({ product_id: product.id })
       //         .sort({ date: -1 })
       //         .limit(1);
       
@@ -323,7 +305,7 @@ export const getAllProducts = async (req, res) => {
     const idsTuya = new Set(realProducts.data.map(p => p.id));
     const productosLocales = dbProducts.filter(p => !idsTuya.has(p.id));
     const productosLocalesAdaptados = productosLocales.map((dbProduct) => ({
-      ...dbProduct.toObject(),
+      ...dbProduct,
       online: false,
       // Mantén el resto de campos tal como en la BD
     }));
@@ -332,10 +314,14 @@ export const getAllProducts = async (req, res) => {
     let todosLosProductos = [...filteredProducts, ...productosLocalesAdaptados];
 
     // 🔽 Vuelve a aplicar los filtros extra (post-combinados)
-    if (filtros.cliente) {
-      todosLosProductos = todosLosProductos.filter(p => 
-        p.cliente?._id?.toString() === filtros.cliente.toString()
-      );
+    if (filtros.cliente || filtros.client_id) {
+      const cid = String(filtros.cliente || filtros.client_id);
+      const getClientId = (p) => {
+        const c = p.cliente ?? p.client_id;
+        if (c && typeof c === 'object') return (c._id ?? c.id)?.toString() ?? '';
+        return String(c ?? '');
+      };
+      todosLosProductos = todosLosProductos.filter(p => getClientId(p) === cid);
     }
     if (filtros.city) {
       todosLosProductos = todosLosProductos.filter(p => p.city === filtros.city);
@@ -377,7 +363,15 @@ export const generateAllProducts = async (req, res) => {
 export const saveAllProducts = async (req, res) => {
   try {
     const mapedResults = await mockedProducts();
-    const storedProducts = await Product.insertMany(mapedResults);
+    const storedProducts = [];
+    for (const p of mapedResults) {
+      try {
+        const created = await ProductModel.create({ ...p, client_id: p.cliente || (await ClientModel.find())[0]?.id });
+        if (created) storedProducts.push(created);
+      } catch (e) {
+        console.warn('saveAllProducts skip:', e.message);
+      }
+    }
     console.log(`${storedProducts.length} products saved to database.`);
     res.status(200).json(storedProducts);
   } catch (error) {
@@ -420,7 +414,7 @@ export const mockedProducts = async () => {
   const clientes = await getClients();
   const mexicoCities = await getCities();  
   realProducts.data.map((product) => {
-    product.cliente = clientes.find(cliente => cliente.name === 'Aquatech')._id;
+    product.cliente = clientes.find(cliente => cliente.name === 'Aquatech')?.id;
     if(!product.lat || !product.lon) {
       product.lat = '29.0729';
       product.lon = '-110.9559';
@@ -506,10 +500,7 @@ export const updateProduct = async (req, res) => {
       ...(product_type != null && { product_type }),
       ...(typeof tuya_logs_routine_enabled === 'boolean' && { tuya_logs_routine_enabled }),
     };
-    const isMongoId = mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === id;
-    const product = isMongoId
-      ? await Product.findByIdAndUpdate(id, update, { new: true, runValidators: true })
-      : await Product.findOneAndUpdate({ id }, update, { new: true, runValidators: true });
+    const product = await ProductModel.update(id, update);
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
@@ -526,14 +517,11 @@ export const updateProduct = async (req, res) => {
 export const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const isMongoId = mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === id;
-    const product = isMongoId
-      ? await Product.findByIdAndDelete(id)
-      : await Product.findOneAndDelete({ id });
-    if (!product) {
+    const deleted = await ProductModel.delete(id);
+    if (!deleted) {
       return res.status(404).json({ message: 'Product not found' });
     }
-    return res.status(200).json({ message: 'Product deleted', product });
+    return res.status(200).json({ message: 'Product deleted' });
   } catch (error) {
     console.error('Error deleting product:', error);
     return res.status(500).json({ message: 'Error deleting product' });
@@ -548,20 +536,7 @@ export const deleteProduct = async (req, res) => {
  */
 async function getLastUpdatedDisplay(productId, updateTimeSeconds) {
   try {
-    const latestLog = await ProductLog.findOne({
-      product_id: productId,
-      $or: [
-        { tds: { $nin: [null, 0] } },
-        { production_volume: { $nin: [null, 0] } },
-        { rejected_volume: { $nin: [null, 0] } },
-        { temperature: { $nin: [null, 0] } },
-        { flujo_produccion: { $nin: [null, 0] } },
-        { flujo_rechazo: { $nin: [null, 0] } },
-      ],
-    })
-      .sort({ date: -1 })
-      .select('date')
-      .lean();
+    const latestLog = await ProductLogModel.findLatestWithData(productId);
 
     const productTime = updateTimeSeconds && Number(updateTimeSeconds) > 0 ? Number(updateTimeSeconds) : 0;
     if (!latestLog || !latestLog.date) return productTime || undefined;
@@ -581,7 +556,7 @@ export const getProductById = async (req, res) => {
     console.log('Fetching product details for:', id);
 
     // Check if the product exists in MongoDB
-    let product = await Product.findOne({ id });
+    let product = await ProductModel.findByDeviceId(id);
 
     if (product) {
       console.log('Product found in MongoDB. Fetching latest details from Tuya API...');
@@ -594,7 +569,7 @@ export const getProductById = async (req, res) => {
       if (!response.success) {
         if (product) {
           const lastDisplayFail = await getLastUpdatedDisplay(id, product.update_time);
-          const outFail = product.toObject ? product.toObject() : { ...product };
+          const outFail = { ...product };
           outFail.last_updated_display = lastDisplayFail != null ? lastDisplayFail : outFail.update_time;
           const productosEspecialesFail = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
           if (outFail.status && Array.isArray(outFail.status) && !productosEspecialesFail.includes(id)) {
@@ -610,12 +585,8 @@ export const getProductById = async (req, res) => {
       if (response && response.data) {
         const updatedData = response.data; // Assuming this is the correct structure
 
-        // Update MongoDB with the latest data from Tuya
-        product = await Product.findOneAndUpdate(
-          { id },
-          updatedData,
-          { new: true, runValidators: true }
-        );
+        // Update Postgres with the latest data from Tuya
+        product = await ProductModel.update(id, updatedData);
         const PRODUCTOS_ESPECIALES = [
           'ebf9738480d78e0132gnru',
           'ebea4ffa2ab1483940nrqn'
@@ -633,13 +604,11 @@ export const getProductById = async (req, res) => {
           const needsFlowSpeed2 = !flowSpeed2 || flowSpeed2.value === 0;
           
           if (needsFlowSpeed1 || needsFlowSpeed2) {
-            console.log(`🔍 [getProductById] Producto ${id}: flowrate en 0, consultando ProductLog...`);
+            console.log(`🔍 [getProductById] Producto ${id}: flowrate en 0, consultando ProductLogModel...`);
             
             try {
               // Obtener el registro más reciente de ProductLog
-              const latestLog = await ProductLog.findOne({ product_id: id })
-                .sort({ date: -1 })
-                .limit(1);
+              const latestLog = await ProductLogModel.findOne({ product_id: id });
               
               if (latestLog) {
                 console.log(`✅ [getProductById] Log encontrado para ${id}`);
@@ -691,7 +660,7 @@ export const getProductById = async (req, res) => {
           });
         }
         const lastDisplay = await getLastUpdatedDisplay(id, product.update_time);
-        const out = product.toObject ? product.toObject() : { ...product };
+        const out = { ...product };
         out.last_updated_display = lastDisplay != null ? lastDisplay : out.update_time;
         return res.json(out);
       }
@@ -699,7 +668,7 @@ export const getProductById = async (req, res) => {
       // If Tuya API doesn't return data, return the existing MongoDB product
       console.log('Tuya API did not return data. Returning existing MongoDB product.');
       const lastDisplayExisting = await getLastUpdatedDisplay(id, product.update_time);
-      const outExisting = product.toObject ? product.toObject() : { ...product };
+      const outExisting = { ...product };
       outExisting.last_updated_display = lastDisplayExisting != null ? lastDisplayExisting : outExisting.update_time;
       // Apply same flowrate_total_1/2 ÷10 for display (Tuya uses 0.1 L units)
       const productosEspeciales = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
@@ -725,42 +694,41 @@ export const getProductById = async (req, res) => {
     }
 
     // Obtener cliente por defecto (Caffenio preferentemente)
-    const clientes = await Client.find();
+    const clientes = await ClientModel.find();
     const defaultCliente = clientes.find(c => c.name === 'Caffenio') || clientes.find(c => c.name === 'All') || clientes[0];
 
-    // Save the new product to MongoDB
+    // Save the new product to Postgres
     const productData = {
       ...response.data,
-      cliente: defaultCliente._id,
+      cliente: defaultCliente?.id,
       product_type: productos_nivel.includes(response.data.id) ? 'Nivel' : 'Osmosis',
       city: response.data.city || 'Hermosillo',
       state: response.data.state || 'Sonora',
     };
-    
-    const newProduct = new Product(productData);
-    await newProduct.save();
 
-    console.log(`Product ${id} saved to MongoDB.`);
-    console.log('newProduct', newProduct);
+    const newProductModel = await ProductModel.create(productData);
+    if (!newProductModel) {
+      return res.status(500).json({ message: 'Failed to create product' });
+    }
+
+    console.log(`Product ${id} saved to Postgres.`);
     
     // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
-    const isOsmosis = newProduct.product_type === 'Osmosis' || newProduct.product_type === 'osmosis';
+    const isOsmosis = newProductModel.product_type === 'Osmosis' || newProductModel.product_type === 'osmosis';
     
-    if (isOsmosis && newProduct.status && Array.isArray(newProduct.status)) {
-      const flowSpeed1 = newProduct.status.find(s => s.code === 'flowrate_speed_1');
-      const flowSpeed2 = newProduct.status.find(s => s.code === 'flowrate_speed_2');
+    if (isOsmosis && newProductModel.status && Array.isArray(newProductModel.status)) {
+      const flowSpeed1 = newProductModel.status.find(s => s.code === 'flowrate_speed_1');
+      const flowSpeed2 = newProductModel.status.find(s => s.code === 'flowrate_speed_2');
       
       const needsFlowSpeed1 = !flowSpeed1 || flowSpeed1.value === 0;
       const needsFlowSpeed2 = !flowSpeed2 || flowSpeed2.value === 0;
       
       if (needsFlowSpeed1 || needsFlowSpeed2) {
-        console.log(`🔍 [getProductById - new] Producto ${id}: flowrate en 0, consultando ProductLog...`);
+        console.log(`🔍 [getProductById - new] Producto ${id}: flowrate en 0, consultando ProductLogModel...`);
         
         try {
           // Obtener el registro más reciente de ProductLog
-          const latestLog = await ProductLog.findOne({ product_id: id })
-            .sort({ date: -1 })
-            .limit(1);
+          const latestLog = await ProductLogModel.findOne({ product_id: id });
           
           if (latestLog) {
             console.log(`✅ [getProductById - new] Log encontrado para ${id}`);
@@ -769,7 +737,7 @@ export const getProductById = async (req, res) => {
               if (flowSpeed1) {
                 flowSpeed1.value = latestLog.flujo_produccion;
               } else {
-                newProduct.status.push({ code: 'flowrate_speed_1', value: latestLog.flujo_produccion });
+                newProductModel.status.push({ code: 'flowrate_speed_1', value: latestLog.flujo_produccion });
               }
               console.log(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
             }
@@ -778,7 +746,7 @@ export const getProductById = async (req, res) => {
               if (flowSpeed2) {
                 flowSpeed2.value = latestLog.flujo_rechazo;
               } else {
-                newProduct.status.push({ code: 'flowrate_speed_2', value: latestLog.flujo_rechazo });
+                newProductModel.status.push({ code: 'flowrate_speed_2', value: latestLog.flujo_rechazo });
               }
               console.log(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
             }
@@ -796,9 +764,9 @@ export const getProductById = async (req, res) => {
       'ebea4ffa2ab1483940nrqn'
     ];
     const flujos_total_codes = ['flowrate_total_1', 'flowrate_total_2'];
-    if (PRODUCTOS_ESPECIALES.includes(newProduct.id)) {
+    if (PRODUCTOS_ESPECIALES.includes(newProductModel.id)) {
       const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
-      newProduct.status.map((stat) => {
+      newProductModel.status.map((stat) => {
         if (flujos_codes.includes(stat.code)) {
           stat.value = (stat.value * 1.6).toFixed(2);
         }
@@ -807,16 +775,16 @@ export const getProductById = async (req, res) => {
         }
         return stat;
       });
-    } else if (newProduct.status && Array.isArray(newProduct.status)) {
-      newProduct.status = newProduct.status.map((stat) => {
+    } else if (newProductModel.status && Array.isArray(newProductModel.status)) {
+      newProductModel.status = newProductModel.status.map((stat) => {
         if (flujos_total_codes.includes(stat.code)) {
           stat.value = (Number(stat.value) / 10).toFixed(2);
         }
         return stat;
       });
     }
-    const lastDisplayNew = await getLastUpdatedDisplay(id, newProduct.update_time);
-    const outNew = newProduct.toObject ? newProduct.toObject() : { ...newProduct };
+    const lastDisplayNew = await getLastUpdatedDisplay(id, newProductModel.update_time);
+    const outNew = { ...newProductModel };
     outNew.last_updated_display = lastDisplayNew != null ? lastDisplayNew : outNew.update_time;
     res.json(outNew);
     
@@ -841,7 +809,7 @@ export const getProductLogsById = async (req, res) => {
       return res.status(400).json({ message: 'Missing required parameter: id' });
     }
 
-    const product = await Product.findOne({ id }).select('product_type').lean();
+    const product = await ProductModel.findByDeviceId(id);
     const productType = product?.product_type || 'Osmosis';
     const isNivel = productType === 'Nivel' || productType === 'nivel';
     console.log('Fetching product logs for:', { id, productType });
@@ -924,7 +892,7 @@ export const getProductLogsById = async (req, res) => {
     if (!rawLogs.length) {
       if (isNivel) {
         try {
-          const productForSync = await Product.findOne({ id }).select('_id').lean();
+          const productForSync = await ProductModel.findByDeviceId(id);
           if (productForSync) {
             const nivelCodes = ['liquid_level_percent', 'liquid_depth'];
             const allTuyaLogs = [];
@@ -967,8 +935,8 @@ export const getProductLogsById = async (req, res) => {
               );
               if (toSave.length > 0) {
                 const dates = toSave.map((l) => l.date);
-                const existing = await ProductLog.find({ product_id: id, date: { $in: dates } }).select('date').lean();
-                const existingSet = new Set(existing.map((e) => e.date.getTime()));
+                const existing = await ProductLogModel.findByDates(id, dates);
+                const existingSet = new Set(existing.map((e) => (e.date instanceof Date ? e.date : new Date(e.date)).getTime()));
                 const toInsert = toSave
                   .filter((l) => !existingSet.has(l.date.getTime()))
                   .map((l) => ({
@@ -980,7 +948,7 @@ export const getProductLogsById = async (req, res) => {
                     source: 'tuya',
                   }));
                 if (toInsert.length > 0) {
-                  await ProductLog.insertMany(toInsert);
+                  await ProductLogModel.insertMany(toInsert);
                   console.log(`📥 [getProductLogsById] Nivel sync-on-read: guardados ${toInsert.length} logs en ProductLog`);
                 }
               }
@@ -992,7 +960,7 @@ export const getProductLogsById = async (req, res) => {
       }
 
       console.log('🔁 Consultando logs desde base de datos local...');
-      const query = { product_id: id };
+      const query = { product_id: id, _limit: parseInt(limit, 10) * 5 };
 
       if (start_date && end_date) {
         query.date = {
@@ -1001,10 +969,7 @@ export const getProductLogsById = async (req, res) => {
         };
       }
 
-      rawLogs = await ProductLog.find(query)
-        .sort({ date: -1 })
-        .limit(parseInt(limit) * 5) // Obtener más logs para agrupar
-        .lean(); // Usar lean() para mejor rendimiento
+      rawLogs = await ProductLogModel.find(query);
 
       // Asegurar que todos los logs de MongoDB tengan source='database'
       rawLogs = rawLogs.map((log) => ({
@@ -1086,7 +1051,7 @@ export const getProductLogsById = async (req, res) => {
     // so reports and other consumers see them. Deduplicate by (product_id, date).
     if (source === 'tuya' && Object.keys(groupedLogs).length > 0) {
       try {
-        const product = await Product.findOne({ id }).select('_id').lean();
+        const product = await ProductModel.findByDeviceId(id);
         if (product) {
           const logsToSync = Object.values(groupedLogs).map(entry => ({
             ...entry,
@@ -1100,8 +1065,8 @@ export const getProductLogsById = async (req, res) => {
           const logsWithData = logsToSync.filter(hasValidData);
           if (logsWithData.length > 0) {
             const dates = logsWithData.map((l) => l.date);
-            const existing = await ProductLog.find({ product_id: id, date: { $in: dates } }).select('date').lean();
-            const existingSet = new Set(existing.map((e) => e.date.getTime()));
+            const existing = await ProductLogModel.findByDates(id, dates);
+            const existingSet = new Set(existing.map((e) => (e.date instanceof Date ? e.date : new Date(e.date)).getTime()));
             const toInsert = logsWithData
               .filter((l) => !existingSet.has(l.date.getTime()))
               .map((l) => ({
@@ -1118,7 +1083,7 @@ export const getProductLogsById = async (req, res) => {
                 source: 'tuya',
               }));
             if (toInsert.length > 0) {
-              await ProductLog.insertMany(toInsert);
+              await ProductLogModel.insertMany(toInsert);
               console.log(`📥 [getProductLogsById] Synced ${toInsert.length} Tuya logs to ProductLogs (${logsWithData.length - toInsert.length} already in DB)`);
             }
           }
@@ -1247,7 +1212,7 @@ function mapTuyaLogsNivel(tuyaData) {
 //       };
 //     }
 
-//     const logs = await ProductLog.find(query)
+//     const logs = await ProductLogModel.find(query)
 //       .sort({ createdAt: -1 }) // orden descendente por fecha
 //       .limit(parseInt(limit));
 
@@ -1265,7 +1230,7 @@ function mapTuyaLogsNivel(tuyaData) {
 //   }
 // };
 
-// Save a product from Tuya API to MongoDB
+// Save a product from Tuya API to Postgres
 export const saveProduct = async (req, res) => {
   try {
     console.log('Fetching product from Tuya API...');
@@ -1275,13 +1240,21 @@ export const saveProduct = async (req, res) => {
       return res.status(400).json({ message: response.error, code: response.code });
     }
 
+    const clientes = await ClientModel.find();
+    const defaultCliente = clientes.find(c => c.name === 'Caffenio') || clientes.find(c => c.name === 'All') || clientes[0];
+    const productData = {
+      ...response.data,
+      cliente: defaultCliente?.id,
+      product_type: productos_nivel.includes(response.data?.id) ? 'Nivel' : 'Osmosis',
+      city: response.data?.city || 'Hermosillo',
+      state: response.data?.state || 'Sonora',
+    };
 
-    // Create new product object
-    const newProduct = new Product(response.result);
-
-    // Save to MongoDB
-    await newProduct.save();
-    console.log(`Product ${id} saved to MongoDB.`);
+    const newProduct = await ProductModel.create(productData);
+    if (!newProduct) {
+      return res.status(500).json({ message: 'Failed to create product' });
+    }
+    console.log(`Product ${id} saved to Postgres.`);
 
     res.status(201).json(newProduct);
   } catch (error) {
@@ -1294,24 +1267,25 @@ export const saveProduct = async (req, res) => {
 export const getProductMetrics = async (req, res) => {
   try {
     const { id } = req.params;
-    const product = await Product.findOne({ id });
+    const product = await ProductModel.findByDeviceId(id);
 
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
     console.log('Fetching status from Tuya API...');
-    const response = await tuyaService.getDeviceStatus(id);
+    const response = await tuyaService.getDeviceDetail(id);
     if (!response.success) {
       return res.status(400).json({ message: response.error, code: response.code });
     }
 
-    // Update product metrics
-    product.status = status;
-    product.update_time = Date.now();
-    await product.save();
+    const status = Array.isArray(response.data?.status) ? response.data.status : (response.data?.status ?? []);
+    const updated = await ProductModel.update(id, { status, update_time: Date.now() });
+    if (!updated) {
+      return res.status(500).json({ message: 'Failed to update product' });
+    }
 
-    res.json(product);
+    res.json(updated);
   } catch (error) {
     console.error('Error fetching product metrics:', error);
     res.status(500).json({ message: 'Error fetching product metrics' });
@@ -1503,10 +1477,7 @@ async function handleOsmosisProduct(product, data) {
     product.status = product.status.filter(s => s.code !== 'start_time');
   }
 
-  // Marcar el campo status como modificado para asegurar que se guarde
-  product.markModified('status');
-
-  await product.save();
+  await ProductModel.update(product.id, product);
   console.log('💾 [Osmosis] Datos de osmosis actualizados correctamente');
 
   // Guardar log en ProductLog si hay datos relevantes
@@ -1539,7 +1510,7 @@ async function handleOsmosisProduct(product, data) {
       };
 
       // Verificar si ya existe un log similar (evitar duplicados basado en fecha y product_id)
-      const existingLog = await ProductLog.findOne({
+      const existingLog = await ProductLogModel.findOne({
         product_id: logData.product_id,
         date: {
           $gte: new Date(logDate.getTime() - 1000), // 1 segundo antes
@@ -1548,8 +1519,7 @@ async function handleOsmosisProduct(product, data) {
       });
 
       if (!existingLog) {
-        const newLog = new ProductLog(logData);
-        await newLog.save();
+        await ProductLogModel.create(logData);
         console.log(`📝 [Osmosis] Log guardado en ProductLog - TDS: ${tds}, Flujo Prod: ${flujo_prod}, Flujo Rech: ${flujo_rech}`);
       } else {
         console.log(`⏭️ [Osmosis] Log duplicado omitido para fecha ${logDate.toISOString()}`);
@@ -1628,21 +1598,15 @@ async function handlePressureProduct(product, data) {
     }
   }
 
-  // Marca el campo como modificado
-  product.markModified('status');
-
-  // console.log('🧩 [handlePressure] Status final antes de guardar:', JSON.stringify(product.status, null, 2));
-
   try {
-    await product.save();
-    // console.log('✅ [handlePressure] Producto actualizado correctamente en MongoDB');
+    await ProductModel.update(product.id, product);
   } catch (err) {
     console.error('❌ [handlePressure] Error al guardar producto:', err);
     throw err;
   }
 
   // Verificación post-save
-  const refreshed = await product.constructor.findById(product._id).lean();
+  const refreshed = await ProductModel.findById(product._id);
   // console.log('🧩 [handlePressure] Status final guardado en DB:', JSON.stringify(refreshed.status, null, 2));
 
   return { success: true, message: 'Datos de presión actualizados', product: refreshed };
@@ -1677,7 +1641,7 @@ async function handleLevelProduct(product, data) {
     }
   }
 
-  await product.save();
+  await ProductModel.update(product.id, product);
   console.log('💾 [Nivel] Datos de nivel actualizados correctamente');
   return { success: true, message: 'Datos de nivel actualizados', product };
 }
@@ -1717,7 +1681,7 @@ export const componentInput = async (req, res) => {
       return res.status(400).json({ message: 'Datos incompletos' });
     }
 
-    const product = await Product.findById(productId);
+    const product = await ProductModel.findByIdOrDeviceId(productId);
     if (!product) {
       // console.log('❌ [componentInput] Producto no encontrado');
       return res.status(404).json({ message: 'Producto no encontrado' });
@@ -1766,8 +1730,7 @@ export const componentInput = async (req, res) => {
         break;
 
       default:
-        // console.log('ℹ️ [componentInput] Tipo de producto sin lógica especial, guardando sin cambios');
-        await product.save();
+        await ProductModel.update(product.id, product);
         result = { success: true, message: 'Producto actualizado sin lógica especial', product };
         break;
     }
@@ -1818,7 +1781,7 @@ function haversine(lat1, lon1, lat2, lon2) {
 
 function getClosestCity(lat, lon, mexicoCities) {
   let closestCity = mexicoCities[0];
-  let minDistance = haversine(lat, lon, closestCity.lat, closestCity.lon);
+  let minDistance = haversine(lat, lon, closestCityModel.lat, closestCityModel.lon);
 
   for (const city of mexicoCities) {
       const distance = haversine(lat, lon, city.lat, city.lon);
@@ -1833,7 +1796,7 @@ function getClosestCity(lat, lon, mexicoCities) {
 
 async function getCities() {
   try {
-    const mexicoCities = await City.find();
+    const mexicoCities = await CityModel.findAll();
     return mexicoCities;
   } catch (error) {
     console.error('Error fetching active users:', error);
@@ -1843,7 +1806,7 @@ async function getCities() {
 
 async function getClients() {
   try {
-    const clients = await Client.find();
+    const clients = await ClientModel.find();
     return clients;
   } catch (error) {
     console.error('Error fetching clients:', error);
@@ -1970,9 +1933,7 @@ function getRandomCoordinateInMexico(mexicoCities) {
  */
 async function runFetchLogsRoutineInBackground() {
   // Re-fetch product list for this run
-  const enabledProducts = await Product.find({ tuya_logs_routine_enabled: true })
-    .select('id product_type')
-    .lean();
+  const enabledProducts = await ProductModel.find({ tuya_logs_routine_enabled: true });
   const productosWhitelist = (enabledProducts || []).map((p) => ({
     id: p.id,
     type: p.product_type || 'Osmosis',
@@ -2064,7 +2025,7 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
         console.log(`\n📦 [fetchLogsRoutine] Procesando producto: ${productId} (Tipo: ${productType})`);
 
         // Verificar que el producto existe en la BD
-        const product = await Product.findOne({ id: productId });
+        const product = await ProductModel.findByDeviceId(productId);
         if (!product) {
           console.warn(`⚠️ [fetchLogsRoutine] Producto ${productId} no encontrado en BD`);
           results.errors.push({
@@ -2206,14 +2167,13 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
         for (const logData of logsToSave) {
           try {
             // Verificar si ya existe un log similar (evitar duplicados)
-            const existingLog = await ProductLog.findOne({
+            const existingLog = await ProductLogModel.findOne({
               product_id: productId,
               date: logData.date,
             });
 
             if (!existingLog) {
-              const newLog = new ProductLog(logData);
-              await newLog.save();
+              await ProductLogModel.create(logData);
               insertedCount++;
             } else {
               duplicateCount++;
@@ -2272,9 +2232,7 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
  */
 export const fetchLogsRoutine = async (req, res) => {
   try {
-    const enabledProducts = await Product.find({ tuya_logs_routine_enabled: true })
-      .select('id product_type')
-      .lean();
+    const enabledProducts = await ProductModel.find({ tuya_logs_routine_enabled: true });
     const productosWhitelist = (enabledProducts || []).map((p) => ({
       id: p.id,
       type: p.product_type || 'Osmosis',
@@ -2362,7 +2320,7 @@ export const generarLogsPorFecha = async (req, res) => {
       { label: 'tarde', start: '18:00:00', end: '18:01:00' },
     ];
 
-    const product = await Product.findOne({ id: PRODUCT_ID });
+    const product = await ProductModel.findByDeviceId(PRODUCT_ID);
     if (!product) {
       return res.status(404).json({
         success: false,
@@ -2551,13 +2509,13 @@ export const generarLogsPorFecha = async (req, res) => {
       console.log(`  💾 Logs a guardar: ${logsToSave.length} (filtrados con datos válidos)`);
 
       for (const logData of logsToSave) {
-        const exists = await ProductLog.findOne({
+        const exists = await ProductLogModel.findOne({
           product_id: PRODUCT_ID,
           date: logData.date,
         });
 
         if (!exists) {
-          await new ProductLog(logData).save();
+          await ProductLogModel.create(logData);
           totalInserted++;
           console.log(`  ✅ Guardado log para fecha ${new Date(logData.date).toISOString()} - TDS: ${logData.tds}, Prod: ${logData.production_volume}, Rech: ${logData.rejected_volume}`);
         } else {

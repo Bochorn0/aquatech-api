@@ -6,7 +6,7 @@ import archiverZipEncrypted from 'archiver-zip-encrypted';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import User from '../models/user.model.js';
+import UserModel from '../models/postgres/user.model.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,7 +54,7 @@ export const downloadCertificateZip = async (req, res) => {
     }
 
     // Obtener el usuario completo de la base de datos
-    const user = await User.findById(userId).select('email mqtt_zip_password');
+    const user = await UserModel.findById(userId);
     
     if (!user) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
@@ -62,7 +62,7 @@ export const downloadCertificateZip = async (req, res) => {
 
     // Obtener la contraseña del ZIP del usuario
     // Si tiene mqtt_zip_password configurado, usarlo; si no, usar el email como fallback
-    const ZIP_PASSWORD = user.mqtt_zip_password || user.email || process.env.MQTT_CERT_ZIP_PASSWORD || 'Aquatech2025*';
+    const ZIP_PASSWORD = (user && (user.mqtt_zip_password || user.email)) || process.env.MQTT_CERT_ZIP_PASSWORD || 'Aquatech2025*';
     // Crear directorio temporal si no existe
     const tempDir = path.join(__dirname, '../../temp');
     if (!fs.existsSync(tempDir)) {

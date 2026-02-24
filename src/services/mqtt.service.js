@@ -6,9 +6,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import tls from 'tls';
-import SensorData from '../models/sensorData.model.js';
-import Controller from '../models/controller.model.js';
-import PuntoVenta from '../models/puntoVenta.model.js';
+import ControllerModel from '../models/postgres/controller.model.js';
+import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
+import ProductModel from '../models/postgres/product.model.js';
 import PostgresService from './postgres.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -322,8 +322,8 @@ class MQTTService {
       const data = JSON.parse(message);
       console.log(`[MQTT] 📊 Datos del gateway ${gatewayId}:`, JSON.stringify(data, null, 2));
       
-      // Buscar el controller asociado al gateway_id
-      const controller = await Controller.findOne({ id: gatewayId });
+      // Buscar el controller asociado al gateway_id (Postgres)
+      const controller = await ControllerModel.findByDeviceId(gatewayId);
       
       if (!controller) {
         console.warn(`[MQTT] ⚠️  Controller no encontrado para gateway_id: ${gatewayId}`);
@@ -341,9 +341,9 @@ class MQTTService {
       // Guardar datos con referencias
       await this.saveSensorData({
         gateway_id: gatewayId,
-        controller: controller._id,
-        product: controller.product,
-        cliente: controller.cliente,
+        controller: controller?._id,
+        product: controller?.product_id ?? controller?.product,
+        cliente: controller?.client_id ?? controller?.cliente,
         pressure_in: data.sensors?.pressure_in,
         pressure_out: data.sensors?.pressure_out,
         water_level: data.sensors?.water_level,
@@ -371,13 +371,14 @@ class MQTTService {
       const status = JSON.parse(message);
       console.log(`[MQTT] 📡 Estado del gateway ${gatewayId}:`, status);
       
-      // Actualizar estado online del controller
-      const controller = await Controller.findOne({ id: gatewayId });
+      // Actualizar estado online del controller (Postgres)
+      const controller = await ControllerModel.findByDeviceId(gatewayId);
       if (controller) {
-        controller.online = status.status === 'online';
-        controller.ip = status.ip || controller.ip;
-        controller.last_time_active = Math.floor(Date.now() / 1000);
-        await controller.save();
+        await ControllerModel.update(controller.id, {
+          online: status.status === 'online',
+          ip: status.ip || controller.ip,
+          last_time_active: Math.floor(Date.now() / 1000)
+        });
         console.log(`[MQTT] ✅ Estado del controller ${gatewayId} actualizado: ${status.status}`);
       }
       
@@ -527,49 +528,22 @@ class MQTTService {
       const data = JSON.parse(message);
       console.log(`[MQTT] 📊 Datos de ${codigo_tienda}/${equipo_id}:`, JSON.stringify(data, null, 2));
       
-      // Buscar el punto de venta por código_tienda (si existe)
+      // Buscar el punto de venta por código_tienda (Postgres)
       let puntoVenta = null;
       if (codigo_tienda) {
-        puntoVenta = await PuntoVenta.findOne({ codigo_tienda: codigo_tienda.toUpperCase() });
-        
+        puntoVenta = await PuntoVentaModel.findByCode(codigo_tienda.toUpperCase());
         if (!puntoVenta) {
           console.warn(`[MQTT] ⚠️  Punto de venta no encontrado para codigo_tienda: ${codigo_tienda}`);
         }
       }
       
-      // Buscar controller/product por equipo_id (puede coincidir con id del controller o product)
+      // Buscar controller/product por equipo_id (Postgres)
       let controller = null;
       let product = null;
-      
       if (equipo_id) {
-        // Primero intentar buscar por punto de venta si existe
-        if (puntoVenta && puntoVenta.controladores && puntoVenta.controladores.length > 0) {
-          // Buscar controller que coincida con equipo_id
-          controller = await Controller.findOne({ 
-            _id: { $in: puntoVenta.controladores },
-            id: equipo_id 
-          });
-        }
-        
-        // Si no se encontró en el punto de venta, buscar globalmente
+        controller = await ControllerModel.findByDeviceId(equipo_id);
         if (!controller) {
-          controller = await Controller.findOne({ id: equipo_id });
-        }
-        
-        // Si no hay controller, buscar product
-        if (!controller) {
-          const Product = (await import('../models/product.model.js')).default;
-          if (puntoVenta && puntoVenta.productos && puntoVenta.productos.length > 0) {
-            product = await Product.findOne({ 
-              _id: { $in: puntoVenta.productos },
-              id: equipo_id 
-            });
-          }
-          
-          // Si no se encontró en el punto de venta, buscar globalmente
-          if (!product) {
-            product = await Product.findOne({ id: equipo_id });
-          }
+          product = await ProductModel.findByDeviceId(equipo_id);
         }
       }
       
@@ -578,10 +552,10 @@ class MQTTService {
         // Solo incluir codigo_tienda y equipo_id si existen
         ...(codigo_tienda && { codigo_tienda: codigo_tienda.toUpperCase() }),
         ...(equipo_id && { equipo_id: equipo_id }),
-        punto_venta: puntoVenta?._id,
+        punto_venta: puntoVenta?.id,
         controller: controller?._id,
         product: product?._id,
-        cliente: puntoVenta?.cliente || controller?.cliente || product?.cliente,
+        cliente: puntoVenta?.clientId || controller?.client_id || controller?.cliente || product?.client_id || product?.cliente,
         
         // Sensores del equipo
         flujo_produccion: data.flujo_produccion,
@@ -619,28 +593,15 @@ class MQTTService {
       let controller = null;
       
       if (equipo_id) {
-        // Si hay codigo_tienda, buscar primero en el punto de venta
-        if (codigo_tienda) {
-          const puntoVenta = await PuntoVenta.findOne({ codigo_tienda: codigo_tienda.toUpperCase() });
-          
-          if (puntoVenta && puntoVenta.controladores && puntoVenta.controladores.length > 0) {
-            controller = await Controller.findOne({ 
-              _id: { $in: puntoVenta.controladores },
-              id: equipo_id 
-            });
-          }
-        }
-        
-        // Si no se encontró, buscar globalmente
-        if (!controller) {
-          controller = await Controller.findOne({ id: equipo_id });
-        }
+        // Buscar controller por equipo_id (Postgres)
+        controller = await ControllerModel.findByDeviceId(equipo_id);
         
         if (controller) {
-          controller.online = status.status === 'online';
-          controller.ip = status.ip || controller.ip;
-          controller.last_time_active = Math.floor(Date.now() / 1000);
-          await controller.save();
+          await ControllerModel.update(controller.id, {
+            online: status.status === 'online',
+            ip: status.ip || controller.ip,
+            last_time_active: Math.floor(Date.now() / 1000)
+          });
           console.log(`[MQTT] ✅ Estado del controller ${equipo_id} actualizado: ${status.status}`);
         } else {
           console.warn(`[MQTT] ⚠️  Controller no encontrado para equipo_id: ${equipo_id}`);
@@ -652,35 +613,17 @@ class MQTTService {
     }
   }
 
-  // Guardar datos de sensores en MongoDB y PostgreSQL (dual write)
-  // Tiwater: guardar primero en PostgreSQL para que mensajes del script/cron siempre entren en sensores aunque MongoDB falle
+  // Guardar datos de sensores en PostgreSQL (MongoDB removed)
   async saveSensorData(data) {
     const isTiwater = data.source === 'tiwater' || data.metadata?.topic_format === 'tiwater';
-    let mongoDoc = null;
 
     try {
       if (isTiwater) {
         await this.saveMultipleSensorsToPostgreSQL(data, null);
+      } else {
+        await this.saveToPostgreSQL(data, null);
       }
-
-      try {
-        const sensorData = new SensorData(data);
-        mongoDoc = await sensorData.save();
-      } catch (mongoError) {
-        if (isTiwater) {
-          console.warn('[MQTT] ⚠️  MongoDB save skipped (PostgreSQL updated):', mongoError.message);
-        } else {
-          throw mongoError;
-        }
-      }
-
-      if (!isTiwater) {
-        this.saveToPostgreSQL(data, mongoDoc?._id?.toString() || null).catch(error => {
-          console.error('[MQTT] ⚠️  Error saving to PostgreSQL (non-critical):', error.message);
-        });
-      }
-
-      return mongoDoc;
+      return null;
     } catch (error) {
       console.error('[MQTT] ❌ Error al guardar datos de sensores:', error);
       throw error;
