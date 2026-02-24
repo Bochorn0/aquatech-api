@@ -4,13 +4,21 @@ import { TuyaContext } from '@tuya/tuya-connector-nodejs';
 import config from '../config/config.js';
 import axios from 'axios';
 
-// Initialize TuyaContext with credentials from config
-const context = new TuyaContext({
-  baseUrl: config.TUYA_URL,
-  accessKey: config.TUYA_CLIENT_ID,
-  secretKey: config.TUYA_SECRET,
-  rpc: axios
-});
+const hasTuyaCredentials = () =>
+  config.TUYA_CLIENT_ID && config.TUYA_SECRET && config.TUYA_URL;
+
+// Initialize TuyaContext only when credentials exist (avoids crypto "key undefined" errors)
+let context = null;
+if (hasTuyaCredentials()) {
+  context = new TuyaContext({
+    baseUrl: config.TUYA_URL,
+    accessKey: config.TUYA_CLIENT_ID,
+    secretKey: config.TUYA_SECRET,
+    rpc: axios
+  });
+} else {
+  console.warn('[Tuya] TUYA_CLIENT_ID, TUYA_CLIENT_SECRET, or TUYA_API_URL not set. Tuya device sync disabled.');
+}
 
 // Standardized helper to handle Tuya API responses
 const handleResponse = (response) => {
@@ -23,10 +31,18 @@ const handleResponse = (response) => {
   }
 };
 
+// Return early when Tuya is not configured
+const noTuyaConfig = () => ({
+  success: false,
+  error: 'Tuya credentials not configured. Set TUYA_CLIENT_ID, TUYA_CLIENT_SECRET, TUYA_API_URL in environment.',
+  data: null
+});
+
 // ---------------------------------------------
 // Fetch device details by deviceId
 // ---------------------------------------------
 export async function getDeviceDetail(deviceId) {
+  if (!context) return noTuyaConfig();
   console.log('Fetching device details for:', deviceId);
   try {
     const response = await context.request({
@@ -44,6 +60,7 @@ export async function getDeviceDetail(deviceId) {
 // Fetch list of all devices for a user (by userId)
 // ---------------------------------------------
 export async function getAllDevices(userId) {
+  if (!context) return { ...noTuyaConfig(), data: [] };
   console.log('Fetching all devices for user:', userId);
   try {
     const response = await context.request({
@@ -83,6 +100,7 @@ export async function getAllDevices(userId) {
 //   }
 // }
 export async function getDeviceLogs(query) {
+  if (!context) return noTuyaConfig();
   const { id, start_date, end_date, fields, size = 100, last_row_key } = query;
   const safeStart = Number(start_date);
   const safeEnd = Number(end_date);
@@ -187,6 +205,7 @@ export async function getDeviceLogs(query) {
 // Uses the EXACT same implementation as getDeviceLogs which already works
 // ---------------------------------------------
 export async function getDeviceLogsForRoutine(query) {
+  if (!context) return noTuyaConfig();
   const { id, start_date, end_date, fields, size = 100, last_row_key } = query;
   const safeStart = Number(start_date);
   const safeEnd = Number(end_date);
@@ -215,6 +234,7 @@ export async function getDeviceLogsForRoutine(query) {
 // Execute commands on device
 // ---------------------------------------------
 export async function executeCommands(data) {
+  if (!context) return noTuyaConfig();
   const { id, commands } = data;
   console.log('Executing commands for device:', id);
   try {

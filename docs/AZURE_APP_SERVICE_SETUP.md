@@ -34,6 +34,18 @@ These override any `.env` in the deployment and ensure the running app uses the 
 
 **Important:** `SECRET_KEY` is required for login. Without it you'll get `secretOrPrivateKey must have a value`.
 
+### Optional: Tuya device sync
+
+To sync devices from Tuya Cloud, add:
+
+| Name | Value |
+|------|-------|
+| `TUYA_CLIENT_ID` | Your Tuya Cloud access key |
+| `TUYA_CLIENT_SECRET` | Your Tuya Cloud secret |
+| `TUYA_API_URL` | `https://openapi.tuyaus.com` (or your region) |
+
+Without these, the app uses products from the database only (no Tuya sync).
+
 ### 3. Azure PostgreSQL Firewall (tiwaterprod)
 
 The App Service must be allowed to connect to tiwaterprod:

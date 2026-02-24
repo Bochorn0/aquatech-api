@@ -25,7 +25,8 @@ export const getAllProducts = async (req, res) => {
     const ONLINE_THRESHOLD_MS = 5000; // 5 segundos
     const now = Date.now();
     const realProducts = await tuyaService.getAllDevices(uid);
-    if (!realProducts.success) {
+    const tuyaNotConfigured = !realProducts.success && (realProducts.error || '').includes('not configured');
+    if (!realProducts.success && !tuyaNotConfigured) {
       return res.status(400).json({ message: realProducts.error, code: realProducts.code });
     }
     const clientes = await ClientModel.find();
@@ -129,15 +130,17 @@ export const getAllProducts = async (req, res) => {
       console.warn('[getAllProducts] DB sync/query failed, using Tuya data only:', dbErr.message);
     }
 
-    console.log(`🌐 Found ${realProducts.data.length} products from Tuya (source of truth)`);
+    console.log(`🌐 Found ${realProducts.data?.length ?? 0} products from Tuya (source of truth)`);
 
     const dbProductsMap = new Map();
     dbProducts.forEach(p => {
       dbProductsMap.set(p.id, p);
     });
 
-    // Combine: Tuya as base (source of truth), enrich with DB when available
-    const products = realProducts.data.map(realProduct => {
+    // When Tuya not configured, use DB products only; otherwise combine Tuya + DB
+    const products = tuyaNotConfigured
+      ? dbProducts
+      : realProducts.data.map(realProduct => {
       const dbProduct = dbProductsMap.get(realProduct.id);
       if (dbProduct) {
         return {
@@ -162,6 +165,9 @@ export const getAllProducts = async (req, res) => {
       };
     });
 
+    if (tuyaNotConfigured) {
+      console.log(`📦 [Tuya not configured] Using ${dbProducts.length} products from database only`);
+    }
     console.log(`✅ Total products to show: ${products.length}`);
 
     // Aplicar transformaciones y filtros
