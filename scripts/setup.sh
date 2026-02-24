@@ -3,7 +3,7 @@
 # Aquatech API - First-time setup script
 # Runs all PostgreSQL migrations and seeds the admin user.
 # Use for local dev, Azure, or any fresh deployment.
-#
+# 
 # Prerequisites:
 #   - .env with POSTGRES_HOST, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
 #   - PostgreSQL accessible (local or Azure)
