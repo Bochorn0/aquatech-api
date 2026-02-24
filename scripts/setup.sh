@@ -31,12 +31,10 @@ echo -e "${YELLOW}  Aquatech API - First-time Setup${NC}"
 echo -e "${YELLOW}========================================${NC}"
 echo ""
 
-# Load .env (optional in CI - vars can be passed via environment)
-if [ -f .env ]; then
+# Load .env only if POSTGRES_* not already set (env vars take precedence)
+if [ -z "${POSTGRES_HOST:-}" ] && [ -f .env ]; then
   export $(grep -E '^POSTGRES_' .env 2>/dev/null | grep -v '^#' | xargs) 2>/dev/null || true
-  if [ -z "${POSTGRES_HOST:-}" ] && [ -z "${POSTGRES_DB:-}" ]; then
-    export $(grep -v '^#' .env | xargs) 2>/dev/null || true
-  fi
+  [ -z "${POSTGRES_HOST:-}" ] && export $(grep -v '^#' .env | xargs) 2>/dev/null || true
 fi
 
 if [ -z "${POSTGRES_HOST:-}" ] && [ -z "${POSTGRES_DB:-}" ]; then

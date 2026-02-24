@@ -17,7 +17,7 @@ const pool = new Pool({
   password: process.env.POSTGRES_PASSWORD,
   max: parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '20'), // Maximum number of clients in the pool
   idleTimeoutMillis: parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000'), // Close idle clients after 30 seconds
-  connectionTimeoutMillis: parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '2000'), // Return an error after 2 seconds if connection cannot be established
+  connectionTimeoutMillis: parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '10000'), // 10s default (Azure cold start); use 2000 for local
   ssl: process.env.POSTGRES_SSL === 'true' ? {
     rejectUnauthorized: false
   } : false

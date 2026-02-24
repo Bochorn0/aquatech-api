@@ -17,7 +17,7 @@ const pool = new Pool({
   password: process.env.POSTGRES_TIWATER_PASSWORD || process.env.POSTGRES_PASSWORD,
   max: parseInt(process.env.POSTGRES_TIWATER_MAX_CONNECTIONS || process.env.POSTGRES_MAX_CONNECTIONS || '20'),
   idleTimeoutMillis: parseInt(process.env.POSTGRES_TIWATER_IDLE_TIMEOUT || process.env.POSTGRES_IDLE_TIMEOUT || '30000'),
-  connectionTimeoutMillis: parseInt(process.env.POSTGRES_TIWATER_CONNECTION_TIMEOUT || process.env.POSTGRES_CONNECTION_TIMEOUT || '2000'),
+  connectionTimeoutMillis: parseInt(process.env.POSTGRES_TIWATER_CONNECTION_TIMEOUT || process.env.POSTGRES_CONNECTION_TIMEOUT || '10000'),
   ssl: process.env.POSTGRES_TIWATER_SSL === 'true' || process.env.POSTGRES_SSL === 'true' ? {
     rejectUnauthorized: false
   } : false

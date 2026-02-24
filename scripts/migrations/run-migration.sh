@@ -45,12 +45,10 @@ setup_postgresql_path() {
 # Setup PostgreSQL PATH if on macOS
 setup_postgresql_path
 
-# Load only POSTGRES_* env vars (from .env or already set in environment, e.g. CI)
-if [ -f .env ]; then
+# Load .env only if POSTGRES_* not already set (env vars take precedence)
+if [ -z "${POSTGRES_HOST:-}" ] && [ -f .env ]; then
     export $(grep -E '^POSTGRES_' .env 2>/dev/null | grep -v '^#' | xargs) 2>/dev/null || true
-    if [ -z "${POSTGRES_HOST:-}" ] && [ -z "${POSTGRES_DB:-}" ]; then
-        export $(grep -v '^#' .env | xargs) 2>/dev/null || true
-    fi
+    [ -z "${POSTGRES_HOST:-}" ] && export $(grep -v '^#' .env | xargs) 2>/dev/null || true
 fi
 if [ -z "${POSTGRES_HOST:-}" ] && [ -z "${POSTGRES_DB:-}" ]; then
     echo -e "${RED}Error: PostgreSQL config missing. Set POSTGRES_* vars or create .env${NC}"
@@ -101,6 +99,15 @@ elif command -v psql &> /dev/null; then
 else
     echo -e "${RED}Error: psql command not found${NC}"
     exit 1
+fi
+
+# When POSTGRES_SSL is set (Azure), use Node.js runner - psql often fails with Azure auth
+if [ "${POSTGRES_SSL:-}" = "true" ] || [ "${POSTGRES_SSL:-}" = "1" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    API_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+    cd "$API_DIR"
+    node scripts/migrations/run-migration-node.js "$MIGRATION_FILE"
+    exit $?
 fi
 
 if [ -n "$POSTGRES_PASSWORD" ]; then
