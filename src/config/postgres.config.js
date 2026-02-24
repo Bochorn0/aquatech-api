@@ -8,11 +8,16 @@ import os from 'os';
 
 dotenv.config();
 
+// Azure uses postgres DB (where migrations run); local defaults to tiwater_timeseries
+const isAzure = process.env.POSTGRES_SSL === 'true';
+const defaultDb = isAzure ? 'postgres' : 'tiwater_timeseries';
+const db = process.env.POSTGRES_DB || defaultDb;
+
 // Create connection pool (default user = current OS user for local dev)
 const pool = new Pool({
   host: process.env.POSTGRES_HOST || 'localhost',
   port: parseInt(process.env.POSTGRES_PORT || '5432'),
-  database: process.env.POSTGRES_DB || 'tiwater_timeseries',
+  database: db,
   user: process.env.POSTGRES_USER || os.userInfo().username,
   password: process.env.POSTGRES_PASSWORD,
   max: parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '20'), // Maximum number of clients in the pool
@@ -44,9 +49,10 @@ pool.on('error', (err, client) => {
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {
     console.warn('[PostgreSQL] ⚠️  Connection test failed (this is OK if PostgreSQL is not set up yet):', err.message);
-    console.warn('[PostgreSQL]    Run "npm run setup:postgres:local" to set up PostgreSQL locally');
+    console.warn('[PostgreSQL]    Host:', process.env.POSTGRES_HOST || 'localhost', '| DB:', db);
   } else {
     console.log('[PostgreSQL] ✅ Connected successfully');
+    console.log('[PostgreSQL]    Host:', process.env.POSTGRES_HOST || 'localhost', '| DB:', db);
     console.log('[PostgreSQL] Server time:', res.rows[0].now);
   }
 });
