@@ -52,7 +52,18 @@ jobs:
         working-directory: Aquatech_api
         run: |
           npm prune --omit=dev
-          zip -r deploy.zip . -x ".git/*" -x ".github/*" -x "*.log" -x ".env" -x "node_modules/.cache/*"
+          # Inject Postgres config into deployment (ensures app uses correct DB)
+          if [ -n "${{ secrets.POSTGRES_HOST }}" ]; then
+            {
+              echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}"
+              echo "POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}"
+              echo "POSTGRES_DB=${{ secrets.POSTGRES_DB }}"
+              echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}"
+              echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}"
+              echo "POSTGRES_SSL=true"
+            } > .env
+          fi
+          zip -r deploy.zip . -x ".git/*" -x ".github/*" -x "*.log" -x "node_modules/.cache/*"
 
       - name: Login to Azure
         uses: azure/login@v2
