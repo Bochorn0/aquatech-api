@@ -83,6 +83,7 @@ class MQTTService {
     this.client = null;
     this.isConnected = false;
     this.messageHandlers = new Map();
+    this.lastError = null;  // For debugging (status endpoint)
   }
 
   /** Diagnostic info for MQTT status endpoint (no secrets) */
@@ -102,6 +103,7 @@ class MQTTService {
       hasCert: hasCertB64 || hasCertFiles,
       certSource: hasCertB64 ? 'env (base64)' : hasCertFiles ? 'files' : 'none',
       isConnected: this.isConnected,
+      lastError: this.lastError ? String(this.lastError) : null,
     };
   }
 
@@ -228,7 +230,8 @@ class MQTTService {
 
     // Evento: Error de conexión
     this.client.on('error', (error) => {
-      console.error('[MQTT] ❌ Error de conexión:', error);
+      this.lastError = error?.message || error;
+      console.error('[MQTT] ❌ Error de conexión:', this.lastError);
       this.isConnected = false;
     });
 

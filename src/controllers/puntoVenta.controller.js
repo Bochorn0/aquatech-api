@@ -554,7 +554,9 @@ export const generateDailyData = async (req, res) => {
       if (!mqttService.isConnected) {
         return res.status(503).json({ 
           success: false, 
-          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.' 
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.',
+          lastError: mqttService.lastError || null,
+          hint: 'Check /api/v1.0/mqtt/status or Azure Log stream for details.'
         });
       }
     }
@@ -764,7 +766,8 @@ export const generateMockDataNow = async (req, res) => {
       if (!mqttService.isConnected) {
         return res.status(503).json({
           success: false,
-          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.'
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.',
+          lastError: mqttService.lastError || null,
         });
       }
     }
@@ -851,7 +854,8 @@ export const generateMockDataNowAllDevMode = async (req, res) => {
       if (!mqttService.isConnected) {
         return res.status(503).json({
           success: false,
-          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.'
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.',
+          lastError: mqttService.lastError || null,
         });
       }
     }
@@ -949,7 +953,8 @@ export const simulateBajoNivelCruda = async (req, res) => {
       if (!mqttService.isConnected) {
         return res.status(503).json({
           success: false,
-          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.'
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.',
+          lastError: mqttService.lastError || null,
         });
       }
     }
@@ -1039,7 +1044,8 @@ export const simulateNivelCrudaNormalizado = async (req, res) => {
       if (!mqttService.isConnected) {
         return res.status(503).json({
           success: false,
-          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.'
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.',
+          lastError: mqttService.lastError || null,
         });
       }
     }
@@ -1158,7 +1164,8 @@ export const simulateSensor = async (req, res) => {
       if (!mqttService.isConnected) {
         return res.status(503).json({
           success: false,
-          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.'
+          message: 'MQTT no está conectado. Intenta nuevamente en unos segundos.',
+          lastError: mqttService.lastError || null,
         });
       }
     }
