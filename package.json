@@ -27,6 +27,7 @@
     "migrate:products": "bash scripts/migrations/run-migration.sh scripts/migrations/021_create_products_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/022_create_controllers_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/023_create_notifications_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/024_create_product_logs_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/025_create_reports_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/026_create_client_metrics_table.sql",
     "migrate:regions": "bash scripts/migrations/run-migration.sh scripts/migrations/027_create_regions_ciudades_region_punto_venta.sql",
     "migrate:regions:pv": "bash scripts/migrations/run-migration.sh scripts/migrations/028_add_region_punto_venta_and_ciudad_id.sql",
+    "migrate:deploy": "node scripts/migrations/run-all-migrations.js",
     "seed:admin": "node scripts/seed-admin-user.js",
     "test:email": "node scripts/test-email-debug.js",
     "test:email:send": "node scripts/test-email-debug.js --test-send",

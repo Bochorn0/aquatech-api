@@ -47,7 +47,25 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app
-      
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '24.x'
+
+      - name: Run database migrations
+        env:
+          POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+          POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_SSL: ${{ secrets.POSTGRES_SSL }}
+          POSTGRES_EXCLUDE_MIGRATIONS: 001_create_sensores_table.sql
+        run: |
+          if [ -d Aquatech_api ]; then cd Aquatech_api; fi
+          npm run migrate:deploy
+
       - name: Login to Azure
         uses: azure/login@v2
         with:

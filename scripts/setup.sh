@@ -72,6 +72,10 @@ MIGRATIONS=(
   "scripts/migrations/024_create_product_logs_table.sql"
   "scripts/migrations/025_create_reports_table.sql"
   "scripts/migrations/026_create_client_metrics_table.sql"
+  "scripts/migrations/027_create_regions_ciudades_region_punto_venta.sql"
+  "scripts/migrations/028_add_region_punto_venta_and_ciudad_id.sql"
+  "scripts/migrations/029_create_puntoventa_v1.sql"
+  "scripts/migrations/030_metrics_use_puntoventa_v1.sql"
 )
 
 for migration in "${MIGRATIONS[@]}"; do
