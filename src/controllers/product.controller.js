@@ -36,21 +36,21 @@ export const getAllProducts = async (req, res) => {
       return res.status(200).json(mockProducts);
     }
     const filtros = {};
-    // Set cliente filter: empty or "All" = show all clients; otherwise filter by client (or user's client if not sent)
-    const wantAllClients = query.cliente === '' || query.cliente === 'All' || query.cliente == null;
-    if (!wantAllClients && query.cliente) {
+    // Resolve client filter: explicit query param, or user's client for single-client users, or "all" only for admin
+    const id = user.id;
+    const userData = await UserModel.findById(id);
+    const userClientId = userData?.client_id != null ? String(userData.client_id) : null;
+
+    if (query.cliente && query.cliente !== '' && query.cliente !== 'All') {
       filtros.client_id = query.cliente;
       filtros.cliente = query.cliente;
-    } else if (!wantAllClients) {
-      const id = user.id;
-      const userData = await UserModel.findById(id);
-      if (userData && userData.client_id) {
-        filtros.client_id = userData.client_id;
-        filtros.cliente = userData.client_id;
-      } else {
-        return res.status(400).json({ message: 'Cliente not found for user' });
-      }
+    } else if (userClientId) {
+      // User has a client (cliente role): empty/All param = filter by their client so they only see their products
+      filtros.client_id = userClientId;
+      filtros.cliente = userClientId;
     }
+    // When no userClientId (admin), empty/All = no filter = show all clients
+
     const currentclient = clientes.find(c => String(c.id) === String(filtros.cliente || filtros.client_id));
     if (currentclient?.name === 'All') {
       delete filtros.cliente;

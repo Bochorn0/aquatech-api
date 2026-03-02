@@ -2,6 +2,7 @@ import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaV1Model from '../models/postgres/puntoVentaV1.model.js';
 import ClientModel from '../models/postgres/client.model.js';
 import CityModel from '../models/postgres/city.model.js';
+import ProductModel from '../models/postgres/product.model.js';
 import { query } from '../config/postgres.config.js';
 import { generateProductLogsReport } from './report.controller.js';
 import moment from 'moment';
@@ -195,9 +196,31 @@ async function buildPuntoResponseFromPostgres(pv) {
     }
   }
   let cityData = null;
-  if (addressObj?.city && addressObj?.state) {
+  const metaCityId = pv.meta && typeof pv.meta === 'object' && (pv.meta.city_id != null && pv.meta.city_id !== '');
+  if (metaCityId) {
+    try {
+      const cid = typeof pv.meta.city_id === 'number' ? pv.meta.city_id : parseInt(String(pv.meta.city_id), 10);
+      if (!Number.isNaN(cid)) cityData = await CityModel.findById(cid);
+    } catch (e) {
+      // ignore
+    }
+  }
+  if (!cityData && addressObj?.city && addressObj?.state) {
     try {
       cityData = await CityModel.findByStateAndCity(addressObj.state, addressObj.city);
+    } catch (e) {
+      // ignore
+    }
+  }
+  let productosList = [];
+  const productIds = pv.meta && typeof pv.meta === 'object' && Array.isArray(pv.meta.product_ids) ? pv.meta.product_ids : [];
+  if (productIds.length > 0) {
+    try {
+      const resolved = await Promise.all(productIds.map((pid) => {
+        const num = typeof pid === 'number' ? pid : parseInt(String(pid), 10);
+        return Number.isNaN(num) ? null : ProductModel.findById(num);
+      }));
+      productosList = resolved.filter(Boolean).map((p) => ({ _id: p._id, id: p.id, name: p.name, device_id: p.device_id }));
     } catch (e) {
       // ignore
     }
@@ -223,7 +246,7 @@ async function buildPuntoResponseFromPostgres(pv) {
     region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name } : null,
     ciudad: ciudadData ? { id: String(ciudadData.id), name: ciudadData.name, regionId: ciudadData.regionId } : null,
     address: addressObj || null,
-    productos: [],
+    productos: productosList,
     controladores: [],
     online,
     status: pv.status || 'active',
@@ -420,6 +443,34 @@ export const updatePuntoVenta = async (req, res) => {
     if (updates.long !== undefined) updateData.long = updates.long;
     if (updates.address !== undefined) updateData.address = typeof updates.address === 'string' ? updates.address : JSON.stringify(updates.address);
     if (updates.codigo_tienda !== undefined) updateData.codigo_tienda = updates.codigo_tienda;
+
+    const existingMeta = (puntoFromPG.meta && typeof puntoFromPG.meta === 'object') ? { ...puntoFromPG.meta } : {};
+    if (updates.productos !== undefined) {
+      const ids = Array.isArray(updates.productos) ? updates.productos : [];
+      existingMeta.product_ids = ids.map((id) => (typeof id === 'number' ? id : parseInt(String(id), 10))).filter((n) => !Number.isNaN(n));
+    }
+    if (updates.city !== undefined && updates.city !== null && updates.city !== '') {
+      const cityId = typeof updates.city === 'number' ? updates.city : parseInt(String(updates.city), 10);
+      existingMeta.city_id = Number.isNaN(cityId) ? null : cityId;
+      if (!Number.isNaN(cityId)) {
+        try {
+          const cityRecord = await CityModel.findById(cityId);
+          if (cityRecord) {
+            updateData.address = JSON.stringify({
+              city: cityRecord.city,
+              state: cityRecord.state,
+              lat: cityRecord.lat,
+              lon: cityRecord.lon
+            });
+            if (cityRecord.lat != null) updateData.lat = cityRecord.lat;
+            if (cityRecord.lon != null) updateData.long = cityRecord.lon;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+    updateData.meta = Object.keys(existingMeta).length ? existingMeta : undefined;
 
     const puntoActualizado = await PuntoVentaV1Model.update(numId, updateData);
     if (!puntoActualizado) {
