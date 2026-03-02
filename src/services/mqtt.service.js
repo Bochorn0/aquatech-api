@@ -85,6 +85,26 @@ class MQTTService {
     this.messageHandlers = new Map();
   }
 
+  /** Diagnostic info for MQTT status endpoint (no secrets) */
+  getStatus() {
+    const isEventGrid = (MQTT_BROKER || '').includes('eventgrid.azure.net');
+    const hasCertB64 = !!(MQTT_CLIENT_CERT_B64 && MQTT_CLIENT_KEY_B64);
+    const hasCertFiles = !!(
+      MQTT_CLIENT_CERT_PATH && MQTT_CLIENT_KEY_PATH &&
+      fs.existsSync(MQTT_CLIENT_CERT_PATH) && fs.existsSync(MQTT_CLIENT_KEY_PATH)
+    );
+    return {
+      broker: MQTT_BROKER,
+      port: MQTT_PORT,
+      useTLS: MQTT_USE_TLS,
+      username: MQTT_USERNAME ? '***' : null,
+      isEventGrid,
+      hasCert: hasCertB64 || hasCertFiles,
+      certSource: hasCertB64 ? 'env (base64)' : hasCertFiles ? 'files' : 'none',
+      isConnected: this.isConnected,
+    };
+  }
+
   // Escribir mensaje MQTT a archivo de log
   logMessageToFile(topic, message) {
     try {
@@ -111,6 +131,8 @@ class MQTTService {
     
     console.log(`[MQTT] Conectando a ${mqttUrl}${useTLS ? ' (TLS)' : ''}...`);
 
+    const isEventGrid = (MQTT_BROKER || '').includes('eventgrid.azure.net');
+
     // Configuración base de conexión
     const connectOptions = {
       clientId: MQTT_CLIENT_ID,
@@ -119,17 +141,20 @@ class MQTTService {
       connectTimeout: 10000, // Timeout de 10 segundos
     };
 
-    // Agregar autenticación si está configurada
-    if (MQTT_USERNAME && MQTT_PASSWORD) {
+    // Autenticación: Event Grid usa solo username (client auth name) + X.509; Mosquitto usa username+password
+    if (MQTT_USERNAME) {
       connectOptions.username = MQTT_USERNAME;
-      connectOptions.password = MQTT_PASSWORD;
-      console.log(`[MQTT] Usando autenticación: ${MQTT_USERNAME}`);
+      if (!isEventGrid && MQTT_PASSWORD) {
+        connectOptions.password = MQTT_PASSWORD;
+        console.log(`[MQTT] Usando autenticación: ${MQTT_USERNAME}`);
+      } else if (isEventGrid) {
+        console.log(`[MQTT] Event Grid: username=${MQTT_USERNAME} (X.509, sin password)`);
+      }
     }
 
     // Configurar TLS si es necesario
     if (useTLS) {
       let caCert = null;
-      const isEventGrid = (MQTT_BROKER || '').includes('eventgrid.azure.net');
 
       // Azure Event Grid: usa CA del sistema (Azure); no requiere CA personalizada
       if (isEventGrid) {

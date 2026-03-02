@@ -2,10 +2,13 @@
 // Rutas para endpoints relacionados con MQTT
 
 import express from 'express';
-import { downloadCertificateZip, publishTestMessage } from '../controllers/mqtt.controller.js';
+import { downloadCertificateZip, publishTestMessage, getMqttStatus } from '../controllers/mqtt.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
+
+// MQTT status (no auth - for debugging)
+router.get('/status', getMqttStatus);
 
 // Descargar certificado CA en ZIP protegido con contraseña
 router.get('/certificate/download', authenticate, downloadCertificateZip);

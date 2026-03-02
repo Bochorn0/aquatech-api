@@ -15,6 +15,24 @@ const __dirname = path.dirname(__filename);
 // Registrar el formato zip-encrypted
 archiver.registerFormat('zip-encrypted', archiverZipEncrypted);
 
+/** MQTT status/diagnostic (no auth - for debugging connection issues) */
+export const getMqttStatus = (req, res) => {
+  try {
+    const status = mqttService.getStatus();
+    res.json({
+      success: true,
+      ...status,
+      hint: !status.isConnected && status.isEventGrid
+        ? 'Event Grid: ensure MQTT_CLIENT_CERT_B64, MQTT_CLIENT_KEY_B64, MQTT_USERNAME are set. Remove MQTT_PASSWORD.'
+        : !status.isConnected
+          ? 'Check broker, port, certs. Try /api/v1.0/mqtt/publish-test (auth) to trigger connect.'
+          : null,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // Certificado CA (el mismo que está en el ESP32)
 const CA_CERT = `-----BEGIN CERTIFICATE-----
 MIIECTCCAvGgAwIBAgIUaeT7mWBE0krpOQdDiG/akjnNe9MwDQYJKoZIhvcNAQEL

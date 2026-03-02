@@ -272,6 +272,11 @@ console.log('ℹ️  Using PostgreSQL for all data');
 // NOTA: MQTT corre como proceso separado (mqtt-consumer.js)
 console.log('ℹ️  MQTT se ejecuta como proceso separado (mqtt-consumer)');
 
+// Pre-connect MQTT when using Event Grid (so simulate/publish endpoints work without 2s wait)
+if ((process.env.MQTT_BROKER || '').includes('eventgrid.azure.net')) {
+  mqttService.connect();
+}
+
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
