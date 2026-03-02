@@ -123,16 +123,16 @@ export const addUser = async (req, res) => {
       roleId = def.rows?.[0]?.id;
     }
     const clientRes = await query('SELECT id FROM clients ORDER BY id LIMIT 1');
-    const clientId = userData.client_id || userData.cliente || clientRes.rows?.[0]?.id;
+    const clientId = userData.client_id ?? userData.cliente ?? userData.postgres_client_id ?? clientRes.rows?.[0]?.id ?? null;
 
-    if (!roleId || !clientId) return res.status(400).json({ message: 'Invalid role or client' });
+    if (!roleId) return res.status(400).json({ message: 'Invalid role' });
 
     const created = await UserModel.create({
       email: userData.email,
       password: hash,
       role_id: roleId,
       client_id: clientId,
-      postgres_client_id: userData.postgres_client_id || clientId,
+      postgres_client_id: userData.postgres_client_id ?? clientId,
       status: userData.status || 'pending',
       nombre: userData.nombre || '',
       puesto: userData.puesto || '',

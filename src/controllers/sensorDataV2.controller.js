@@ -385,8 +385,9 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     
     console.log(`[generateNivelHistoricoV2] Resultado de consulta: ${historicoResult.rows.length} filas encontradas`);
     
+    const APP_TZ = 'America/Hermosillo';
     const hoursWithData = historicoResult.rows.map(row => ({
-      hora: new Date(row.hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+      hora: new Date(row.hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', timeZone: APP_TZ }),
       total_logs: parseInt(row.total_logs) || 0,
       estadisticas: {
         liquid_level_percent_promedio: parseFloat(row.liquid_level_percent_promedio) || 0

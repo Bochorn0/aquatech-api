@@ -132,7 +132,7 @@ class UserModel {
       role: row.role_id,
       role_id: row.role_id,
       roleName: row.role_name,
-      client_name: row.client_name,
+      client_name: row.client_id == null ? 'Todos (Admin)' : (row.client_name || ''),
       permissions,
       dashboardVersion: row.role_dashboard_version || 'v1',
       client_id: row.client_id,
