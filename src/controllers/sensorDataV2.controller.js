@@ -841,7 +841,8 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           contactId: this.contactId,
           createdAt: this.createdAt,
           updatedAt: this.updatedAt,
-          meta: this.meta
+          meta: this.meta,
+          dev_mode: this.dev_mode
         };
       }
     };
