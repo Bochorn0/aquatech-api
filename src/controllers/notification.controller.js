@@ -86,10 +86,11 @@ export const generateAdminNotification = async (req, res) => {
         user_id: user.id,
         title,
         description,
-        avatarUrl,
-        type,
+        avatar_url: avatarUrl ?? null,
+        type: type || 'info',
         posted_at: new Date(),
-        is_unread: true
+        is_unread: true,
+        url: null
       });
       notifications.push(n);
     }
@@ -97,5 +98,66 @@ export const generateAdminNotification = async (req, res) => {
   } catch (error) {
     console.error('Error creating admin notification:', error);
     res.status(500).json({ message: 'Error creating admin notification' });
+  }
+};
+
+/**
+ * Generate notifications for specific users and/or roles.
+ * Requires /usuarios or /notificaciones permission.
+ * Body: { userIds?: string[], roleIds?: string[], title, description, type?, url? }
+ */
+export const generateNotification = async (req, res) => {
+  try {
+    const { userIds = [], roleIds = [], title, description, type = 'info', url } = req.body;
+
+    if (!title || !description) {
+      return res.status(400).json({ message: 'title and description are required' });
+    }
+    if ((!userIds || userIds.length === 0) && (!roleIds || roleIds.length === 0)) {
+      return res.status(400).json({ message: 'At least one of userIds or roleIds is required' });
+    }
+
+    const targetUserIds = new Set();
+
+    // Add specific users
+    if (Array.isArray(userIds) && userIds.length > 0) {
+      userIds.forEach((id) => targetUserIds.add(String(id)));
+    }
+
+    // Add users from selected roles
+    if (Array.isArray(roleIds) && roleIds.length > 0) {
+      for (const roleId of roleIds) {
+        const users = await UserModel.find({ status: 'active', role: roleId });
+        users.forEach((u) => targetUserIds.add(String(u.id)));
+      }
+    }
+
+    if (targetUserIds.size === 0) {
+      return res.status(404).json({ message: 'No users found for the selected criteria' });
+    }
+
+    const notifications = [];
+    for (const uid of targetUserIds) {
+      const n = await NotificationModel.create({
+        user_id: uid,
+        title,
+        description,
+        avatar_url: null,
+        type: type || 'info',
+        posted_at: new Date(),
+        is_unread: true,
+        url: url || null
+      });
+      if (n) notifications.push(n);
+    }
+
+    res.status(201).json({
+      success: true,
+      count: notifications.length,
+      notifications
+    });
+  } catch (error) {
+    console.error('Error generating notification:', error);
+    res.status(500).json({ message: 'Error generating notification' });
   }
 };

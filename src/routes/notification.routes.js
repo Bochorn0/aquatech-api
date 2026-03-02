@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getNotifications, getNotificationById, markNotificationAsRead, markAllNotificationAsRead, createNotification, generateAdminNotification } from '../controllers/notification.controller.js';
+import { getNotifications, getNotificationById, markNotificationAsRead, markAllNotificationAsRead, createNotification, generateAdminNotification, generateNotification } from '../controllers/notification.controller.js';
 import { authenticate, requirePermission } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -13,5 +13,8 @@ router.post('/createNotification', authenticate, createNotification);
 
 // Generate admin notification: require /usuarios
 router.post('/generateAdminNotification', authenticate, requirePermission('/usuarios'), generateAdminNotification);
+
+// Generate notification for specific users/roles: require /usuarios or /notificaciones
+router.post('/generate', authenticate, requirePermission('/usuarios', '/notificaciones'), generateNotification);
 
 export default router;
