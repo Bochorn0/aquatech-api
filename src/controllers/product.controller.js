@@ -36,22 +36,25 @@ export const getAllProducts = async (req, res) => {
       return res.status(200).json(mockProducts);
     }
     const filtros = {};
-    // Set cliente filter
-    if (query.cliente) {
+    // Set cliente filter: empty or "All" = show all clients; otherwise filter by client (or user's client if not sent)
+    const wantAllClients = query.cliente === '' || query.cliente === 'All' || query.cliente == null;
+    if (!wantAllClients && query.cliente) {
       filtros.client_id = query.cliente;
       filtros.cliente = query.cliente;
-    } else {
+    } else if (!wantAllClients) {
       const id = user.id;
       const userData = await UserModel.findById(id);
       if (userData && userData.client_id) {
         filtros.client_id = userData.client_id;
+        filtros.cliente = userData.client_id;
       } else {
         return res.status(400).json({ message: 'Cliente not found for user' });
       }
     }
     const currentclient = clientes.find(c => String(c.id) === String(filtros.cliente || filtros.client_id));
-    if (filtros.cliente && currentclient.name === 'All') {
+    if (currentclient?.name === 'All') {
       delete filtros.cliente;
+      delete filtros.client_id;
     }
 
     // Set city and state filters
