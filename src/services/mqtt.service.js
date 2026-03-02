@@ -162,6 +162,8 @@ class MQTTService {
       if (isEventGrid) {
         console.log(`[MQTT] Azure Event Grid: usando TLS con CA del sistema`);
         connectOptions.rejectUnauthorized = process.env.MQTT_REJECT_UNAUTHORIZED !== 'false';
+        // Required for Azure App Service: SNI hostname for TLS handshake
+        connectOptions.servername = MQTT_BROKER;
       } else {
         // Mosquitto/self-hosted: cargar CA
         if (MQTT_CA_CERT) {
