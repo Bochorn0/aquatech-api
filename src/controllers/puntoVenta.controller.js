@@ -1,7 +1,3 @@
-import Client from '../models/client.model.js';
-import Product from '../models/product.model.js';
-import Controller from '../models/controller.model.js';
-import City from '../models/city.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import ClientModel from '../models/postgres/client.model.js';
 import CityModel from '../models/postgres/city.model.js';

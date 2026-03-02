@@ -1,7 +1,7 @@
 // src/services/metricNotification.service.js
 // Service to evaluate sensor data against metric alerts and create notifications
 
-import Notification from '../models/notification.model.js';
+import NotificationModel from '../models/postgres/notification.model.js';
 import UserModel from '../models/postgres/user.model.js';
 import MetricModel from '../models/postgres/metric.model.js';
 import MetricAlertModel from '../models/postgres/metricAlert.model.js';
@@ -201,19 +201,18 @@ class MetricNotificationService {
 
           console.log(`[MetricNotification] ─── STEP 6: Create notification ─── user=${user.email}, url=${notificationUrl || 'none'}`);
 
-          const notification = new Notification({
-            user: user._id,
+          const notification = await NotificationModel.create({
+            user_id: user.id || user._id,
             title: `Alerta: ${metric.metricName || metric.metric_name || metric.metric_type}`,
             description: message,
-            avatarUrl: null,
+            avatar_url: null,
             type: notificationType, // 'alert' or 'warning'
-            postedAt: new Date(),
-            isUnRead: true,
+            posted_at: new Date(),
+            is_unread: true,
             url: notificationUrl
           });
 
-          await notification.save();
-          notifications.push(notification);
+          if (notification) notifications.push(notification);
 
           // Track this notification to prevent duplicates
           this.recentNotifications.set(dedupKey, now);
@@ -225,7 +224,7 @@ class MetricNotificationService {
 
           console.log(`[MetricNotification]   ✅ Created for ${user.email}`);
         } catch (error) {
-          console.error(`[MetricNotification] Error creating notification for user ${user._id}:`, error);
+          console.error(`[MetricNotification] Error creating notification for user ${user.id || user._id}:`, error);
         }
       }
 

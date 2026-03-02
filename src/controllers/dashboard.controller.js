@@ -11,7 +11,7 @@ const visibleCities = ['Hermosillo', 'Tijuana', 'Monterrey', 'CDMX', 'Tijuana'];
 
 export const getOldDashboardMetrics = async (req, res) => {
   try {
-    console.log('Fetching dashboard Metrics from MongoDB...');
+    console.log('Fetching dashboard Metrics from PostgreSQL...');
     
     let metrics = await ClientMetricModel.find({});
     let total = 0;
