@@ -1,4 +1,3 @@
-import PuntoVenta from '../models/puntoVenta.model.js';
 import Client from '../models/client.model.js';
 import Product from '../models/product.model.js';
 import Controller from '../models/controller.model.js';
@@ -179,37 +178,25 @@ export const getPuntosVenta = async (req, res) => {
   }
 };
 
-// Obtener puntos de venta filtrados
+// Obtener puntos de venta filtrados (PostgreSQL only)
 export const getPuntosVentaFiltered = async (req, res) => {
   try {
     console.log('Fetching filtered Puntos de Venta...');
     const { cliente, city, online } = req.query;
 
     const filters = {};
-    if (cliente) filters.cliente = cliente;
-    if (city) filters.city = city;
+    if (cliente) filters.clientId = cliente;
 
-    const puntos = await PuntoVenta.find(filters)
-      .populate('cliente')
-      .populate('city')
-      .populate('productos')
-      .populate('controladores');
+    const puntosPG = await PuntoVentaModel.find(filters, { limit: 1000, offset: 0 });
+    let puntosConEstado = await Promise.all(puntosPG.map(pv => buildPuntoResponseFromPostgres(pv)));
 
-    const now = Date.now();
-    const ONLINE_THRESHOLD_MS = 5000;
+    if (city) {
+      puntosConEstado = puntosConEstado.filter(pv => {
+        const addr = typeof pv.address === 'string' ? (() => { try { return JSON.parse(pv.address); } catch { return {}; } })() : pv.address;
+        return addr?.city === city;
+      });
+    }
 
-    let puntosConEstado = puntos.map(pv => {
-      const tieneControladorOnline = pv.controladores?.some(
-        ctrl => ctrl.last_time_active && (now - ctrl.last_time_active <= ONLINE_THRESHOLD_MS)
-      );
-
-      return {
-        ...pv.toObject(),
-        online: tieneControladorOnline,
-      };
-    });
-
-    // Filtrar por online si se especifica
     if (online === 'true') {
       puntosConEstado = puntosConEstado.filter(pv => pv.online);
     } else if (online === 'false') {
@@ -223,36 +210,29 @@ export const getPuntosVentaFiltered = async (req, res) => {
   }
 };
 
-// Obtener un punto de venta por ID
+// Obtener un punto de venta por ID (PostgreSQL only)
 export const getPuntoVentaById = async (req, res) => {
   try {
     const { id } = req.params;
     console.log(`Fetching Punto de Venta by ID: ${id}`);
 
-    const punto = await PuntoVenta.findById(id)
-      .populate('cliente')
-      .populate('city')
-      .populate('productos')
-      .populate('controladores');
+    let puntoFromPG = null;
+    const isNumericId = /^\d+$/.test(id);
+    if (isNumericId) {
+      puntoFromPG = await PuntoVentaModel.findById(parseInt(id, 10));
+      if (!puntoFromPG) puntoFromPG = await PuntoVentaModel.findByCode(id);
+    } else {
+      puntoFromPG = await PuntoVentaModel.findByCode(id.toUpperCase()) || await PuntoVentaModel.findById(parseInt(id, 10));
+    }
 
-    if (!punto) {
+    if (!puntoFromPG) {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }
 
-    const now = Date.now();
-    const ONLINE_THRESHOLD_MS = 5000;
-
-    const tieneControladorOnline = punto.controladores?.some(
-      ctrl => ctrl.last_time_active && (now - ctrl.last_time_active <= ONLINE_THRESHOLD_MS)
-    );
-
-    const puntoConEstado = {
-      ...punto.toObject(),
-      online: tieneControladorOnline,
-    };
+    const puntoConEstado = await buildPuntoResponseFromPostgres(puntoFromPG);
 
     // V1-only: attach historico to Nivel products so "Histórico de Nivel" charts have data.
-    // Uses report.controller (MongoDB ProductLog); does not touch V2 or sensorDataV2.
+    // Uses report.controller (PostgreSQL ProductLog when available).
     const productos = puntoConEstado.productos || [];
     const nivelProducts = productos.filter((p) => p && (p.product_type === 'Nivel' || p.product_type === 'nivel'));
     const historicoRange = (req.query.historicoRange || '24h').toLowerCase();
@@ -299,171 +279,102 @@ export const getPuntoVentaById = async (req, res) => {
   }
 };
 
-// Crear un nuevo punto de venta
+// Crear un nuevo punto de venta (PostgreSQL only)
 export const addPuntoVenta = async (req, res) => {
   try {
-    const { name, cliente, city, productos, controladores, lat, long, codigo_tienda } = req.body;
+    const { name, cliente, city, lat, long, codigo_tienda } = req.body;
 
-    // Validar que el código_tienda sea único si se proporciona
-    if (codigo_tienda) {
-      const existingPunto = await PuntoVenta.findOne({ codigo_tienda });
-      if (existingPunto) {
+    const codigoNorm = codigo_tienda?.trim()?.toUpperCase();
+    if (codigoNorm) {
+      const existing = await PuntoVentaModel.findByCode(codigoNorm);
+      if (existing) {
         return res.status(400).json({ message: 'El código de tienda ya existe' });
       }
     }
 
-    // Normalize productos: ensure it's an array of ObjectId strings
-    let normalizedProductos = [];
-    if (productos) {
-      if (Array.isArray(productos)) {
-        normalizedProductos = productos
-          .map(p => {
-            // If it's an object with _id, extract the _id
-            if (typeof p === 'object' && p !== null && p._id) {
-              return p._id;
-            }
-            // If it's already a string (ObjectId), use it
-            if (typeof p === 'string' && p.trim() !== '') {
-              return p.trim();
-            }
-            return null;
-          })
-          .filter(id => id !== null && id !== '');
-      } else if (typeof productos === 'string') {
-        // If it's a string, try to parse it (shouldn't happen, but defensive)
-        try {
-          const parsed = JSON.parse(productos);
-          if (Array.isArray(parsed)) {
-            normalizedProductos = parsed
-              .map(p => (typeof p === 'object' && p?._id ? p._id : p))
-              .filter(id => id && typeof id === 'string');
-          }
-        } catch (e) {
-          // If parsing fails, treat as invalid
-          normalizedProductos = [];
-        }
-      }
-    }
+    const address = (city && typeof city === 'object') ? JSON.stringify(city) : (typeof city === 'string' ? city : null);
+    const clientId = cliente && (typeof cliente === 'object' ? cliente._id || cliente.id : cliente);
 
-    // Build the document object, only including codigo_tienda if it's provided
-    const puntoData = {
-      name,
-      cliente,
-      city,
-      productos: normalizedProductos,
-      controladores: controladores || [],
-    };
+    const puntoGuardado = await PuntoVentaModel.create({
+      name: name || 'Sin nombre',
+      codigo_tienda: codigoNorm,
+      code: codigoNorm,
+      clientId: clientId || null,
+      address,
+      lat,
+      long,
+      status: 'active'
+    });
 
-    // Only include codigo_tienda if it's provided and not empty
-    if (codigo_tienda && codigo_tienda.trim() !== '') {
-      puntoData.codigo_tienda = codigo_tienda.trim().toUpperCase();
-    }
-
-    // Include lat/long if provided
-    if (lat !== undefined) puntoData.lat = lat;
-    if (long !== undefined) puntoData.long = long;
-
-    const nuevoPunto = new PuntoVenta(puntoData);
-
-    const puntoGuardado = await nuevoPunto.save();
-    await puntoGuardado.populate('cliente');
-    await puntoGuardado.populate('city');
-    await puntoGuardado.populate('productos');
-    await puntoGuardado.populate('controladores');
-
-    res.status(201).json(puntoGuardado);
+    const response = await buildPuntoResponseFromPostgres(puntoGuardado);
+    res.status(201).json(response);
   } catch (error) {
     console.error('Error creating punto de venta:', error);
     res.status(500).json({ message: 'Error creating punto de venta', error: error.message });
   }
 };
 
-// Actualizar un punto de venta
+// Actualizar un punto de venta (PostgreSQL only)
 export const updatePuntoVenta = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
 
-    // Si se actualiza codigo_tienda, validar que sea único
+    let puntoFromPG = await PuntoVentaModel.findById(parseInt(id, 10));
+    if (!puntoFromPG) puntoFromPG = await PuntoVentaModel.findByCode(id);
+    if (!puntoFromPG) {
+      return res.status(404).json({ message: 'Punto de venta no encontrado' });
+    }
+
+    const numId = parseInt(puntoFromPG.id, 10);
+
     if (updates.codigo_tienda) {
-      const existingPunto = await PuntoVenta.findOne({ 
-        codigo_tienda: updates.codigo_tienda,
-        _id: { $ne: id }
-      });
-      if (existingPunto) {
+      const existing = await PuntoVentaModel.findByCode(updates.codigo_tienda.toUpperCase());
+      if (existing && parseInt(existing.id, 10) !== numId) {
         return res.status(400).json({ message: 'El código de tienda ya existe' });
       }
     }
 
-    // Normalize productos if it's being updated
-    if (updates.productos !== undefined) {
-      let normalizedProductos = [];
-      if (updates.productos) {
-        if (Array.isArray(updates.productos)) {
-          normalizedProductos = updates.productos
-            .map(p => {
-              // If it's an object with _id, extract the _id
-              if (typeof p === 'object' && p !== null && p._id) {
-                return p._id;
-              }
-              // If it's already a string (ObjectId), use it
-              if (typeof p === 'string' && p.trim() !== '') {
-                return p.trim();
-              }
-              return null;
-            })
-            .filter(id => id !== null && id !== '');
-        } else if (typeof updates.productos === 'string') {
-          // If it's a string, try to parse it (shouldn't happen, but defensive)
-          try {
-            const parsed = JSON.parse(updates.productos);
-            if (Array.isArray(parsed)) {
-              normalizedProductos = parsed
-                .map(p => (typeof p === 'object' && p?._id ? p._id : p))
-                .filter(id => id && typeof id === 'string');
-            }
-          } catch (e) {
-            // If parsing fails, treat as invalid
-            normalizedProductos = [];
-          }
-        }
-      }
-      updates.productos = normalizedProductos;
-    }
+    const updateData = {};
+    if (updates.name !== undefined) updateData.name = updates.name;
+    if (updates.clientId !== undefined) updateData.clientId = updates.clientId;
+    if (updates.cliente !== undefined) updateData.clientId = typeof updates.cliente === 'object' ? updates.cliente._id || updates.cliente.id : updates.cliente;
+    if (updates.status !== undefined) updateData.status = updates.status;
+    if (updates.lat !== undefined) updateData.lat = updates.lat;
+    if (updates.long !== undefined) updateData.long = updates.long;
+    if (updates.address !== undefined) updateData.address = typeof updates.address === 'string' ? updates.address : JSON.stringify(updates.address);
+    if (updates.dev_mode !== undefined) updateData.dev_mode = updates.dev_mode;
 
-    const puntoActualizado = await PuntoVenta.findByIdAndUpdate(
-      id,
-      { $set: updates },
-      { new: true, runValidators: true }
-    )
-      .populate('cliente')
-      .populate('city')
-      .populate('productos')
-      .populate('controladores');
-
+    const puntoActualizado = await PuntoVentaModel.update(numId, updateData);
     if (!puntoActualizado) {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }
 
-    res.json(puntoActualizado);
+    const response = await buildPuntoResponseFromPostgres(puntoActualizado);
+    res.json(response);
   } catch (error) {
     console.error('Error updating punto de venta:', error);
     res.status(500).json({ message: 'Error updating punto de venta', error: error.message });
   }
 };
 
-// Eliminar un punto de venta
+// Eliminar un punto de venta (PostgreSQL only)
 export const deletePuntoVenta = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const puntoEliminado = await PuntoVenta.findByIdAndDelete(id);
-
-    if (!puntoEliminado) {
+    let puntoFromPG = await PuntoVentaModel.findById(parseInt(id, 10));
+    if (!puntoFromPG) puntoFromPG = await PuntoVentaModel.findByCode(id);
+    if (!puntoFromPG) {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }
 
-    res.json({ message: 'Punto de venta eliminado exitosamente', punto: puntoEliminado });
+    const deleted = await PuntoVentaModel.delete(parseInt(puntoFromPG.id, 10));
+    if (!deleted) {
+      return res.status(404).json({ message: 'Punto de venta no encontrado' });
+    }
+
+    res.json({ message: 'Punto de venta eliminado exitosamente', punto: { id: puntoFromPG.id, name: puntoFromPG.name } });
   } catch (error) {
     console.error('Error deleting punto de venta:', error);
     res.status(500).json({ message: 'Error deleting punto de venta', error: error.message });
@@ -479,50 +390,21 @@ export const generateDailyData = async (req, res) => {
 
     let punto = null;
     let codigoTienda = null;
-    
-    // Verificar si es un ID numérico (PostgreSQL v2) o ObjectId (MongoDB v1)
+
+    const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+
+    // PostgreSQL only: try by numeric ID first, then by codigo_tienda
     const isNumericId = /^\d+$/.test(id);
-    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
-    
-    console.log(`[Generate Daily Data] ID recibido: ${id}, es numérico: ${isNumericId}, es ObjectId: ${isValidObjectId}`);
-    
     if (isNumericId) {
-      // Buscar en PostgreSQL (v2.0)
-      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
-      
-      // Intentar buscar por ID numérico
       punto = await PuntoVentaModel.findById(parseInt(id, 10));
-      console.log(`[Generate Daily Data] Búsqueda en PostgreSQL por ID: ${punto ? 'encontrado' : 'no encontrado'}`);
-      
-      // Si no se encuentra por ID, intentar por código de tienda
-      if (!punto) {
-        punto = await PuntoVentaModel.findByCode(id);
-        console.log(`[Generate Daily Data] Búsqueda en PostgreSQL por código: ${punto ? 'encontrado' : 'no encontrado'}`);
-      }
-      
-      if (punto) {
-        codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
-        console.log(`[Generate Daily Data] ✅ Punto encontrado en PostgreSQL: ${punto.name} (codigo_tienda: ${codigoTienda})`);
-      }
-    } else if (isValidObjectId) {
-      // Buscar en MongoDB (v1.0)
-      punto = await PuntoVenta.findById(id).populate('productos');
-      console.log(`[Generate Daily Data] Búsqueda en MongoDB por ObjectId: ${punto ? 'encontrado' : 'no encontrado'}`);
-      
-      if (punto) {
-        codigoTienda = punto.codigo_tienda;
-        console.log(`[Generate Daily Data] ✅ Punto encontrado en MongoDB: ${punto.name} (codigo_tienda: ${codigoTienda})`);
-      }
+      if (!punto) punto = await PuntoVentaModel.findByCode(id);
     } else {
-      // Intentar buscar por código de tienda en MongoDB
-      const codigoDirecto = id.toUpperCase();
-      console.log(`[Generate Daily Data] Buscando por código de tienda en MongoDB: ${codigoDirecto}`);
-      punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
-      console.log(`[Generate Daily Data] Resultado búsqueda por código: ${punto ? 'encontrado' : 'no encontrado'}`);
-      
-      if (punto) {
-        codigoTienda = punto.codigo_tienda;
-      }
+      punto = await PuntoVentaModel.findByCode(id) || await PuntoVentaModel.findById(parseInt(id, 10));
+    }
+
+    if (punto) {
+      codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
+      console.log(`[Generate Daily Data] ✅ Punto encontrado: ${punto.name} (codigo_tienda: ${codigoTienda})`);
     }
     
     if (!punto) {
@@ -730,22 +612,16 @@ export const generateMockDataNow = async (req, res) => {
 
     let punto = null;
     let codigoTienda = null;
+    const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
     const isNumericId = /^\d+$/.test(id);
-    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
 
     if (isNumericId) {
-      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
       punto = await PuntoVentaModel.findById(parseInt(id, 10));
       if (!punto) punto = await PuntoVentaModel.findByCode(id);
-      if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
-    } else if (isValidObjectId) {
-      punto = await PuntoVenta.findById(id).populate('productos');
-      if (punto) codigoTienda = (punto.codigo_tienda || '').toUpperCase();
     } else {
-      const codigoDirecto = id.toUpperCase();
-      punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
-      if (punto) codigoTienda = (punto.codigo_tienda || codigoDirecto).toUpperCase();
+      punto = await PuntoVentaModel.findByCode(id.toUpperCase()) || await PuntoVentaModel.findById(parseInt(id, 10));
     }
+    if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
 
     if (!punto) {
       return res.status(404).json({
@@ -913,23 +789,16 @@ export const simulateBajoNivelCruda = async (req, res) => {
 
     let punto = null;
     let codigoTienda = null;
-
+    const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
     const isNumericId = /^\d+$/.test(id);
-    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
 
     if (isNumericId) {
-      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
       punto = await PuntoVentaModel.findById(parseInt(id, 10));
       if (!punto) punto = await PuntoVentaModel.findByCode(id);
-      if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
-    } else if (isValidObjectId) {
-      punto = await PuntoVenta.findById(id).populate('productos');
-      if (punto) codigoTienda = (punto.codigo_tienda || '').toUpperCase();
     } else {
-      const codigoDirecto = id.toUpperCase();
-      punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
-      if (punto) codigoTienda = (punto.codigo_tienda || codigoDirecto).toUpperCase();
+      punto = await PuntoVentaModel.findByCode(id.toUpperCase()) || await PuntoVentaModel.findById(parseInt(id, 10));
     }
+    if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
 
     if (!punto) {
       return res.status(404).json({
@@ -1004,23 +873,16 @@ export const simulateNivelCrudaNormalizado = async (req, res) => {
 
     let punto = null;
     let codigoTienda = null;
-
+    const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
     const isNumericId = /^\d+$/.test(id);
-    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
 
     if (isNumericId) {
-      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
       punto = await PuntoVentaModel.findById(parseInt(id, 10));
       if (!punto) punto = await PuntoVentaModel.findByCode(id);
-      if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
-    } else if (isValidObjectId) {
-      punto = await PuntoVenta.findById(id).populate('productos');
-      if (punto) codigoTienda = (punto.codigo_tienda || '').toUpperCase();
     } else {
-      const codigoDirecto = id.toUpperCase();
-      punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
-      if (punto) codigoTienda = (punto.codigo_tienda || codigoDirecto).toUpperCase();
+      punto = await PuntoVentaModel.findByCode(id.toUpperCase()) || await PuntoVentaModel.findById(parseInt(id, 10));
     }
+    if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
 
     if (!punto) {
       return res.status(404).json({
@@ -1126,23 +988,16 @@ export const simulateSensor = async (req, res) => {
 
     let punto = null;
     let codigoTienda = null;
-
+    const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
     const isNumericId = /^\d+$/.test(id);
-    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
 
     if (isNumericId) {
-      const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
       punto = await PuntoVentaModel.findById(parseInt(id, 10));
       if (!punto) punto = await PuntoVentaModel.findByCode(id);
-      if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
-    } else if (isValidObjectId) {
-      punto = await PuntoVenta.findById(id).populate('productos');
-      if (punto) codigoTienda = punto.codigo_tienda;
     } else {
-      const codigoDirecto = id.toUpperCase();
-      punto = await PuntoVenta.findOne({ codigo_tienda: codigoDirecto }).populate('productos');
-      if (punto) codigoTienda = punto.codigo_tienda;
+      punto = await PuntoVentaModel.findByCode(id.toUpperCase()) || await PuntoVentaModel.findById(parseInt(id, 10));
     }
+    if (punto) codigoTienda = (punto.code || punto.codigo_tienda || id).toUpperCase();
 
     if (!punto) {
       return res.status(404).json({
@@ -1170,6 +1025,7 @@ export const simulateSensor = async (req, res) => {
       }
     }
 
+    codigoTienda = codigoTienda.toUpperCase();
     const topic = `tiwater/${codigoTienda}/data`;
     const timestampUnix = Math.floor(Date.now() / 1000);
 

@@ -1,155 +1,46 @@
 // src/controllers/sensorData.controller.js
-// Controlador para consultar datos de sensores recibidos vía MQTT
+// Controller for sensor data - PostgreSQL only (MongoDB removed)
 
-import SensorData from '../models/sensorData.model.js';
-import Controller from '../models/controller.model.js';
+import { query } from '../config/postgres.config.js';
 
-// Obtener todos los datos de sensores con filtros opcionales
-export const getSensorData = async (req, res) => {
-  try {
-    const {
-      codigo_tienda,
-      equipo_id,
-      punto_venta_id,
-      gateway_id,  // Legacy
-      controller_id,
-      product_id,
-      cliente_id,
-      startDate,
-      endDate,
-      limit = 100,
-      page = 1,
-      sort = '-timestamp' // Ordenar por timestamp descendente (más recientes primero)
-    } = req.query;
-
-    // Construir filtro
-    const filter = {};
-
-    // Nuevos filtros principales
-    if (codigo_tienda) {
-      filter.codigo_tienda = codigo_tienda.toUpperCase();
-    }
-
-    if (equipo_id) {
-      filter.equipo_id = equipo_id;
-    }
-
-    if (punto_venta_id) {
-      filter.punto_venta = punto_venta_id;
-    }
-
-    // Filtros legacy (mantener compatibilidad)
-    if (gateway_id) {
-      filter.gateway_id = gateway_id;
-    }
-
-    if (controller_id) {
-      filter.controller = controller_id;
-    }
-
-    if (product_id) {
-      filter.product = product_id;
-    }
-
-    if (cliente_id) {
-      filter.cliente = cliente_id;
-    }
-
-    // Filtro por rango de fechas
-    if (startDate || endDate) {
-      filter.timestamp = {};
-      if (startDate) {
-        filter.timestamp.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        filter.timestamp.$lte = new Date(endDate);
-      }
-    }
-
-    // Paginación
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    // Consulta con populate para obtener datos relacionados
-    const sensorData = await SensorData.find(filter)
-      .populate('punto_venta', 'name codigo_tienda address')
-      .populate('controller', 'id name ip online')
-      .populate('product', 'id name product_name')
-      .populate('cliente', 'name email')
-      .sort(sort)
-      .limit(parseInt(limit))
-      .skip(skip)
-      .lean();
-
-    // Contar total de documentos
-    const total = await SensorData.countDocuments(filter);
-
-    res.json({
-      success: true,
-      data: sensorData,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / parseInt(limit))
-      }
-    });
-
-  } catch (error) {
-    console.error('Error al obtener datos de sensores:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener datos de sensores',
-      error: error.message
-    });
-  }
-};
-
-// Obtener el último dato de sensores
+// Get latest timestamp from sensores for codigo_tienda (frontend uses this for "last data" display)
 export const getLatestSensorData = async (req, res) => {
   try {
     const { codigo_tienda, equipo_id, punto_venta_id, gateway_id, controller_id } = req.query;
 
-    const filter = {};
-    
-    // Nuevos filtros principales
-    if (codigo_tienda) {
-      filter.codigo_tienda = codigo_tienda.toUpperCase();
-    }
-    if (equipo_id) {
-      filter.equipo_id = equipo_id;
-    }
-    if (punto_venta_id) {
-      filter.punto_venta = punto_venta_id;
-    }
-    
-    // Filtros legacy
-    if (gateway_id) {
-      filter.gateway_id = gateway_id;
-    }
-    if (controller_id) {
-      filter.controller = controller_id;
+    if (!codigo_tienda) {
+      return res.status(400).json({
+        success: false,
+        message: 'codigo_tienda is required'
+      });
     }
 
-    const latestData = await SensorData.findOne(filter)
-      .populate('punto_venta', 'name codigo_tienda address')
-      .populate('controller', 'id name ip online')
-      .populate('product', 'id name product_name')
-      .populate('cliente', 'name email')
-      .sort('-timestamp')
-      .lean();
+    const codigoNorm = codigo_tienda.toString().trim().toUpperCase();
 
-    if (!latestData) {
+    const result = await query(
+      `SELECT timestamp, codigotienda as codigo_tienda
+       FROM sensores
+       WHERE UPPER(TRIM(codigotienda)) = $1
+       ORDER BY timestamp DESC
+       LIMIT 1`,
+      [codigoNorm]
+    );
+
+    if (!result.rows || result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'No se encontraron datos de sensores'
       });
     }
 
+    const row = result.rows[0];
     res.json({
       success: true,
-      data: latestData
+      data: {
+        timestamp: row.timestamp,
+        codigo_tienda: row.codigo_tienda || codigoNorm
+      }
     });
-
   } catch (error) {
     console.error('Error al obtener último dato de sensores:', error);
     res.status(500).json({
@@ -160,114 +51,142 @@ export const getLatestSensorData = async (req, res) => {
   }
 };
 
-// Obtener estadísticas de sensores
-export const getSensorStatistics = async (req, res) => {
+// Get sensor data with filters (PostgreSQL)
+export const getSensorData = async (req, res) => {
   try {
     const {
       codigo_tienda,
       equipo_id,
-      punto_venta_id,
-      gateway_id,
-      controller_id,
-      product_id,
       startDate,
-      endDate
+      endDate,
+      limit = 100,
+      page = 1
     } = req.query;
 
-    const filter = {};
+    let whereClause = '1=1';
+    const values = [];
+    let paramIndex = 1;
 
-    // Nuevos filtros principales
     if (codigo_tienda) {
-      filter.codigo_tienda = codigo_tienda.toUpperCase();
-    }
-    if (equipo_id) {
-      filter.equipo_id = equipo_id;
-    }
-    if (punto_venta_id) {
-      filter.punto_venta = punto_venta_id;
+      whereClause += ` AND UPPER(TRIM(codigotienda)) = $${paramIndex}`;
+      values.push(codigo_tienda.toUpperCase());
+      paramIndex++;
     }
 
-    // Filtros legacy
-    if (gateway_id) {
-      filter.gateway_id = gateway_id;
-    }
-    if (controller_id) {
-      filter.controller = controller_id;
-    }
-    if (product_id) {
-      filter.product = product_id;
+    if (startDate) {
+      whereClause += ` AND timestamp >= $${paramIndex}`;
+      values.push(new Date(startDate));
+      paramIndex++;
     }
 
-    if (startDate || endDate) {
-      filter.timestamp = {};
-      if (startDate) {
-        filter.timestamp.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        filter.timestamp.$lte = new Date(endDate);
-      }
+    if (endDate) {
+      whereClause += ` AND timestamp <= $${paramIndex}`;
+      values.push(new Date(endDate));
+      paramIndex++;
     }
 
-    // Agregación para calcular estadísticas con todos los sensores
-    const stats = await SensorData.aggregate([
-      { $match: filter },
-      {
-        $group: {
-          _id: null,
-          // Flujos
-          avg_flujo_produccion: { $avg: '$flujo_produccion' },
-          avg_flujo_rechazo: { $avg: '$flujo_rechazo' },
-          max_flujo_produccion: { $max: '$flujo_produccion' },
-          max_flujo_rechazo: { $max: '$flujo_rechazo' },
-          min_flujo_produccion: { $min: '$flujo_produccion' },
-          min_flujo_rechazo: { $min: '$flujo_rechazo' },
-          // TDS
-          avg_tds: { $avg: '$tds' },
-          max_tds: { $max: '$tds' },
-          min_tds: { $min: '$tds' },
-          // Niveles
-          avg_electronivel_purificada: { $avg: '$electronivel_purificada' },
-          avg_electronivel_recuperada: { $avg: '$electronivel_recuperada' },
-          max_electronivel_purificada: { $max: '$electronivel_purificada' },
-          max_electronivel_recuperada: { $max: '$electronivel_recuperada' },
-          min_electronivel_purificada: { $min: '$electronivel_purificada' },
-          min_electronivel_recuperada: { $min: '$electronivel_recuperada' },
-          // Presiones
-          avg_presion_in: { $avg: '$presion_in' },
-          avg_presion_out: { $avg: '$presion_out' },
-          max_presion_in: { $max: '$presion_in' },
-          max_presion_out: { $max: '$presion_out' },
-          min_presion_in: { $min: '$presion_in' },
-          min_presion_out: { $min: '$presion_out' },
-          // Legacy (mantener compatibilidad)
-          avg_pressure_in: { $avg: '$presion_in' },
-          avg_pressure_out: { $avg: '$presion_out' },
-          avg_water_level: { $avg: '$electronivel_purificada' },
-          max_pressure_in: { $max: '$presion_in' },
-          max_pressure_out: { $max: '$presion_out' },
-          max_water_level: { $max: '$electronivel_purificada' },
-          min_pressure_in: { $min: '$presion_in' },
-          min_pressure_out: { $min: '$presion_out' },
-          min_water_level: { $min: '$electronivel_purificada' },
-          count: { $sum: 1 }
-        }
-      }
-    ]);
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const dataResult = await query(
+      `SELECT * FROM sensores
+       WHERE ${whereClause}
+       ORDER BY timestamp DESC
+       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      [...values, parseInt(limit), offset]
+    );
+
+    const countResult = await query(
+      `SELECT COUNT(*) as count FROM sensores WHERE ${whereClause}`,
+      values
+    );
+
+    const total = parseInt(countResult.rows[0]?.count || 0);
 
     res.json({
       success: true,
-      data: stats[0] || {
-        avg_flujo_produccion: null,
-        avg_flujo_rechazo: null,
-        avg_tds: null,
-        avg_electronivel_purificada: null,
-        avg_electronivel_recuperada: null,
-        avg_presion_in: null,
-        avg_presion_out: null,
-        count: 0
+      data: dataResult.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        value: r.value,
+        type: r.type,
+        timestamp: r.timestamp,
+        codigo_tienda: r.codigotienda,
+        resourceType: r.resourcetype,
+        resourceId: r.resourceid
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
       }
     });
+  } catch (error) {
+    console.error('Error al obtener datos de sensores:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener datos de sensores',
+      error: error.message
+    });
+  }
+};
 
+// Get sensor statistics (PostgreSQL aggregation)
+export const getSensorStatistics = async (req, res) => {
+  try {
+    const { codigo_tienda, startDate, endDate } = req.query;
+
+    let whereClause = '1=1';
+    const values = [];
+    let paramIndex = 1;
+
+    if (codigo_tienda) {
+      whereClause += ` AND UPPER(TRIM(codigotienda)) = $${paramIndex}`;
+      values.push(codigo_tienda.toUpperCase());
+      paramIndex++;
+    }
+
+    if (startDate) {
+      whereClause += ` AND timestamp >= $${paramIndex}`;
+      values.push(new Date(startDate));
+      paramIndex++;
+    }
+
+    if (endDate) {
+      whereClause += ` AND timestamp <= $${paramIndex}`;
+      values.push(new Date(endDate));
+      paramIndex++;
+    }
+
+    const result = await query(
+      `SELECT
+         AVG(CASE WHEN type = 'flujo_produccion' THEN value::float END) as avg_flujo_produccion,
+         AVG(CASE WHEN type = 'flujo_rechazo' THEN value::float END) as avg_flujo_rechazo,
+         AVG(CASE WHEN type = 'tds' THEN value::float END) as avg_tds,
+         AVG(CASE WHEN type IN ('electronivel_purificada','nivel_purificada') THEN value::float END) as avg_electronivel_purificada,
+         AVG(CASE WHEN type IN ('electronivel_recuperada','nivel_recuperada') THEN value::float END) as avg_electronivel_recuperada,
+         AVG(CASE WHEN type = 'presion_in' THEN value::float END) as avg_presion_in,
+         AVG(CASE WHEN type = 'presion_out' THEN value::float END) as avg_presion_out,
+         COUNT(*) as count
+       FROM sensores
+       WHERE ${whereClause}`,
+      values
+    );
+
+    const row = result.rows[0] || {};
+    res.json({
+      success: true,
+      data: {
+        avg_flujo_produccion: row.avg_flujo_produccion ? parseFloat(row.avg_flujo_produccion) : null,
+        avg_flujo_rechazo: row.avg_flujo_rechazo ? parseFloat(row.avg_flujo_rechazo) : null,
+        avg_tds: row.avg_tds ? parseFloat(row.avg_tds) : null,
+        avg_electronivel_purificada: row.avg_electronivel_purificada ? parseFloat(row.avg_electronivel_purificada) : null,
+        avg_electronivel_recuperada: row.avg_electronivel_recuperada ? parseFloat(row.avg_electronivel_recuperada) : null,
+        avg_presion_in: row.avg_presion_in ? parseFloat(row.avg_presion_in) : null,
+        avg_presion_out: row.avg_presion_out ? parseFloat(row.avg_presion_out) : null,
+        count: parseInt(row.count || 0)
+      }
+    });
   } catch (error) {
     console.error('Error al obtener estadísticas de sensores:', error);
     res.status(500).json({
@@ -278,42 +197,45 @@ export const getSensorStatistics = async (req, res) => {
   }
 };
 
-// Obtener datos de sensores por tienda y equipo
+// Get sensor data by tienda and equipo
 export const getSensorDataByTiendaEquipo = async (req, res) => {
   try {
     const { codigo_tienda, equipo_id } = req.params;
     const { limit = 100, startDate, endDate } = req.query;
 
-    const filter = {
-      codigo_tienda: codigo_tienda.toUpperCase(),
-      equipo_id: equipo_id
-    };
+    let whereClause = 'UPPER(TRIM(codigotienda)) = $1';
+    const values = [codigo_tienda.toUpperCase()];
+    let paramIndex = 2;
 
-    if (startDate || endDate) {
-      filter.timestamp = {};
-      if (startDate) {
-        filter.timestamp.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        filter.timestamp.$lte = new Date(endDate);
-      }
+    if (equipo_id) {
+      whereClause += ` AND (resourceid = $${paramIndex} OR resourceid IS NULL)`;
+      values.push(equipo_id);
+      paramIndex++;
     }
 
-    const sensorData = await SensorData.find(filter)
-      .populate('punto_venta', 'name codigo_tienda address')
-      .populate('controller', 'id name ip online')
-      .populate('product', 'id name product_name')
-      .populate('cliente', 'name email')
-      .sort('-timestamp')
-      .limit(parseInt(limit))
-      .lean();
+    if (startDate) {
+      whereClause += ` AND timestamp >= $${paramIndex}`;
+      values.push(new Date(startDate));
+      paramIndex++;
+    }
+
+    if (endDate) {
+      whereClause += ` AND timestamp <= $${paramIndex}`;
+      values.push(new Date(endDate));
+      paramIndex++;
+    }
+
+    const result = await query(
+      `SELECT * FROM sensores WHERE ${whereClause}
+       ORDER BY timestamp DESC LIMIT $${paramIndex}`,
+      [...values, parseInt(limit)]
+    );
 
     res.json({
       success: true,
-      data: sensorData,
-      count: sensorData.length
+      data: result.rows,
+      count: result.rows.length
     });
-
   } catch (error) {
     console.error('Error al obtener datos de sensores por tienda/equipo:', error);
     res.status(500).json({
@@ -324,41 +246,39 @@ export const getSensorDataByTiendaEquipo = async (req, res) => {
   }
 };
 
-// Obtener datos de sensores por código de tienda (todos los equipos)
+// Get sensor data by tienda
 export const getSensorDataByTienda = async (req, res) => {
   try {
     const { codigo_tienda } = req.params;
     const { limit = 100, startDate, endDate } = req.query;
 
-    const filter = {
-      codigo_tienda: codigo_tienda.toUpperCase()
-    };
+    let whereClause = 'UPPER(TRIM(codigotienda)) = $1';
+    const values = [codigo_tienda.toUpperCase()];
+    let paramIndex = 2;
 
-    if (startDate || endDate) {
-      filter.timestamp = {};
-      if (startDate) {
-        filter.timestamp.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        filter.timestamp.$lte = new Date(endDate);
-      }
+    if (startDate) {
+      whereClause += ` AND timestamp >= $${paramIndex}`;
+      values.push(new Date(startDate));
+      paramIndex++;
     }
 
-    const sensorData = await SensorData.find(filter)
-      .populate('punto_venta', 'name codigo_tienda address')
-      .populate('controller', 'id name ip online')
-      .populate('product', 'id name product_name')
-      .populate('cliente', 'name email')
-      .sort('-timestamp')
-      .limit(parseInt(limit))
-      .lean();
+    if (endDate) {
+      whereClause += ` AND timestamp <= $${paramIndex}`;
+      values.push(new Date(endDate));
+      paramIndex++;
+    }
+
+    const result = await query(
+      `SELECT * FROM sensores WHERE ${whereClause}
+       ORDER BY timestamp DESC LIMIT $${paramIndex}`,
+      [...values, parseInt(limit)]
+    );
 
     res.json({
       success: true,
-      data: sensorData,
-      count: sensorData.length
+      data: result.rows,
+      count: result.rows.length
     });
-
   } catch (error) {
     console.error('Error al obtener datos de sensores por tienda:', error);
     res.status(500).json({
@@ -369,39 +289,46 @@ export const getSensorDataByTienda = async (req, res) => {
   }
 };
 
-// Obtener datos de sensores por gateway_id (legacy)
+// Get sensor data by gateway (legacy - map to resourceId if needed)
 export const getSensorDataByGateway = async (req, res) => {
   try {
     const { gateway_id } = req.params;
     const { limit = 100, startDate, endDate } = req.query;
 
-    const filter = { gateway_id };
+    let whereClause = '1=1';
+    const values = [];
+    let paramIndex = 1;
 
-    if (startDate || endDate) {
-      filter.timestamp = {};
-      if (startDate) {
-        filter.timestamp.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        filter.timestamp.$lte = new Date(endDate);
-      }
+    // gateway_id may map to resourceId in sensores
+    if (gateway_id) {
+      whereClause += ` AND resourceid = $${paramIndex}`;
+      values.push(gateway_id);
+      paramIndex++;
     }
 
-    const sensorData = await SensorData.find(filter)
-      .populate('punto_venta', 'name codigo_tienda address')
-      .populate('controller', 'id name ip online')
-      .populate('product', 'id name product_name')
-      .populate('cliente', 'name email')
-      .sort('-timestamp')
-      .limit(parseInt(limit))
-      .lean();
+    if (startDate) {
+      whereClause += ` AND timestamp >= $${paramIndex}`;
+      values.push(new Date(startDate));
+      paramIndex++;
+    }
+
+    if (endDate) {
+      whereClause += ` AND timestamp <= $${paramIndex}`;
+      values.push(new Date(endDate));
+      paramIndex++;
+    }
+
+    const result = await query(
+      `SELECT * FROM sensores WHERE ${whereClause}
+       ORDER BY timestamp DESC LIMIT $${paramIndex}`,
+      [...values, parseInt(limit)]
+    );
 
     res.json({
       success: true,
-      data: sensorData,
-      count: sensorData.length
+      data: result.rows,
+      count: result.rows.length
     });
-
   } catch (error) {
     console.error('Error al obtener datos de sensores por gateway:', error);
     res.status(500).json({
@@ -411,4 +338,3 @@ export const getSensorDataByGateway = async (req, res) => {
     });
   }
 };
-
