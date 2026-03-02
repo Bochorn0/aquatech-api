@@ -5,6 +5,7 @@ import { query } from '../config/postgres.config.js';
 import { generateProductLogsReport } from './report.controller.js';
 import moment from 'moment';
 import mqttService from '../services/mqtt.service.js';
+import { buildTiwaterTopic } from '../utils/mqttTopic.js';
 import PostgresService from '../services/postgres.service.js';
 
 /** Default full tiwater payload when no sensor data exists (same structure as generate-daily-data). */
@@ -135,6 +136,17 @@ async function buildPuntoResponseFromPostgres(pv) {
       // ignore
     }
   }
+  // Region and ciudad (from MQTT hierarchy: tiwater/REGION/CIUDAD/CODIGO/data)
+  let regionData = null;
+  let ciudadData = null;
+  try {
+    const RegionPuntoVentaModel = (await import('../models/postgres/regionPuntoVenta.model.js')).default;
+    const CiudadModel = (await import('../models/postgres/ciudad.model.js')).default;
+    regionData = await RegionPuntoVentaModel.getRegionForPuntoVenta(pv.id);
+    if (pv.ciudadId) ciudadData = await CiudadModel.findById(pv.ciudadId);
+  } catch (e) {
+    // ignore
+  }
   return {
     _id: String(pv.id),
     id: String(pv.id),
@@ -142,6 +154,8 @@ async function buildPuntoResponseFromPostgres(pv) {
     codigo_tienda: pv.codigo_tienda || pv.code || null,
     cliente: clienteData ? { _id: String(clienteData.id), id: String(clienteData.id), name: clienteData.name, email: clienteData.email, phone: clienteData.phone } : null,
     city: cityData ? { _id: String(cityData.id), id: String(cityData.id), city: cityData.city, state: cityData.state, lat: cityData.lat, lon: cityData.lon } : (addressObj ? { _id: null, city: addressObj.city, state: addressObj.state, lat: pv.lat, lon: pv.long } : { _id: null, city: null, state: null, lat: pv.lat, lon: pv.long }),
+    region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name } : null,
+    ciudad: ciudadData ? { id: String(ciudadData.id), name: ciudadData.name, regionId: ciudadData.regionId } : null,
     address: addressObj || null,
     productos: [],
     controladores: [],
@@ -340,8 +354,15 @@ export const updatePuntoVenta = async (req, res) => {
     if (updates.long !== undefined) updateData.long = updates.long;
     if (updates.address !== undefined) updateData.address = typeof updates.address === 'string' ? updates.address : JSON.stringify(updates.address);
     if (updates.dev_mode !== undefined) updateData.dev_mode = updates.dev_mode;
+    if (updates.ciudad_id !== undefined) updateData.ciudad_id = updates.ciudad_id;
 
     const puntoActualizado = await PuntoVentaModel.update(numId, updateData);
+
+    // Link region if region_id provided
+    if (updates.region_id !== undefined && puntoActualizado) {
+      const RegionPuntoVentaModel = (await import('../models/postgres/regionPuntoVenta.model.js')).default;
+      await RegionPuntoVentaModel.link(updates.region_id, numId);
+    }
     if (!puntoActualizado) {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }
@@ -445,7 +466,7 @@ export const generateDailyData = async (req, res) => {
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
     const startOfDay = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 0, 0, 0);
-    const topic = `tiwater/${codigoTienda}/data`;
+    const topic = await buildTiwaterTopic(codigoTienda);
     
     const messages = [];
     let publishedCount = 0;
@@ -646,7 +667,7 @@ export const generateMockDataNow = async (req, res) => {
 
     codigoTienda = codigoTienda.toUpperCase();
     const timestampUnix = Math.floor(Date.now() / 1000);
-    const topic = `tiwater/${codigoTienda}/data`;
+    const topic = await buildTiwaterTopic(codigoTienda);
     const tiwaterPayload = buildMockTiwaterPayload(timestampUnix);
     const message = JSON.stringify(tiwaterPayload);
     await mqttService.publish(topic, message);
@@ -743,7 +764,7 @@ export const generateMockDataNowAllDevMode = async (req, res) => {
         continue;
       }
       try {
-        const topic = `tiwater/${codigoTienda}/data`;
+        const topic = await buildTiwaterTopic(codigoTienda);
         const tiwaterPayload = buildMockTiwaterPayload(timestampUnix);
         const message = JSON.stringify(tiwaterPayload);
         await mqttService.publish(topic, message);
@@ -824,7 +845,7 @@ export const simulateBajoNivelCruda = async (req, res) => {
       }
     }
 
-    const topic = `tiwater/${codigoTienda}/data`;
+    const topic = await buildTiwaterTopic(codigoTienda);
     const timestampUnix = Math.floor(Date.now() / 1000);
     const nivelCrudaPercent = 65;
 
@@ -908,7 +929,7 @@ export const simulateNivelCrudaNormalizado = async (req, res) => {
       }
     }
 
-    const topic = `tiwater/${codigoTienda}/data`;
+    const topic = await buildTiwaterTopic(codigoTienda);
     const timestampUnix = Math.floor(Date.now() / 1000);
     const nivelCrudaPercent = 85;
 
@@ -1022,7 +1043,7 @@ export const simulateSensor = async (req, res) => {
     }
 
     codigoTienda = codigoTienda.toUpperCase();
-    const topic = `tiwater/${codigoTienda}/data`;
+    const topic = await buildTiwaterTopic(codigoTienda);
     const timestampUnix = Math.floor(Date.now() / 1000);
 
     // Build payload: for nivel cruda/purificada send both keys so DB and UI update

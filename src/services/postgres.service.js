@@ -4,6 +4,9 @@
 import SensoresModel from '../models/postgres/sensores.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
+import RegionModel from '../models/postgres/region.model.js';
+import CiudadModel from '../models/postgres/ciudad.model.js';
+import RegionPuntoVentaModel from '../models/postgres/regionPuntoVenta.model.js';
 import MetricNotificationService from './metricNotification.service.js';
 
 /**
@@ -153,13 +156,30 @@ class PostgresService {
     try {
       // Get codigo_tienda from context or mqttData
       const codigoTienda = context.codigo_tienda || mqttData.codigo_tienda || mqttData.codigoTienda;
-      
-      // Automatically create or get puntoVenta if codigo_tienda is provided
+      const codigoRegion = (context.codigo_region || mqttData.codigo_region || 'NoRegion').trim();
+      const ciudadName = (context.ciudad || mqttData.ciudad || '').trim();
+
+      // Region + Ciudad + PuntoVenta + region_punto_venta link
       if (codigoTienda) {
         try {
-          // Generar nombre por defecto si no se proporciona
           const defaultName = mqttData.punto_venta_name || context.punto_venta_name || `Punto de Venta ${codigoTienda}`;
-          
+
+          // 1. Get or create Region
+          const region = await RegionModel.getOrCreate({ code: codigoRegion || 'NoRegion', name: codigoRegion || 'Sin región' });
+          if (region) {
+            console.log(`[PostgresService] ✅ Region ${region.code} (ID: ${region.id})`);
+          }
+
+          // 2. Get or create Ciudad (if name provided)
+          let ciudadRecord = null;
+          if (ciudadName && region) {
+            ciudadRecord = await CiudadModel.getOrCreate({ name: ciudadName, region_id: region.id });
+            if (ciudadRecord) {
+              console.log(`[PostgresService] ✅ Ciudad ${ciudadRecord.name} (ID: ${ciudadRecord.id})`);
+            }
+          }
+
+          // 3. Get or create PuntoVenta (with ciudad_id when creating)
           const puntoVenta = await PuntoVentaModel.getOrCreate({
             code: codigoTienda,
             codigo_tienda: codigoTienda,
@@ -171,6 +191,7 @@ class PostgresService {
             long: mqttData.long || context.long || mqttData.lon || null,
             address: mqttData.address || context.address || null,
             contactId: context.contact_id || mqttData.contact_id || null,
+            ciudad_id: ciudadRecord?.id || null,
             meta: {
               source: 'MQTT',
               created_from: 'sensor_data',
@@ -179,9 +200,19 @@ class PostgresService {
               auto_created: true
             }
           });
-          
+
           if (puntoVenta) {
             console.log(`[PostgresService] ✅ PuntoVenta ${puntoVenta.id ? 'creado' : 'encontrado'} para codigo_tienda: ${codigoTienda} (ID: ${puntoVenta.id})`);
+
+            // 4. Link Region-PuntoVenta if not exists
+            if (region && puntoVenta.id) {
+              await RegionPuntoVentaModel.link(region.id, puntoVenta.id);
+            }
+
+            // 5. Update ciudad_id if puntoVenta existed but didn't have it
+            if (ciudadRecord && puntoVenta.id && !puntoVenta.ciudadId) {
+              await PuntoVentaModel.update(puntoVenta.id, { ciudad_id: ciudadRecord.id });
+            }
           } else {
             console.log(`[PostgresService] ✅ PuntoVenta procesado para codigo_tienda: ${codigoTienda}`);
           }

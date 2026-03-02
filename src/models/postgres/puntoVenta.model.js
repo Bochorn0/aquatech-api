@@ -147,7 +147,8 @@ class PuntoVentaModel {
       long,
       address,
       contactId,
-      meta
+      meta,
+      ciudad_id
     } = data;
 
     // Check if already exists (double-check before insert)
@@ -161,9 +162,9 @@ class PuntoVentaModel {
     const insertQuery = `
       INSERT INTO puntoventa (
         name, code, codigo_tienda, owner, clientid, status,
-        lat, long, address, contactid, meta
+        lat, long, address, contactid, meta, ciudad_id
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
       ) RETURNING *
     `;
 
@@ -178,7 +179,8 @@ class PuntoVentaModel {
       long !== undefined ? parseFloat(long) : null,
       address || null,
       contactId || null,
-      meta ? JSON.stringify(meta) : null
+      meta ? JSON.stringify(meta) : null,
+      ciudad_id || null
     ];
 
     try {
@@ -218,8 +220,13 @@ class PuntoVentaModel {
       address,
       contactId,
       meta,
-      dev_mode
+      dev_mode,
+      ciudad_id
     } = data;
+
+    const hasCiudadId = data.hasOwnProperty('ciudad_id');
+    const ciudadSet = hasCiudadId ? 'ciudad_id = $11,' : '';
+    const idParam = hasCiudadId ? 12 : 11;
 
     const updateQuery = `
       UPDATE puntoventa
@@ -234,8 +241,9 @@ class PuntoVentaModel {
         contactid = COALESCE($8, contactid),
         meta = COALESCE($9, meta),
         dev_mode = COALESCE($10, dev_mode),
+        ${ciudadSet}
         updatedat = CURRENT_TIMESTAMP
-      WHERE id = $11
+      WHERE id = $${idParam}
       RETURNING *
     `;
 
@@ -249,9 +257,10 @@ class PuntoVentaModel {
       address || null,
       contactId || null,
       meta ? JSON.stringify(meta) : null,
-      dev_mode !== undefined ? !!dev_mode : null,
-      id
+      dev_mode !== undefined ? !!dev_mode : null
     ];
+    if (hasCiudadId) values.push(ciudad_id);
+    values.push(id);
 
     try {
       const result = await query(updateQuery, values);
@@ -362,7 +371,8 @@ class PuntoVentaModel {
       address: row.address || null,
       contactId: row.contactid || row.contactId || null,
       meta: row.meta ? (typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta) : null,
-      dev_mode: row.dev_mode === true
+      dev_mode: row.dev_mode === true,
+      ciudadId: row.ciudad_id ? String(row.ciudad_id) : null
     };
   }
 }

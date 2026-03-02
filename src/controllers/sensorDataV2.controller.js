@@ -641,6 +641,18 @@ export const getPuntosVentaV2 = async (req, res) => {
           }
         }
 
+        // Region and ciudad (MQTT topic hierarchy)
+        let regionData = null;
+        let ciudadData = null;
+        try {
+          const RegionPuntoVentaModel = (await import('../models/postgres/regionPuntoVenta.model.js')).default;
+          const CiudadModel = (await import('../models/postgres/ciudad.model.js')).default;
+          regionData = await RegionPuntoVentaModel.getRegionForPuntoVenta(pv.id);
+          if (pv.ciudadId) ciudadData = await CiudadModel.findById(pv.ciudadId);
+        } catch (error) {
+          console.warn(`[getPuntosVentaV2] Error fetching region/ciudad for ${pv.id}:`, error.message);
+        }
+
         // Transform PostgreSQL format to MongoDB-compatible format
         return {
           _id: String(pv.id), // Use id as _id for compatibility (convert to string)
@@ -687,7 +699,9 @@ export const getPuntosVentaV2 = async (req, res) => {
           meta: pv.meta || null,
           createdAt: pv.createdAt || null,
           updatedAt: pv.updatedAt || null,
-          dev_mode: pv.dev_mode === true
+          dev_mode: pv.dev_mode === true,
+          region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name } : null,
+          ciudad: ciudadData ? { id: String(ciudadData.id), name: ciudadData.name, regionId: ciudadData.regionId } : null
         };
       })
     );
@@ -786,6 +800,18 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       console.warn(`[getPuntoVentaDetalleV2] Error fetching city:`, error.message);
     }
 
+    // Region and ciudad (MQTT topic hierarchy)
+    let regionData = null;
+    let ciudadData = null;
+    try {
+      const RegionPuntoVentaModel = (await import('../models/postgres/regionPuntoVenta.model.js')).default;
+      const CiudadModel = (await import('../models/postgres/ciudad.model.js')).default;
+      regionData = await RegionPuntoVentaModel.getRegionForPuntoVenta(puntoFromPG.id);
+      if (puntoFromPG.ciudadId) ciudadData = await CiudadModel.findById(puntoFromPG.ciudadId);
+    } catch (error) {
+      console.warn(`[getPuntoVentaDetalleV2] Error fetching region/ciudad:`, error.message);
+    }
+
     // Create punto object from PostgreSQL data
     const punto = {
       _id: String(puntoFromPG.id),
@@ -821,6 +847,8 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       updatedAt: puntoFromPG.updatedAt,
       meta: puntoFromPG.meta,
       dev_mode: puntoFromPG.dev_mode === true,
+      region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name } : null,
+      ciudad: ciudadData ? { id: String(ciudadData.id), name: ciudadData.name, regionId: ciudadData.regionId } : null,
       toObject: function() {
         return {
           _id: this._id,
@@ -842,7 +870,9 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           createdAt: this.createdAt,
           updatedAt: this.updatedAt,
           meta: this.meta,
-          dev_mode: this.dev_mode
+          dev_mode: this.dev_mode,
+          region: this.region,
+          ciudad: this.ciudad
         };
       }
     };

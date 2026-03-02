@@ -46,7 +46,39 @@ To sync devices from Tuya Cloud, add:
 
 Without these, the app uses products from the database only (no Tuya sync).
 
-### 3. Azure PostgreSQL Firewall (tiwaterprod)
+### 3. MQTT – Azure Event Grid (required for simulate endpoints)
+
+To use Azure Event Grid MQTT instead of the old Mosquitto server, add these settings:
+
+| Name | Value |
+|------|-------|
+| `MQTT_BROKER` | `tiwatermqtt.eastus-1.eventgrid.azure.net` |
+| `MQTT_PORT` | `8883` |
+| `MQTT_USE_TLS` | `true` |
+| `MQTT_USERNAME` | `tiwater-api-consumer` |
+| `MQTT_CLIENT_ID` | `tiwater-api-consumer-session1` |
+| `WEBSITES_INCLUDE_CLOUD_CERTS` | `true` |
+
+**Note:** `WEBSITES_INCLUDE_CLOUD_CERTS=true` is required for Event Grid TLS on App Service Linux (fixes "socket disconnected before secure TLS connection").
+
+**Certificates (choose one):**
+
+- **Option A – Base64 in App Settings** (recommended for Azure; no file deployment):
+  - `MQTT_CLIENT_CERT_B64` = base64 of `tiwater-api-consumer.pem`
+  - `MQTT_CLIENT_KEY_B64` = base64 of `tiwater-api-consumer.key`
+  - Generate: `base64 -i tiwater-api-consumer.pem | tr -d '\n'` (and same for `.key`)
+
+- **Option B – File paths:** Deploy certs in `certs/` and set `MQTT_CLIENT_CERT_PATH=./certs/tiwater-api-consumer.pem`, `MQTT_CLIENT_KEY_PATH=./certs/tiwater-api-consumer.key`
+
+**Important:** Do **not** set `MQTT_PASSWORD` for Event Grid. Event Grid uses X.509 only; a password can cause connection failures.
+
+Without these, the API uses the default broker (`146.190.143.141`) and simulate endpoints (e.g. `simulate-bajo-nivel-cruda`) publish to the old server.
+
+**Test:** After deploy, call `GET https://your-app.azurewebsites.net/api/v1.0/mqtt/status` (no auth). It shows `broker`, `isConnected`, `hasCert`, `certSource`. If `isConnected: false`, check App Service logs and the `hint` field.
+
+See `docs/AZURE_EVENT_GRID_MQTT_SETUP.md` for Event Grid namespace setup (topic space, client, permission bindings).
+
+### 4. Azure PostgreSQL Firewall (tiwaterprod)
 
 The App Service must be allowed to connect to tiwaterprod:
 
@@ -57,7 +89,7 @@ The App Service must be allowed to connect to tiwaterprod:
 
 Without this, the App Service will get connection timeouts.
 
-### 4. Verify
+### 5. Verify
 
 After redeploying:
 

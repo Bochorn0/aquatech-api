@@ -25,6 +25,8 @@
     "verify:tiwater": "bash scripts/migrations/verify-tiwater-tables.sh",
     "migrate:auth": "bash scripts/migrations/run-migration.sh scripts/migrations/007_create_clients_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/018_create_roles_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/019_create_users_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/020_seed_roles_and_admin_user.sql",
     "migrate:products": "bash scripts/migrations/run-migration.sh scripts/migrations/021_create_products_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/022_create_controllers_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/023_create_notifications_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/024_create_product_logs_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/025_create_reports_table.sql && bash scripts/migrations/run-migration.sh scripts/migrations/026_create_client_metrics_table.sql",
+    "migrate:regions": "bash scripts/migrations/run-migration.sh scripts/migrations/027_create_regions_ciudades_region_punto_venta.sql",
+    "migrate:regions:pv": "bash scripts/migrations/run-migration.sh scripts/migrations/028_add_region_punto_venta_and_ciudad_id.sql",
     "seed:admin": "node scripts/seed-admin-user.js",
     "test:email": "node scripts/test-email-debug.js",
     "test:email:send": "node scripts/test-email-debug.js --test-send",

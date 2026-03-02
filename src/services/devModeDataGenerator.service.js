@@ -5,6 +5,7 @@
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
 import SensoresModel from '../models/postgres/sensores.model.js';
+import { buildTiwaterTopic } from '../utils/mqttTopic.js';
 
 /**
  * Default min/max ranges per sensor type for random value generation
@@ -164,7 +165,7 @@ export async function getMqttPayloadsForDevModePuntos() {
         payload[key] = value;
       }
 
-      const topic = `tiwater/${codigoTienda}/data`;
+      const topic = await buildTiwaterTopic(codigoTienda);
       const message = JSON.stringify(payload);
       result.payloads.push({ topic, message });
       result.puntosProcessed += 1;

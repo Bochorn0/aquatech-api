@@ -27,6 +27,8 @@ import tiwaterProductRoutes from './routes/tiwater-product.routes.js';  // Use `
 import tiwaterQuoteRoutes from './routes/tiwater-quote.routes.js';  // Use `import` for TI Water quote routes (v2.0)
 import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoutes
 import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoutes
+import regionRoutes from './routes/region.routes.js';
+import ciudadRoutes from './routes/ciudad.routes.js';
 import { authenticate, requirePermission } from './middlewares/auth.middleware.js';
 import mqttService from './services/mqtt.service.js';  // Import MQTT service
 import emailHelper from './utils/email.helper.js';  // Import email helper for test endpoint
@@ -249,6 +251,10 @@ app.use('/api/v1.0/sensor-data', authenticate, requirePermission('/'), sensorDat
 // v2.0 API routes - PostgreSQL based (TI Water - no auth on these or add if needed)
 app.use('/api/v2.0/tiwater/products', tiwaterProductRoutes);
 app.use('/api/v2.0/tiwater/quotes', tiwaterQuoteRoutes);
+
+// v2.0 API routes - Regions and Ciudades (for MQTT topic hierarchy)
+app.use('/api/v2.0/regions', regionRoutes);
+app.use('/api/v2.0/ciudades', ciudadRoutes);
 
 // v2.0 API routes - Customization and sensors (require dashboard or puntoVenta/personalizacion access)
 app.use('/api/v2.0', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), customizationV2Routes);

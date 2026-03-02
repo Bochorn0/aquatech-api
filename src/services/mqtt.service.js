@@ -72,10 +72,11 @@ if (!fs.existsSync(MQTT_LOG_DIR)) {
 }
 
 // Topics a los que nos suscribimos
-// Estructura: tiwater/{codigo_tienda}/data
-// Usando wildcards (+) para recibir mensajes de cualquier tienda
+// Nuevo: tiwater/CODIGO_REGION/CIUDAD/CODIGO_TIENDA/data
+// Legacy: tiwater/CODIGO_TIENDA/data (usa NoRegion, ciudad vacía)
 const TOPICS = {
-  TIWATER_DATA: 'tiwater/+/data'  // Formato principal: tiwater/CODIGO_TIENDA_001/data
+  TIWATER_DATA: 'tiwater/+/data',           // Legacy: tiwater/CODIGO_TIENDA/data
+  TIWATER_DATA_V2: 'tiwater/+/+/+/data'    // Nuevo: tiwater/REGION/CIUDAD/CODIGO_TIENDA/data
 };
 
 class MQTTService {
@@ -254,11 +255,11 @@ class MQTTService {
     });
   }
 
-  // Suscribirse a los topics
+  // Suscribirse a los topics (ambos formatos para compatibilidad)
   subscribeToTopics() {
     const topics = Object.values(TOPICS);
-    
-    topics.forEach(topic => {
+    const uniqueTopics = [...new Set(topics)];
+    uniqueTopics.forEach(topic => {
       this.client.subscribe(topic, (err) => {
         if (err) {
           console.error(`[MQTT] ❌ Error al suscribirse a ${topic}:`, err);
@@ -277,13 +278,19 @@ class MQTTService {
       // Guardar mensaje en archivo de log
       this.logMessageToFile(topic, message);
 
-      // Parsear topic: tiwater/{codigo_tienda}/data
+      // Parsear topic: tiwater/.../data
       const topicParts = topic.split('/');
       
-      // Formato principal: tiwater/CODIGO_TIENDA_001/data
-      if (topicParts.length === 3 && topicParts[0] === 'tiwater' && topicParts[2] === 'data') {
+      // Nuevo formato: tiwater/CODIGO_REGION/CIUDAD/CODIGO_TIENDA/data (5 parts)
+      if (topicParts.length === 5 && topicParts[0] === 'tiwater' && topicParts[4] === 'data') {
+        const codigo_region = topicParts[1];
+        const ciudad = topicParts[2];
+        const codigo_tienda = topicParts[3];
+        this.handleTiwaterData(codigo_tienda, message, { codigo_region, ciudad });
+      } else if (topicParts.length === 3 && topicParts[0] === 'tiwater' && topicParts[2] === 'data') {
+        // Legacy: tiwater/CODIGO_TIENDA/data (usa NoRegion, ciudad vacía)
         const codigo_tienda = topicParts[1];
-        this.handleTiwaterData(codigo_tienda, message);
+        this.handleTiwaterData(codigo_tienda, message, { codigo_region: 'NoRegion', ciudad: '' });
       } else {
         console.log(`[MQTT] ⚠️  Topic desconocido: ${topic}`);
       }
@@ -430,8 +437,8 @@ class MQTTService {
     }
   }
 
-  // Manejar datos de tiwater (nuevo formato: tiwater/CODIGO_TIENDA_001/data)
-  async handleTiwaterData(codigo_tienda, message) {
+  // Manejar datos de tiwater (formatos: tiwater/CODIGO_TIENDA/data o tiwater/REGION/CIUDAD/CODIGO_TIENDA/data)
+  async handleTiwaterData(codigo_tienda, message, topicContext = {}) {
     try {
       const data = JSON.parse(message);
       console.log(`[MQTT] 📊 Datos de tiwater/${codigo_tienda}:`, JSON.stringify(data, null, 2));
@@ -465,10 +472,11 @@ class MQTTService {
         console.log(`[MQTT] ⚠️ No se encontraron corrientes después del mapeo`);
       }
       
-      // MQTT data → PostgreSQL only. Punto/cliente se resuelven por codigo_tienda en PostgresService.
-      // (MongoDB solo se usa para logs de MQTT si aplica; no para datos tiwater.)
+      // MQTT data → PostgreSQL only. Punto/cliente/region/ciudad se resuelven en PostgresService.
       const sensorDataPayload = {
         codigo_tienda: codigo_tienda ? codigo_tienda.toUpperCase() : null,
+        codigo_region: topicContext.codigo_region || 'NoRegion',
+        ciudad: topicContext.ciudad || '',
         punto_venta: null,
         cliente: null,
         
@@ -513,7 +521,7 @@ class MQTTService {
         });
       }
       
-      // Guardar datos en MongoDB y PostgreSQL
+      // Guardar datos en PostgreSQL (codigo_region y ciudad ya en payload para PostgresService)
       await this.saveSensorData(sensorDataPayload);
       console.log(`[MQTT] ✅ Datos guardados para tiwater/${codigo_tienda}`);
       
@@ -657,7 +665,7 @@ class MQTTService {
   }
 
   // Guardar datos de sensores en PostgreSQL (MongoDB removed)
-  async saveSensorData(data) {
+  async saveSensorData(data, _topicContext = null) {
     const isTiwater = data.source === 'tiwater' || data.metadata?.topic_format === 'tiwater';
 
     try {
@@ -684,6 +692,8 @@ class MQTTService {
       
       const context = {
         codigo_tienda: data.codigo_tienda,
+        codigo_region: data.codigo_region || 'NoRegion',
+        ciudad: data.ciudad || '',
         equipo_id: data.equipo_id,
         cliente_id: data.cliente ? data.cliente.toString() : null,
         owner_id: data.ownerId || null,

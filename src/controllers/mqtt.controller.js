@@ -179,7 +179,8 @@ export const publishTestMessage = async (req, res) => {
       return res.status(400).json({ message: 'codigoTienda is required (e.g. TEST-001)' });
     }
 
-    const topic = `tiwater/${codigoTienda.trim()}/data`;
+    const { buildTiwaterTopic } = await import('../utils/mqttTopic.js');
+    const topic = await buildTiwaterTopic(codigoTienda.trim());
 
     // Default payload (mock tiwater format); merge with provided payload
     const defaultPayload = {
