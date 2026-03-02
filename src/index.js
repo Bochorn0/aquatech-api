@@ -13,7 +13,7 @@ import notificationRoutes from './routes/notification.routes.js';  // Use `impor
 import metricRoutes from './routes/metric.routes.js';  // Use `import` for metricRoutes
 import cityRoutes from './routes/city.routes.js';  // Use `import` for metricRoutes
 import dashboardRoutes from './routes/dashboard.routes.js';  // Use `import` for dashboardRoutes
-import productRoutes from './routes/product.routes.js';  // Use `import` for productRoutes
+import productRoutes, { productAuthOrCron } from './routes/product.routes.js';  // Use `import` for productRoutes
 import userRoutes from './routes/user.routes.js';  // Use `import` for userRoutes
 import roleRoutes from './routes/role.routes.js';  // Use `import` for roleRoutes
 import clientRoutes from './routes/client.routes.js';  // Use `import` for clientRoutes'
@@ -237,7 +237,7 @@ app.get('/api/v1.0/mqtt/status', (req, res) => {
 // API access uses Role.permissions (same as frontend menu). requirePermission('/') = general access. /dashboard, /dashboard/v1, /dashboard/v2 = dashboard menu access. Backward compat: roles with no permissions allow admin and cliente by name.
 app.use('/api/v1.0/dashboard', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2'), dashboardRoutes);
 app.use('/api/v1.0/notifications', authenticate, requirePermission('/'), notificationRoutes);
-app.use('/api/v1.0/products', authenticate, requirePermission('/', '/equipos'), productRoutes);
+app.use('/api/v1.0/products', productAuthOrCron, productRoutes);
 app.use('/api/v1.0/users', authenticate, requirePermission('/usuarios'), userRoutes);
 app.use('/api/v1.0/roles', authenticate, requirePermission('/usuarios'), roleRoutes);
 app.use('/api/v1.0/clients', authenticate, requirePermission('/'), clientRoutes);
