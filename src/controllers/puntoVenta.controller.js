@@ -1,4 +1,5 @@
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
+import PuntoVentaV1Model from '../models/postgres/puntoVentaV1.model.js';
 import ClientModel from '../models/postgres/client.model.js';
 import CityModel from '../models/postgres/city.model.js';
 import { query } from '../config/postgres.config.js';
@@ -94,7 +95,72 @@ async function getLatestTiwaterPayloadForPublish(codigoTienda) {
   }
 }
 
-/** Build MongoDB-compatible punto response from Postgres record */
+/** Build MongoDB-compatible punto response from Postgres puntoventa_v1 record (V1) */
+async function buildPuntoResponseFromPostgresV1(pv) {
+  const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
+  let online = false;
+  if (pv.codigo_tienda || pv.code) {
+    const codigoTienda = (pv.codigo_tienda || pv.code).toUpperCase();
+    const thresholdTime = new Date(Date.now() - ONLINE_THRESHOLD_MS);
+    try {
+      const onlineResult = await query(
+        `SELECT COUNT(*) as count FROM sensores WHERE codigotienda = $1 AND createdat >= $2 LIMIT 1`,
+        [codigoTienda, thresholdTime]
+      );
+      online = onlineResult.rows?.length > 0 && parseInt(onlineResult.rows[0].count, 10) > 0;
+    } catch (e) {
+      // ignore
+    }
+  }
+  let clienteData = null;
+  if (pv.clientId) {
+    try {
+      const clientId = typeof pv.clientId === 'string' ? parseInt(pv.clientId, 10) : pv.clientId;
+      if (!isNaN(clientId)) clienteData = await ClientModel.findById(clientId);
+    } catch (e) {
+      // ignore
+    }
+  }
+  let addressObj = null;
+  if (pv.address) {
+    try {
+      addressObj = typeof pv.address === 'string' ? JSON.parse(pv.address) : pv.address;
+    } catch (e) {
+      addressObj = pv.address;
+    }
+  }
+  let cityData = null;
+  if (addressObj?.city && addressObj?.state) {
+    try {
+      cityData = await CityModel.findByStateAndCity(addressObj.state, addressObj.city);
+    } catch (e) {
+      // ignore
+    }
+  }
+  return {
+    _id: String(pv.id),
+    id: String(pv.id),
+    name: pv.name || 'Sin nombre',
+    codigo_tienda: pv.codigo_tienda || pv.code || null,
+    cliente: clienteData ? { _id: String(clienteData.id), id: String(clienteData.id), name: clienteData.name, email: clienteData.email, phone: clienteData.phone } : null,
+    city: cityData ? { _id: String(cityData.id), id: String(cityData.id), city: cityData.city, state: cityData.state, lat: cityData.lat, lon: cityData.lon } : (addressObj ? { _id: null, city: addressObj.city, state: addressObj.state, lat: pv.lat, lon: pv.long } : { _id: null, city: null, state: null, lat: pv.lat, lon: pv.long }),
+    address: addressObj || null,
+    productos: [],
+    controladores: [],
+    online,
+    status: pv.status || 'active',
+    owner: pv.owner || null,
+    clientId: pv.clientId ? String(pv.clientId) : null,
+    lat: pv.lat ?? null,
+    long: pv.long ?? null,
+    contactId: pv.contactId ? String(pv.contactId) : null,
+    meta: pv.meta ?? null,
+    createdAt: pv.createdAt ?? null,
+    updatedAt: pv.updatedAt ?? null,
+  };
+}
+
+/** Build MongoDB-compatible punto response from Postgres record (V2 - puntoventa) */
 async function buildPuntoResponseFromPostgres(pv) {
   const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
   let online = false;
@@ -173,13 +239,13 @@ async function buildPuntoResponseFromPostgres(pv) {
   };
 }
 
-// Obtener todos los puntos de venta
+// Obtener todos los puntos de venta (V1: puntoventa_v1)
 export const getPuntosVenta = async (req, res) => {
   try {
-    console.log('Fetching Puntos de Venta from PostgreSQL...');
+    console.log('Fetching Puntos de Venta from PostgreSQL (V1 puntoventa_v1)...');
 
-    const puntosPG = await PuntoVentaModel.find({}, { limit: 1000, offset: 0 });
-    const puntosConEstado = await Promise.all(puntosPG.map(pv => buildPuntoResponseFromPostgres(pv)));
+    const puntosPG = await PuntoVentaV1Model.find({}, { limit: 1000, offset: 0 });
+    const puntosConEstado = await Promise.all(puntosPG.map(pv => buildPuntoResponseFromPostgresV1(pv)));
 
     res.json(puntosConEstado);
   } catch (error) {
@@ -188,17 +254,17 @@ export const getPuntosVenta = async (req, res) => {
   }
 };
 
-// Obtener puntos de venta filtrados (PostgreSQL only)
+// Obtener puntos de venta filtrados (V1: puntoventa_v1)
 export const getPuntosVentaFiltered = async (req, res) => {
   try {
-    console.log('Fetching filtered Puntos de Venta...');
+    console.log('Fetching filtered Puntos de Venta (V1 puntoventa_v1)...');
     const { cliente, city, online } = req.query;
 
     const filters = {};
     if (cliente) filters.clientId = cliente;
 
-    const puntosPG = await PuntoVentaModel.find(filters, { limit: 1000, offset: 0 });
-    let puntosConEstado = await Promise.all(puntosPG.map(pv => buildPuntoResponseFromPostgres(pv)));
+    const puntosPG = await PuntoVentaV1Model.find(filters, { limit: 1000, offset: 0 });
+    let puntosConEstado = await Promise.all(puntosPG.map(pv => buildPuntoResponseFromPostgresV1(pv)));
 
     if (city) {
       puntosConEstado = puntosConEstado.filter(pv => {
@@ -220,26 +286,26 @@ export const getPuntosVentaFiltered = async (req, res) => {
   }
 };
 
-// Obtener un punto de venta por ID (PostgreSQL only)
+// Obtener un punto de venta por ID (V1: puntoventa_v1)
 export const getPuntoVentaById = async (req, res) => {
   try {
     const { id } = req.params;
-    console.log(`Fetching Punto de Venta by ID: ${id}`);
+    console.log(`Fetching Punto de Venta by ID (V1): ${id}`);
 
     let puntoFromPG = null;
     const isNumericId = /^\d+$/.test(id);
     if (isNumericId) {
-      puntoFromPG = await PuntoVentaModel.findById(parseInt(id, 10));
-      if (!puntoFromPG) puntoFromPG = await PuntoVentaModel.findByCode(id);
+      puntoFromPG = await PuntoVentaV1Model.findById(parseInt(id, 10));
+      if (!puntoFromPG) puntoFromPG = await PuntoVentaV1Model.findByCode(id);
     } else {
-      puntoFromPG = await PuntoVentaModel.findByCode(id.toUpperCase()) || await PuntoVentaModel.findById(parseInt(id, 10));
+      puntoFromPG = await PuntoVentaV1Model.findByCode(id.toUpperCase()) || await PuntoVentaV1Model.findById(parseInt(id, 10));
     }
 
     if (!puntoFromPG) {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }
 
-    const puntoConEstado = await buildPuntoResponseFromPostgres(puntoFromPG);
+    const puntoConEstado = await buildPuntoResponseFromPostgresV1(puntoFromPG);
 
     // V1-only: attach historico to Nivel products so "Histórico de Nivel" charts have data.
     // Uses report.controller (PostgreSQL ProductLog when available).
@@ -289,14 +355,14 @@ export const getPuntoVentaById = async (req, res) => {
   }
 };
 
-// Crear un nuevo punto de venta (PostgreSQL only)
+// Crear un nuevo punto de venta (V1: puntoventa_v1)
 export const addPuntoVenta = async (req, res) => {
   try {
     const { name, cliente, city, lat, long, codigo_tienda } = req.body;
 
     const codigoNorm = codigo_tienda?.trim()?.toUpperCase();
     if (codigoNorm) {
-      const existing = await PuntoVentaModel.findByCode(codigoNorm);
+      const existing = await PuntoVentaV1Model.findByCode(codigoNorm);
       if (existing) {
         return res.status(400).json({ message: 'El código de tienda ya existe' });
       }
@@ -305,7 +371,7 @@ export const addPuntoVenta = async (req, res) => {
     const address = (city && typeof city === 'object') ? JSON.stringify(city) : (typeof city === 'string' ? city : null);
     const clientId = cliente && (typeof cliente === 'object' ? cliente._id || cliente.id : cliente);
 
-    const puntoGuardado = await PuntoVentaModel.create({
+    const puntoGuardado = await PuntoVentaV1Model.create({
       name: name || 'Sin nombre',
       codigo_tienda: codigoNorm,
       code: codigoNorm,
@@ -316,7 +382,7 @@ export const addPuntoVenta = async (req, res) => {
       status: 'active'
     });
 
-    const response = await buildPuntoResponseFromPostgres(puntoGuardado);
+    const response = await buildPuntoResponseFromPostgresV1(puntoGuardado);
     res.status(201).json(response);
   } catch (error) {
     console.error('Error creating punto de venta:', error);
@@ -324,14 +390,14 @@ export const addPuntoVenta = async (req, res) => {
   }
 };
 
-// Actualizar un punto de venta (PostgreSQL only)
+// Actualizar un punto de venta (V1: puntoventa_v1, no region/ciudad)
 export const updatePuntoVenta = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
 
-    let puntoFromPG = await PuntoVentaModel.findById(parseInt(id, 10));
-    if (!puntoFromPG) puntoFromPG = await PuntoVentaModel.findByCode(id);
+    let puntoFromPG = await PuntoVentaV1Model.findById(parseInt(id, 10));
+    if (!puntoFromPG) puntoFromPG = await PuntoVentaV1Model.findByCode(id);
     if (!puntoFromPG) {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }
@@ -339,7 +405,7 @@ export const updatePuntoVenta = async (req, res) => {
     const numId = parseInt(puntoFromPG.id, 10);
 
     if (updates.codigo_tienda) {
-      const existing = await PuntoVentaModel.findByCode(updates.codigo_tienda.toUpperCase());
+      const existing = await PuntoVentaV1Model.findByCode(updates.codigo_tienda.toUpperCase());
       if (existing && parseInt(existing.id, 10) !== numId) {
         return res.status(400).json({ message: 'El código de tienda ya existe' });
       }
@@ -353,21 +419,14 @@ export const updatePuntoVenta = async (req, res) => {
     if (updates.lat !== undefined) updateData.lat = updates.lat;
     if (updates.long !== undefined) updateData.long = updates.long;
     if (updates.address !== undefined) updateData.address = typeof updates.address === 'string' ? updates.address : JSON.stringify(updates.address);
-    if (updates.dev_mode !== undefined) updateData.dev_mode = updates.dev_mode;
-    if (updates.ciudad_id !== undefined) updateData.ciudad_id = updates.ciudad_id;
+    if (updates.codigo_tienda !== undefined) updateData.codigo_tienda = updates.codigo_tienda;
 
-    const puntoActualizado = await PuntoVentaModel.update(numId, updateData);
-
-    // Link region if region_id provided
-    if (updates.region_id !== undefined && puntoActualizado) {
-      const RegionPuntoVentaModel = (await import('../models/postgres/regionPuntoVenta.model.js')).default;
-      await RegionPuntoVentaModel.link(updates.region_id, numId);
-    }
+    const puntoActualizado = await PuntoVentaV1Model.update(numId, updateData);
     if (!puntoActualizado) {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }
 
-    const response = await buildPuntoResponseFromPostgres(puntoActualizado);
+    const response = await buildPuntoResponseFromPostgresV1(puntoActualizado);
     res.json(response);
   } catch (error) {
     console.error('Error updating punto de venta:', error);
@@ -375,18 +434,18 @@ export const updatePuntoVenta = async (req, res) => {
   }
 };
 
-// Eliminar un punto de venta (PostgreSQL only)
+// Eliminar un punto de venta (V1: puntoventa_v1)
 export const deletePuntoVenta = async (req, res) => {
   try {
     const { id } = req.params;
 
-    let puntoFromPG = await PuntoVentaModel.findById(parseInt(id, 10));
-    if (!puntoFromPG) puntoFromPG = await PuntoVentaModel.findByCode(id);
+    let puntoFromPG = await PuntoVentaV1Model.findById(parseInt(id, 10));
+    if (!puntoFromPG) puntoFromPG = await PuntoVentaV1Model.findByCode(id);
     if (!puntoFromPG) {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }
 
-    const deleted = await PuntoVentaModel.delete(parseInt(puntoFromPG.id, 10));
+    const deleted = await PuntoVentaV1Model.delete(parseInt(puntoFromPG.id, 10));
     if (!deleted) {
       return res.status(404).json({ message: 'Punto de venta no encontrado' });
     }

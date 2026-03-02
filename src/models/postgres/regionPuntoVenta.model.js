@@ -38,6 +38,44 @@ class RegionPuntoVentaModel {
     );
     return result.rows?.[0] || null;
   }
+
+  /** Unlink a punto from a region */
+  static async unlink(regionId, puntoVentaId) {
+    if (!regionId || !puntoVentaId) return false;
+    const result = await query(
+      'DELETE FROM region_punto_venta WHERE region_id = $1 AND punto_venta_id = $2',
+      [regionId, puntoVentaId]
+    );
+    return (result.rowCount || 0) > 0;
+  }
+
+  /** Unlink all regions for a punto (use before assigning new region) */
+  static async unlinkAllForPunto(puntoVentaId) {
+    if (!puntoVentaId) return false;
+    const result = await query(
+      'DELETE FROM region_punto_venta WHERE punto_venta_id = $1',
+      [puntoVentaId]
+    );
+    return (result.rowCount || 0) >= 0;
+  }
+
+  /** Get puntos linked to a region (returns punto_venta_id list with pv details) */
+  static async getPuntosForRegion(regionId) {
+    if (!regionId) return [];
+    const result = await query(
+      `SELECT pv.id, pv.name, pv.codigo_tienda, pv.code
+       FROM puntoventa pv
+       JOIN region_punto_venta rpv ON rpv.punto_venta_id = pv.id
+       WHERE rpv.region_id = $1
+       ORDER BY pv.codigo_tienda, pv.name`,
+      [regionId]
+    );
+    return (result.rows || []).map((r) => ({
+      id: String(r.id),
+      name: r.name || null,
+      codigo_tienda: r.codigo_tienda || r.code || null
+    }));
+  }
 }
 
 export default RegionPuntoVentaModel;

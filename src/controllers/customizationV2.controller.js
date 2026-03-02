@@ -6,6 +6,7 @@ import MetricAlertModel from '../models/postgres/metricAlert.model.js';
 import ClientModel from '../models/postgres/client.model.js';
 import CityModel from '../models/postgres/city.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
+import PuntoVentaV1Model from '../models/postgres/puntoVentaV1.model.js';
 import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
 import SensoresModel from '../models/postgres/sensores.model.js';
 import CalidadAguaModel from '../models/postgres/calidadAgua.model.js';
@@ -107,8 +108,8 @@ export const getMetricsV2 = async (req, res) => {
     if (puntoVentaIds.length > 0 && puntoVentaIds.length <= 100) {
       try {
         const puntoVentaPromises = puntoVentaIds.map(id => 
-          PuntoVentaModel.findById(id).catch(err => {
-            console.warn(`[getMetricsV2] Error fetching punto venta ${id}:`, err.message);
+          PuntoVentaV1Model.findById(id).catch(err => {
+            console.warn(`[getMetricsV2] Error fetching punto venta v1 ${id}:`, err.message);
             return null;
           })
         );
@@ -1112,7 +1113,11 @@ export const updatePuntoVentaV2 = async (req, res) => {
     if (puntoVentaData.region_id !== undefined) {
       try {
         const RegionPuntoVentaModel = (await import('../models/postgres/regionPuntoVenta.model.js')).default;
-        await RegionPuntoVentaModel.link(puntoVentaData.region_id, parseInt(id, 10));
+        const pvId = parseInt(id, 10);
+        await RegionPuntoVentaModel.unlinkAllForPunto(pvId);
+        if (puntoVentaData.region_id) {
+          await RegionPuntoVentaModel.link(puntoVentaData.region_id, pvId);
+        }
       } catch (err) {
         console.warn('[updatePuntoVentaV2] Error linking region:', err.message);
       }

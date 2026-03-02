@@ -96,12 +96,13 @@ When MQTT receives a message on the new topic, we will:
 - [ ] Add Ciudad selector (fetch from /ciudades, filter by region)
 - [ ] Add Latitud (lat) and Longitud (long) input fields for manual update
 - [ ] On save: PATCH with ciudad_id, lat, long
+- [x] Add Regiones module: edit region name/code, assign/unassign puntos (admin)
 
-### 3.4 PuntoVenta Detail (punto-venta-detalle-v2.tsx)
+### 3.4 PuntoVenta Detail (punto-venta-detalle-v2.tsx) ✅
 
-- [ ] Add Edit button/modal to update region, ciudad, lat, long
-- [ ] Display region and ciudad in header/info section
-- [ ] Display lat/long with option to edit
+- [x] Add Edit button/modal to update region, ciudad, lat, long
+- [x] Display region and ciudad in header/info section
+- [x] Display lat/long with option to edit
 
 ---
 

@@ -39,6 +39,30 @@ class RegionModel {
     return (result.rows || []).map(row => this.parseRow(row));
   }
 
+  static async update(id, data) {
+    const { code, name } = data;
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+    if (code !== undefined) {
+      updates.push(`code = $${paramIndex}`);
+      values.push(String(code).trim().toUpperCase());
+      paramIndex++;
+    }
+    if (name !== undefined) {
+      updates.push(`name = $${paramIndex}`);
+      values.push(String(name).trim());
+      paramIndex++;
+    }
+    if (updates.length === 0) return this.findById(id);
+    values.push(id);
+    const result = await query(
+      `UPDATE regions SET ${updates.join(', ')}, updatedat = CURRENT_TIMESTAMP WHERE id = $${paramIndex} RETURNING *`,
+      values
+    );
+    return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+  }
+
   static parseRow(row) {
     if (!row) return null;
     return {
