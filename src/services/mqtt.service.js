@@ -21,9 +21,13 @@ const MQTT_CLIENT_ID = process.env.MQTT_CLIENT_ID || 'tiwater-api-consumer';
 const MQTT_USE_TLS = process.env.MQTT_USE_TLS === 'true' || MQTT_PORT === 8883;
 const MQTT_USERNAME = process.env.MQTT_USERNAME || null;
 const MQTT_PASSWORD = process.env.MQTT_PASSWORD || null;
-// Azure Event Grid: client cert paths for X.509 auth (mutual TLS)
+// Azure Event Grid: client cert for X.509 auth (mutual TLS)
+// Option A: File paths (MQTT_CLIENT_CERT_PATH, MQTT_CLIENT_KEY_PATH)
+// Option B: Base64 env vars (MQTT_CLIENT_CERT_B64, MQTT_CLIENT_KEY_B64) - for Azure App Service
 const MQTT_CLIENT_CERT_PATH = process.env.MQTT_CLIENT_CERT_PATH || null;
 const MQTT_CLIENT_KEY_PATH = process.env.MQTT_CLIENT_KEY_PATH || null;
+const MQTT_CLIENT_CERT_B64 = process.env.MQTT_CLIENT_CERT_B64 || null;
+const MQTT_CLIENT_KEY_B64 = process.env.MQTT_CLIENT_KEY_B64 || null;
 
 // Certificado CA para TLS - Prioridad:
 // 1. Variable de entorno MQTT_CA_CERT (recomendado)
@@ -159,17 +163,30 @@ class MQTTService {
       }
 
       // Azure Event Grid: client certificate (X.509) para autenticación
-      if (MQTT_CLIENT_CERT_PATH && MQTT_CLIENT_KEY_PATH && fs.existsSync(MQTT_CLIENT_CERT_PATH) && fs.existsSync(MQTT_CLIENT_KEY_PATH)) {
+      let certLoaded = false;
+      if (MQTT_CLIENT_CERT_B64 && MQTT_CLIENT_KEY_B64) {
+        try {
+          connectOptions.cert = Buffer.from(MQTT_CLIENT_CERT_B64, 'base64').toString('utf8');
+          connectOptions.key = Buffer.from(MQTT_CLIENT_KEY_B64, 'base64').toString('utf8');
+          certLoaded = true;
+          console.log(`[MQTT] ✅ Certificado cliente desde env (base64)`);
+        } catch (error) {
+          console.error(`[MQTT] ❌ Error decodificando certificado base64:`, error.message);
+        }
+      }
+      if (!certLoaded && MQTT_CLIENT_CERT_PATH && MQTT_CLIENT_KEY_PATH && fs.existsSync(MQTT_CLIENT_CERT_PATH) && fs.existsSync(MQTT_CLIENT_KEY_PATH)) {
         try {
           connectOptions.cert = fs.readFileSync(MQTT_CLIENT_CERT_PATH);
           connectOptions.key = fs.readFileSync(MQTT_CLIENT_KEY_PATH);
-          console.log(`[MQTT] ✅ Certificado cliente cargado (X.509 auth)`);
+          certLoaded = true;
+          console.log(`[MQTT] ✅ Certificado cliente desde archivos (X.509 auth)`);
         } catch (error) {
           console.error(`[MQTT] ❌ Error cargando certificado cliente:`, error.message);
           throw error;
         }
-      } else if (isEventGrid) {
-        console.warn(`[MQTT] ⚠️  Event Grid requiere MQTT_CLIENT_CERT_PATH y MQTT_CLIENT_KEY_PATH`);
+      }
+      if (!certLoaded && isEventGrid) {
+        console.warn(`[MQTT] ⚠️  Event Grid requiere MQTT_CLIENT_CERT_B64/MQTT_CLIENT_KEY_B64 o MQTT_CLIENT_CERT_PATH/MQTT_CLIENT_KEY_PATH`);
       }
     }
 
