@@ -21,6 +21,9 @@ const MQTT_CLIENT_ID = process.env.MQTT_CLIENT_ID || 'tiwater-api-consumer';
 const MQTT_USE_TLS = process.env.MQTT_USE_TLS === 'true' || MQTT_PORT === 8883;
 const MQTT_USERNAME = process.env.MQTT_USERNAME || null;
 const MQTT_PASSWORD = process.env.MQTT_PASSWORD || null;
+// Azure Event Grid: client cert paths for X.509 auth (mutual TLS)
+const MQTT_CLIENT_CERT_PATH = process.env.MQTT_CLIENT_CERT_PATH || null;
+const MQTT_CLIENT_KEY_PATH = process.env.MQTT_CLIENT_KEY_PATH || null;
 
 // Certificado CA para TLS - Prioridad:
 // 1. Variable de entorno MQTT_CA_CERT (recomendado)
@@ -122,58 +125,51 @@ class MQTTService {
     // Configurar TLS si es necesario
     if (useTLS) {
       let caCert = null;
-      let certSource = '';
+      const isEventGrid = (MQTT_BROKER || '').includes('eventgrid.azure.net');
 
-      // Prioridad 1: Variable de entorno MQTT_CA_CERT (recomendado)
-      if (MQTT_CA_CERT) {
-        caCert = MQTT_CA_CERT;
-        certSource = 'variable de entorno (MQTT_CA_CERT)';
-        console.log(`[MQTT] ✅ Certificado CA cargado desde variable de entorno`);
-      }
-      // Prioridad 2: Archivo en MQTT_CA_CERT_PATH
-      else if (MQTT_CA_CERT_PATH && fs.existsSync(MQTT_CA_CERT_PATH)) {
-        try {
-          caCert = fs.readFileSync(MQTT_CA_CERT_PATH);
-          certSource = `archivo (${MQTT_CA_CERT_PATH})`;
-          console.log(`[MQTT] ✅ Certificado CA cargado desde archivo: ${MQTT_CA_CERT_PATH}`);
-        } catch (error) {
-          console.warn(`[MQTT] ⚠️  No se pudo leer certificado desde archivo:`, error.message);
-        }
-      }
-      // Prioridad 3: Certificado embebido (fallback, no recomendado para producción)
-      if (!caCert) {
-        caCert = MQTT_CA_CERT_EMBEDDED;
-        certSource = 'embebido (fallback)';
-        console.warn(`[MQTT] ⚠️  Usando certificado CA embebido. Se recomienda configurar MQTT_CA_CERT en .env para producción`);
-      }
-
-      if (!caCert) {
-        throw new Error('No se pudo cargar el certificado CA. Configura MQTT_CA_CERT o MQTT_CA_CERT_PATH en .env');
-      }
-
-      connectOptions.ca = caCert;
-      
-      // Opciones adicionales de TLS
-      connectOptions.rejectUnauthorized = process.env.MQTT_REJECT_UNAUTHORIZED !== 'false'; // Por defecto true (verificar certificado)
-      
-      // Personalizar verificación del hostname para aceptar IP en CN
-      // Esto es necesario cuando el certificado tiene el IP en CN pero no en altnames
-      // El certificado tiene CN='146.190.143.141' pero Node.js requiere que esté en altnames
-      // Solución: Si el CN del certificado coincide con el IP al que nos conectamos, aceptarlo
-      connectOptions.checkServerIdentity = (servername, cert) => {
-        // Si nos conectamos por IP y el certificado tiene ese IP en CN, aceptarlo
-        if (servername === MQTT_BROKER && cert.subject && cert.subject.CN === MQTT_BROKER) {
-          return undefined; // Aceptar la conexión (undefined = sin error)
-        }
-        
-        // Para otros casos, usar la verificación estándar de Node.js
-        return tls.checkServerIdentity(servername, cert);
-      };
-      
-      if (process.env.MQTT_REJECT_UNAUTHORIZED === 'false') {
-        console.warn(`[MQTT] ⚠️  ADVERTENCIA: Verificación de certificado deshabilitada (rejectUnauthorized=false)`);
+      // Azure Event Grid: usa CA del sistema (Azure); no requiere CA personalizada
+      if (isEventGrid) {
+        console.log(`[MQTT] Azure Event Grid: usando TLS con CA del sistema`);
+        connectOptions.rejectUnauthorized = process.env.MQTT_REJECT_UNAUTHORIZED !== 'false';
       } else {
-        console.log(`[MQTT] Verificación de hostname personalizada: acepta IP en CN del certificado`);
+        // Mosquitto/self-hosted: cargar CA
+        if (MQTT_CA_CERT) {
+          caCert = MQTT_CA_CERT;
+          console.log(`[MQTT] ✅ Certificado CA desde variable de entorno`);
+        } else if (MQTT_CA_CERT_PATH && fs.existsSync(MQTT_CA_CERT_PATH)) {
+          try {
+            caCert = fs.readFileSync(MQTT_CA_CERT_PATH);
+            console.log(`[MQTT] ✅ Certificado CA desde archivo: ${MQTT_CA_CERT_PATH}`);
+          } catch (error) {
+            console.warn(`[MQTT] ⚠️  No se pudo leer CA:`, error.message);
+          }
+        }
+        if (!caCert) {
+          caCert = MQTT_CA_CERT_EMBEDDED;
+          console.warn(`[MQTT] ⚠️  Usando certificado CA embebido`);
+        }
+        connectOptions.ca = caCert;
+        connectOptions.rejectUnauthorized = process.env.MQTT_REJECT_UNAUTHORIZED !== 'false';
+        connectOptions.checkServerIdentity = (servername, cert) => {
+          if (servername === MQTT_BROKER && cert.subject && cert.subject.CN === MQTT_BROKER) {
+            return undefined;
+          }
+          return tls.checkServerIdentity(servername, cert);
+        };
+      }
+
+      // Azure Event Grid: client certificate (X.509) para autenticación
+      if (MQTT_CLIENT_CERT_PATH && MQTT_CLIENT_KEY_PATH && fs.existsSync(MQTT_CLIENT_CERT_PATH) && fs.existsSync(MQTT_CLIENT_KEY_PATH)) {
+        try {
+          connectOptions.cert = fs.readFileSync(MQTT_CLIENT_CERT_PATH);
+          connectOptions.key = fs.readFileSync(MQTT_CLIENT_KEY_PATH);
+          console.log(`[MQTT] ✅ Certificado cliente cargado (X.509 auth)`);
+        } catch (error) {
+          console.error(`[MQTT] ❌ Error cargando certificado cliente:`, error.message);
+          throw error;
+        }
+      } else if (isEventGrid) {
+        console.warn(`[MQTT] ⚠️  Event Grid requiere MQTT_CLIENT_CERT_PATH y MQTT_CLIENT_KEY_PATH`);
       }
     }
 

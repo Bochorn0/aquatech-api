@@ -2,6 +2,7 @@
 // Controlador para endpoints relacionados con MQTT
 
 import archiver from 'archiver';
+import mqttService from '../services/mqtt.service.js';
 import archiverZipEncrypted from 'archiver-zip-encrypted';
 import fs from 'fs';
 import path from 'path';
@@ -144,6 +145,59 @@ export const downloadCertificateZip = async (req, res) => {
       message: 'Error al generar el archivo ZIP del certificado',
       error: error.message 
     });
+  }
+};
+
+/**
+ * Publish test message to MQTT (tiwater/{codigoTienda}/data).
+ * Used to test Event Grid MQTT or Mosquitto integration.
+ * Frontend can call this to send sensor data; mqtt-consumer receives and saves to PostgreSQL.
+ */
+export const publishTestMessage = async (req, res) => {
+  try {
+    const { codigoTienda, payload } = req.body;
+
+    if (!codigoTienda || typeof codigoTienda !== 'string') {
+      return res.status(400).json({ message: 'codigoTienda is required (e.g. TEST-001)' });
+    }
+
+    const topic = `tiwater/${codigoTienda.trim()}/data`;
+
+    // Default payload (mock tiwater format); merge with provided payload
+    const defaultPayload = {
+      'CAUDAL PURIFICADA': 1.2,
+      'CAUDAL RECUPERACION': 1.5,
+      'NIVEL PURIFICADA': 45.5,
+      'NIVEL CRUDA': 65.2,
+      'TDS': 85,
+      timestamp: Math.floor(Date.now() / 1000)
+    };
+    const finalPayload = typeof payload === 'object' ? { ...defaultPayload, ...payload } : defaultPayload;
+    const message = JSON.stringify(finalPayload);
+
+    // Ensure MQTT is connected (for API process - publish only; consumer runs separately)
+    if (!mqttService.isConnected) {
+      mqttService.connect();
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      if (!mqttService.isConnected) {
+        return res.status(503).json({
+          message: 'MQTT not connected. Ensure mqtt-consumer is running and broker is reachable.',
+          broker: process.env.MQTT_BROKER || 'not set'
+        });
+      }
+    }
+
+    await mqttService.publish(topic, message);
+
+    res.json({
+      success: true,
+      message: 'Published to MQTT',
+      topic,
+      payload: finalPayload
+    });
+  } catch (error) {
+    console.error('[MQTT] Publish test error:', error);
+    res.status(500).json({ message: error.message || 'Failed to publish' });
   }
 };
 
