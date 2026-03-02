@@ -13,9 +13,9 @@ import config from '../config/config.js';
  */
 class EmailHelper {
   constructor() {
-    // Email provider: 'smtp', 'sendgrid', 'mailgun', or 'resend'
-    // Use API providers if SMTP ports are blocked by network
-    this.emailProvider = process.env.EMAIL_PROVIDER || 'smtp'; // 'smtp', 'sendgrid', 'mailgun', 'resend'
+    // Email provider: 'smtp', 'sendgrid', 'mailgun', 'resend', or 'none' (disabled - no config needed)
+    // Use API providers if SMTP ports are blocked by network. Use 'none' if you don't need email (password reset, alerts).
+    this.emailProvider = process.env.EMAIL_PROVIDER || (process.env.EMAIL_DISABLED === 'true' ? 'none' : 'smtp');
     
     // SendGrid configuration
     this.sendGridApiKey = process.env.SENDGRID_API_KEY || '';
@@ -92,7 +92,9 @@ class EmailHelper {
 
     // Create transporter (reused for all emails) - only if using SMTP
     this.transporter = null;
-    if (this.emailProvider === 'smtp') {
+    if (this.emailProvider === 'none') {
+      console.log('[EmailHelper] Email disabled (EMAIL_PROVIDER=none or EMAIL_DISABLED=true). Password reset and alert emails will not be sent.');
+    } else if (this.emailProvider === 'smtp') {
       this.initializeTransporter();
     } else if (this.emailProvider === 'sendgrid') {
       console.log('[EmailHelper] Using SendGrid API (HTTP/HTTPS, not SMTP ports)');
@@ -118,10 +120,16 @@ class EmailHelper {
   initializeTransporter() {
     try {
       const authType = this.smtpConfig.auth.type || (this.smtpConfig.auth.pass ? 'password' : 'oauth2');
-      
+      const hasAnyCreds = this.smtpConfig.auth.user || this.smtpConfig.auth.pass || this.smtpConfig.auth.clientId || this.smtpConfig.auth.refreshToken;
+      if (!hasAnyCreds) {
+        console.log('[EmailHelper] No email credentials set. Set EMAIL_PROVIDER=none to disable this message, or configure SMTP/OAuth/SendGrid/Mailgun/Resend.');
+        this.transporter = null;
+        return;
+      }
+
       if (authType === 'oauth2') {
-        // OAuth 2.0 validation
-        if (!this.smtpConfig.auth.user || !this.smtpConfig.auth.clientId || !this.smtpConfig.auth.clientSecret || !this.smtpConfig.auth.refreshToken) {
+        // OAuth 2.0 validation (only warn when OAuth was explicitly requested)
+        if (process.env.SMTP_AUTH_TYPE === 'oauth2' && (!this.smtpConfig.auth.user || !this.smtpConfig.auth.clientId || !this.smtpConfig.auth.clientSecret || !this.smtpConfig.auth.refreshToken)) {
           console.warn('[EmailHelper] OAuth 2.0 credentials not fully configured.');
           console.warn('[EmailHelper] Required: SMTP_USER, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_REFRESH_TOKEN');
         }
@@ -168,6 +176,12 @@ class EmailHelper {
       warnings: [],
       info: {},
     };
+
+    if (this.emailProvider === 'none') {
+      diagnostics.info.emailDisabled = true;
+      diagnostics.info.message = 'Email is disabled (EMAIL_PROVIDER=none or EMAIL_DISABLED=true).';
+      return diagnostics;
+    }
 
     // Check configuration
     if (!this.smtpConfig.auth.user) {
@@ -456,6 +470,10 @@ class EmailHelper {
    * @returns {Promise<Object>} Result object with success status and message/info
    */
   async sendEmail(options) {
+    if (this.emailProvider === 'none') {
+      return { success: false, error: 'Email is disabled (EMAIL_PROVIDER=none or EMAIL_DISABLED=true).' };
+    }
+
     const {
       to,
       subject,
