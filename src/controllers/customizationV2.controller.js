@@ -1107,6 +1107,16 @@ export const updatePuntoVentaV2 = async (req, res) => {
         message: 'Punto de venta no encontrado' 
       });
     }
+
+    // Link region if region_id provided (MQTT topic hierarchy)
+    if (puntoVentaData.region_id !== undefined) {
+      try {
+        const RegionPuntoVentaModel = (await import('../models/postgres/regionPuntoVenta.model.js')).default;
+        await RegionPuntoVentaModel.link(puntoVentaData.region_id, parseInt(id, 10));
+      } catch (err) {
+        console.warn('[updatePuntoVentaV2] Error linking region:', err.message);
+      }
+    }
     
     res.json(updatedPuntoVenta);
   } catch (error) {
