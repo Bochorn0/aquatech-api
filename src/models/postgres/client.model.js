@@ -27,6 +27,45 @@ class ClientModel {
   }
 
   /**
+   * Find client by exact name (case-insensitive)
+   * @param {String} name - Client name
+   * @returns {Promise<Object|null>} Client record or null
+   */
+  static async findByNameExact(name) {
+    if (!name || typeof name !== 'string') return null;
+    const result = await query(
+      'SELECT * FROM clients WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) LIMIT 1',
+      [String(name).trim()]
+    );
+    return result.rows?.length > 0 ? this.parseRow(result.rows[0]) : null;
+  }
+
+  /**
+   * Get or create client by name (for MQTT topic first-segment mapping).
+   * If name is "tiwater", resolves to "LCC Default". Creates with placeholder email if not found.
+   * @param {String} name - Client name or topic segment (e.g. "tiwater" → "LCC Default")
+   * @returns {Promise<Object|null>} Client record or null
+   */
+  static async getOrCreateByName(name) {
+    const displayName = (name && String(name).trim().toLowerCase() === 'tiwater') ? 'LCC Default' : (name ? String(name).trim() : 'LCC Default');
+    if (!displayName) return null;
+    const existing = await this.findByNameExact(displayName);
+    if (existing) return existing;
+    const placeholderEmail = `${displayName.toLowerCase().replace(/\s+/g, '.')}@mqtt.placeholder`;
+    try {
+      return await this.create({ name: displayName, email: placeholderEmail, phone: null, address: null });
+    } catch (e) {
+      if (e.message && e.message.includes('already exists')) {
+        const again = await this.findByEmail(placeholderEmail);
+        if (again) return again;
+      }
+      const byName = await this.findByNameExact(displayName);
+      if (byName) return byName;
+      throw e;
+    }
+  }
+
+  /**
    * Find client by email
    * @param {String} email - Client email
    * @returns {Promise<Object|null>} Client record or null

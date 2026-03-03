@@ -674,6 +674,13 @@ export const getPuntosVentaV2 = async (req, res) => {
             state: cityData.state || null,
             lat: cityData.lat || pv.lat || null,
             lon: cityData.lon || pv.long || null
+          } : (ciudadData ? {
+            _id: String(ciudadData.id),
+            id: String(ciudadData.id),
+            city: ciudadData.name || null,
+            state: null,
+            lat: pv.lat || null,
+            lon: pv.long || null
           } : (addressObj ? {
             _id: null,
             city: addressObj.city || null,
@@ -686,7 +693,7 @@ export const getPuntosVentaV2 = async (req, res) => {
             state: null,
             lat: pv.lat || null,
             lon: pv.long || null
-          }),
+          })),
           address: addressObj || null,
           productos: [], // Products would need to be queried separately if needed
           controladores: [], // Controllers would need to be queried separately if needed

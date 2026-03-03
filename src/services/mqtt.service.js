@@ -281,16 +281,17 @@ class MQTTService {
       // Parsear topic: tiwater/.../data
       const topicParts = topic.split('/');
       
-      // Nuevo formato: tiwater/CODIGO_REGION/CIUDAD/CODIGO_TIENDA/data (5 parts)
-      if (topicParts.length === 5 && topicParts[0] === 'tiwater' && topicParts[4] === 'data') {
+      // Nuevo formato: {cliente}/CODIGO_REGION/CIUDAD/CODIGO_TIENDA/data (5 parts) – first segment = cliente identifier
+      if (topicParts.length === 5 && topicParts[4] === 'data') {
+        const cliente_identifier = topicParts[0];
         const codigo_region = topicParts[1];
         const ciudad = topicParts[2];
         const codigo_tienda = topicParts[3];
-        this.handleTiwaterData(codigo_tienda, message, { codigo_region, ciudad });
+        this.handleTiwaterData(codigo_tienda, message, { cliente_identifier, codigo_region, ciudad });
       } else if (topicParts.length === 3 && topicParts[0] === 'tiwater' && topicParts[2] === 'data') {
         // Legacy: tiwater/CODIGO_TIENDA/data (usa NoRegion, ciudad vacía)
         const codigo_tienda = topicParts[1];
-        this.handleTiwaterData(codigo_tienda, message, { codigo_region: 'NoRegion', ciudad: '' });
+        this.handleTiwaterData(codigo_tienda, message, { cliente_identifier: 'tiwater', codigo_region: 'NoRegion', ciudad: '' });
       } else {
         console.log(`[MQTT] ⚠️  Topic desconocido: ${topic}`);
       }
@@ -477,6 +478,7 @@ class MQTTService {
         codigo_tienda: codigo_tienda ? codigo_tienda.toUpperCase() : null,
         codigo_region: topicContext.codigo_region || 'NoRegion',
         ciudad: topicContext.ciudad || '',
+        cliente_identifier: topicContext.cliente_identifier || 'tiwater',
         punto_venta: null,
         cliente: null,
         lat: data.lat != null ? parseFloat(data.lat) : null,
@@ -695,6 +697,7 @@ class MQTTService {
         codigo_tienda: data.codigo_tienda,
         codigo_region: data.codigo_region || 'NoRegion',
         ciudad: data.ciudad || '',
+        cliente_identifier: data.cliente_identifier || 'tiwater',
         equipo_id: data.equipo_id,
         cliente_id: data.cliente ? data.cliente.toString() : null,
         owner_id: data.ownerId || null,

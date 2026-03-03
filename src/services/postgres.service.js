@@ -7,6 +7,7 @@ import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js'
 import RegionModel from '../models/postgres/region.model.js';
 import CiudadModel from '../models/postgres/ciudad.model.js';
 import RegionPuntoVentaModel from '../models/postgres/regionPuntoVenta.model.js';
+import ClientModel from '../models/postgres/client.model.js';
 import MetricNotificationService from './metricNotification.service.js';
 
 /**
@@ -158,8 +159,9 @@ class PostgresService {
       const codigoTienda = context.codigo_tienda || mqttData.codigo_tienda || mqttData.codigoTienda;
       const codigoRegion = (context.codigo_region || mqttData.codigo_region || 'NoRegion').trim();
       const ciudadName = (context.ciudad || mqttData.ciudad || '').trim();
+      const clienteIdentifier = (context.cliente_identifier || mqttData.cliente_identifier || 'tiwater').trim() || 'tiwater';
 
-      // Region + Ciudad + PuntoVenta + region_punto_venta link
+      // Region + Ciudad + Cliente (from topic first segment) + PuntoVenta + region_punto_venta link
       if (codigoTienda) {
         try {
           const defaultName = mqttData.punto_venta_name || context.punto_venta_name || `Punto de Venta ${codigoTienda}`;
@@ -170,7 +172,7 @@ class PostgresService {
             console.log(`[PostgresService] ✅ Region ${region.code} (ID: ${region.id})`);
           }
 
-          // 2. Get or create Ciudad (if name provided)
+          // 2. Get or create Ciudad (if name provided). New cities are stored with no coordinates (ciudades table has no lat/long).
           let ciudadRecord = null;
           if (ciudadName && region) {
             ciudadRecord = await CiudadModel.getOrCreate({ name: ciudadName, region_id: region.id });
@@ -179,13 +181,27 @@ class PostgresService {
             }
           }
 
-          // 3. Get or create PuntoVenta (with ciudad_id when creating)
+          // 3. Resolve client from topic first segment (e.g. "tiwater" → LCC Default; customCliente → get/create by name)
+          let resolvedClientId = context.cliente_id || mqttData.cliente_id || null;
+          if (!resolvedClientId) {
+            try {
+              const client = await ClientModel.getOrCreateByName(clienteIdentifier);
+              if (client && client.id) {
+                resolvedClientId = String(client.id);
+                console.log(`[PostgresService] ✅ ClientId ${resolvedClientId} (${client.name}) from topic segment "${clienteIdentifier}"`);
+              }
+            } catch (err) {
+              console.warn(`[PostgresService] ⚠️  Error resolving client for "${clienteIdentifier}":`, err.message);
+            }
+          }
+
+          // 4. Get or create PuntoVenta (with ciudad_id and clientId)
           const puntoVenta = await PuntoVentaModel.getOrCreate({
             code: codigoTienda,
             codigo_tienda: codigoTienda,
             name: defaultName,
             owner: context.owner_id || mqttData.owner_id || null,
-            clientId: context.cliente_id || mqttData.cliente_id || null,
+            clientId: resolvedClientId || null,
             status: 'active',
             lat: mqttData.lat || context.lat || null,
             long: mqttData.long || context.long || mqttData.lon || null,
@@ -204,14 +220,17 @@ class PostgresService {
           if (puntoVenta) {
             console.log(`[PostgresService] ✅ PuntoVenta ${puntoVenta.id ? 'creado' : 'encontrado'} para codigo_tienda: ${codigoTienda} (ID: ${puntoVenta.id})`);
 
-            // 4. Link Region-PuntoVenta if not exists
+            // 5. Link Region-PuntoVenta if not exists
             if (region && puntoVenta.id) {
               await RegionPuntoVentaModel.link(region.id, puntoVenta.id);
             }
 
-            // 5. Update ciudad_id if puntoVenta existed but didn't have it
-            if (ciudadRecord && puntoVenta.id && !puntoVenta.ciudadId) {
-              await PuntoVentaModel.update(puntoVenta.id, { ciudad_id: ciudadRecord.id });
+            // 6. Update existing punto if it was missing ciudad_id or clientId
+            const updates = {};
+            if (ciudadRecord && puntoVenta.id && !puntoVenta.ciudadId) updates.ciudad_id = ciudadRecord.id;
+            if (resolvedClientId && puntoVenta.id && !puntoVenta.clientId) updates.clientId = resolvedClientId;
+            if (Object.keys(updates).length > 0) {
+              await PuntoVentaModel.update(puntoVenta.id, updates);
             }
           } else {
             console.log(`[PostgresService] ✅ PuntoVenta procesado para codigo_tienda: ${codigoTienda}`);
