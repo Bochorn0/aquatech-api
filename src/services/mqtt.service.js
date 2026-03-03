@@ -479,7 +479,8 @@ class MQTTService {
         ciudad: topicContext.ciudad || '',
         punto_venta: null,
         cliente: null,
-        
+        lat: data.lat != null ? parseFloat(data.lat) : null,
+        long: data.long != null ? parseFloat(data.long) : (data.lon != null ? parseFloat(data.lon) : null),
         // Sensores mapeados
         ...mappedData,
         

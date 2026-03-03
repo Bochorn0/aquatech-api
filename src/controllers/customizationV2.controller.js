@@ -11,6 +11,8 @@ import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js'
 import SensoresModel from '../models/postgres/sensores.model.js';
 import CalidadAguaModel from '../models/postgres/calidadAgua.model.js';
 import { query } from '../config/postgres.config.js';
+import mqttService from '../services/mqtt.service.js';
+import { REGIONS, buildMockTiwaterPayload, pickRandom } from '../utils/mockPuntosVentaMqtt.js';
 
 // ============================================================================
 // METRICS CONTROLLERS
@@ -1889,6 +1891,103 @@ export const removeCalidadAguaV2 = async (req, res) => {
       success: false,
       message: 'Error deleting water quality record',
       error: error.message
+    });
+  }
+};
+
+// ============================================================================
+// ADMIN EVENTS (test scenarios – admin only)
+// ============================================================================
+
+const ALLOWED_MOCK_COUNTS = [5, 10, 25, 50, 135];
+
+/**
+ * Generate mock puntos de venta via MQTT (admin only).
+ * Publishes to tiwater/REGION/CIUDAD/TIENDA_XXX/data; consumer creates region, ciudad, punto, then sets dev_mode.
+ * @route   POST /api/v2.0/admin/events/generate-puntos-venta
+ * @body    { count?: number }  default 5, allowed: 5, 10, 25, 50, 135
+ * @access  Admin
+ */
+export const generateMockPuntosVenta = async (req, res) => {
+  try {
+    const count = Math.min(
+      135,
+      Math.max(1, parseInt(req.body?.count, 10) || 5)
+    );
+    if (!ALLOWED_MOCK_COUNTS.includes(count)) {
+      return res.status(400).json({
+        success: false,
+        message: `count must be one of: ${ALLOWED_MOCK_COUNTS.join(', ')}`,
+        allowed: ALLOWED_MOCK_COUNTS
+      });
+    }
+
+    if (!mqttService.isConnected) {
+      mqttService.connect();
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    if (!mqttService.isConnected) {
+      return res.status(503).json({
+        success: false,
+        message: 'MQTT no está conectado. Comprueba el broker y vuelve a intentar.',
+        broker: process.env.MQTT_BROKER || 'not set'
+      });
+    }
+
+    const regionNames = Object.keys(REGIONS);
+    const timestampUnix = Math.floor(Date.now() / 1000);
+    let published = 0;
+    let errors = 0;
+
+    for (let i = 1; i <= count; i++) {
+      const codigo = `TIENDA_${String(i).padStart(3, '0')}`;
+      const regionName = pickRandom(regionNames);
+      const cityObj = pickRandom(REGIONS[regionName]);
+      const topic = `tiwater/${regionName}/${cityObj.city}/${codigo}/data`;
+      const payload = {
+        ...buildMockTiwaterPayload(timestampUnix),
+        lat: cityObj.lat + (Math.random() * 0.02 - 0.01),
+        long: cityObj.lon + (Math.random() * 0.02 - 0.01),
+      };
+      const message = JSON.stringify(payload);
+      try {
+        await mqttService.publish(topic, message, { qos: 1 });
+        published++;
+      } catch (err) {
+        errors++;
+        console.error(`[generateMockPuntosVenta] Publish ${codigo}:`, err.message);
+      }
+      if (i % 20 === 0) await new Promise((r) => setTimeout(r, 50));
+    }
+
+    // Give consumer time to create puntos, then set dev_mode
+    await new Promise((r) => setTimeout(r, 4000));
+    const lastCode = `TIENDA_${String(count).padStart(3, '0')}`;
+    const updateResult = await query(
+      `UPDATE puntoventa SET dev_mode = true
+       WHERE code >= 'TIENDA_001' AND code <= $1
+       RETURNING id`,
+      [lastCode]
+    );
+    const devModeUpdated = updateResult.rowCount || 0;
+
+    console.log(`[generateMockPuntosVenta] Published ${published}, errors ${errors}, dev_mode updated ${devModeUpdated}`);
+
+    res.json({
+      success: true,
+      message: `Se publicaron ${published} mensajes MQTT (TIENDA_001 .. ${lastCode}). dev_mode activado en ${devModeUpdated} puntos.`,
+      data: {
+        published,
+        errors,
+        devModeUpdated,
+        lastCode,
+      }
+    });
+  } catch (error) {
+    console.error('[generateMockPuntosVenta] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error generando puntos de venta mock',
     });
   }
 };
