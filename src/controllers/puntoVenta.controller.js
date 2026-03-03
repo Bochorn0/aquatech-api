@@ -213,13 +213,26 @@ async function buildPuntoResponseFromPostgres(pv) {
     }
   }
   let productosList = [];
-  const productIds = pv.meta && typeof pv.meta === 'object' && Array.isArray(pv.meta.product_ids) ? pv.meta.product_ids : [];
+  const metaObj = (() => {
+    const m = pv.meta;
+    if (!m) return null;
+    if (typeof m === 'object') return m;
+    if (typeof m === 'string') {
+      try { return JSON.parse(m); } catch (e) { return null; }
+    }
+    return null;
+  })();
+  const rawIds = metaObj && metaObj.product_ids != null
+    ? (Array.isArray(metaObj.product_ids) ? metaObj.product_ids : [metaObj.product_ids])
+    : [];
+  const productIds = rawIds
+    .map((pid) => (typeof pid === 'number' ? pid : parseInt(String(pid), 10)))
+    .filter((n) => !Number.isNaN(n));
   if (productIds.length > 0) {
     const resolved = await Promise.all(productIds.map(async (pid) => {
       try {
-        const num = typeof pid === 'number' ? pid : parseInt(String(pid), 10);
-        let product = !Number.isNaN(num) ? await ProductModel.findById(num) : null;
-        if (!product && pid != null) product = await ProductModel.findByDeviceId(String(pid));
+        let product = await ProductModel.findById(pid);
+        if (!product) product = await ProductModel.findByDeviceId(String(pid));
         return product;
       } catch (e) {
         return null;
@@ -448,8 +461,9 @@ export const updatePuntoVenta = async (req, res) => {
 
     const existingMeta = (puntoFromPG.meta && typeof puntoFromPG.meta === 'object') ? { ...puntoFromPG.meta } : {};
     if (updates.productos !== undefined) {
-      const ids = Array.isArray(updates.productos) ? updates.productos : [];
-      existingMeta.product_ids = ids.map((id) => (typeof id === 'number' ? id : parseInt(String(id), 10))).filter((n) => !Number.isNaN(n));
+      const raw = updates.productos;
+      const arr = Array.isArray(raw) ? raw : (raw != null && raw !== '' ? [raw] : []);
+      existingMeta.product_ids = arr.map((pid) => (typeof pid === 'number' ? pid : parseInt(String(pid), 10))).filter((n) => !Number.isNaN(n));
     }
     if (updates.city !== undefined && updates.city !== null && updates.city !== '') {
       const cityId = typeof updates.city === 'number' ? updates.city : parseInt(String(updates.city), 10);
@@ -473,6 +487,9 @@ export const updatePuntoVenta = async (req, res) => {
       }
     }
     updateData.meta = Object.keys(existingMeta).length ? existingMeta : undefined;
+    if (existingMeta.product_ids && existingMeta.product_ids.length > 0) {
+      console.log('[updatePuntoVenta] Saving meta.product_ids:', existingMeta.product_ids, 'for punto id', numId);
+    }
 
     const puntoActualizado = await PuntoVentaV1Model.update(numId, updateData);
     if (!puntoActualizado) {
