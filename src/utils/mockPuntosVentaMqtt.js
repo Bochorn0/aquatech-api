@@ -26,6 +26,14 @@ export const REGIONS = {
   ],
 };
 
+/** Ordered keys for slicing payload in stress test (sensor count 1..N) */
+export const MOCK_PAYLOAD_KEYS = [
+  'CAUDAL PURIFICADA', 'CAUDAL RECUPERACION', 'CAUDAL RECHAZO',
+  'NIVEL PURIFICADA', 'NIVEL CRUDA', 'PORCENTAJE NIVEL PURIFICADA', 'PORCENTAJE NIVEL CRUDA',
+  'CAUDAL CRUDA', 'ACUMULADO CRUDA', 'CAUDAL CRUDA L/min', 'vida', 'TDS', 'PRESION CO2',
+  'ch1', 'ch2', 'ch3', 'ch4', 'EFICIENCIA'
+];
+
 export function buildMockTiwaterPayload(timestampUnix = Math.floor(Date.now() / 1000)) {
   const nivelPurificada = Math.round((25 + Math.random() * 55) * 10) / 10;
   const nivelCruda = Math.round((35 + Math.random() * 45) * 10) / 10;
@@ -50,6 +58,19 @@ export function buildMockTiwaterPayload(timestampUnix = Math.floor(Date.now() / 
     EFICIENCIA: parseFloat((45 + Math.random() * 25).toFixed(1)),
     timestamp: timestampUnix,
   };
+}
+
+/** Build payload with only first sensorCount keys (1..MOCK_PAYLOAD_KEYS.length) + timestamp. For stress test. */
+export function buildMockTiwaterPayloadSlice(sensorCount = 19, timestampUnix = Math.floor(Date.now() / 1000)) {
+  const full = buildMockTiwaterPayload(timestampUnix);
+  const n = Math.max(1, Math.min(sensorCount, MOCK_PAYLOAD_KEYS.length));
+  const out = {};
+  for (let i = 0; i < n; i++) {
+    const k = MOCK_PAYLOAD_KEYS[i];
+    if (full[k] !== undefined) out[k] = full[k];
+  }
+  out.timestamp = timestampUnix;
+  return out;
 }
 
 export function pickRandom(arr) {

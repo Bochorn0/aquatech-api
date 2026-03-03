@@ -12,7 +12,8 @@ import SensoresModel from '../models/postgres/sensores.model.js';
 import CalidadAguaModel from '../models/postgres/calidadAgua.model.js';
 import { query } from '../config/postgres.config.js';
 import mqttService from '../services/mqtt.service.js';
-import { REGIONS, buildMockTiwaterPayload, pickRandom } from '../utils/mockPuntosVentaMqtt.js';
+import { buildTiwaterTopic } from '../utils/mqttTopic.js';
+import { REGIONS, buildMockTiwaterPayload, buildMockTiwaterPayloadSlice, MOCK_PAYLOAD_KEYS, pickRandom } from '../utils/mockPuntosVentaMqtt.js';
 
 // ============================================================================
 // METRICS CONTROLLERS
@@ -1988,6 +1989,78 @@ export const generateMockPuntosVenta = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || 'Error generando puntos de venta mock',
+    });
+  }
+};
+
+/**
+ * MQTT stress test: publish one batch of mock messages for selected puntos (admin only).
+ * Frontend calls this repeatedly while the stress test is running (e.g. every 500ms for 1–3 min).
+ * @route   POST /api/v2.0/admin/events/stress-mqtt
+ * @body    { puntoVentaIds: string[], sensorKeysCount?: number }  sensorKeysCount 1–19
+ * @access  Admin
+ */
+export const stressMqtt = async (req, res) => {
+  try {
+    const puntoVentaIds = Array.isArray(req.body?.puntoVentaIds) ? req.body.puntoVentaIds : [];
+    const sensorKeysCount = Math.max(1, Math.min(parseInt(req.body?.sensorKeysCount, 10) || 19, MOCK_PAYLOAD_KEYS.length));
+
+    if (puntoVentaIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'puntoVentaIds is required (array of punto de venta ids)',
+      });
+    }
+
+    if (!mqttService.isConnected) {
+      mqttService.connect();
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    if (!mqttService.isConnected) {
+      return res.status(503).json({
+        success: false,
+        message: 'MQTT no está conectado.',
+        broker: process.env.MQTT_BROKER || 'not set'
+      });
+    }
+
+    const timestampUnix = Math.floor(Date.now() / 1000);
+    let published = 0;
+    let errors = 0;
+
+    for (const id of puntoVentaIds) {
+      const pvId = typeof id === 'string' ? parseInt(id, 10) : id;
+      if (Number.isNaN(pvId)) continue;
+      try {
+        const pv = await PuntoVentaModel.findById(pvId);
+        if (!pv) continue;
+        const code = pv.code || pv.codigo_tienda;
+        if (!code) continue;
+        const topic = await buildTiwaterTopic(code);
+        const payload = buildMockTiwaterPayloadSlice(sensorKeysCount, timestampUnix);
+        if (pv.lat != null || pv.long != null) {
+          payload.lat = pv.lat != null ? parseFloat(pv.lat) : null;
+          payload.long = pv.long != null ? parseFloat(pv.long) : null;
+        }
+        const message = JSON.stringify(payload);
+        await mqttService.publish(topic, message, { qos: 1 });
+        published++;
+      } catch (err) {
+        errors++;
+      }
+    }
+
+    res.json({
+      success: true,
+      published,
+      errors,
+      total: puntoVentaIds.length,
+    });
+  } catch (error) {
+    console.error('[stressMqtt] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error en stress MQTT',
     });
   }
 };
