@@ -29,6 +29,7 @@ import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoute
 import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoutes
 import regionRoutes from './routes/region.routes.js';
 import ciudadRoutes from './routes/ciudad.routes.js';
+import adminEventsRoutes from './routes/adminEvents.routes.js';
 import { authenticate, requirePermission } from './middlewares/auth.middleware.js';
 import mqttService from './services/mqtt.service.js';  // Import MQTT service
 import emailHelper from './utils/email.helper.js';  // Import email helper for test endpoint
@@ -255,6 +256,9 @@ app.use('/api/v2.0/tiwater/quotes', tiwaterQuoteRoutes);
 // v2.0 API routes - Regions and Ciudades (for MQTT topic hierarchy)
 app.use('/api/v2.0/regions', regionRoutes);
 app.use('/api/v2.0/ciudades', ciudadRoutes);
+
+// v2.0 API routes - Admin events (must be before generic /api/v2.0 so /admin/* is matched)
+app.use('/api/v2.0/admin', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), adminEventsRoutes);
 
 // v2.0 API routes - Customization and sensors (require dashboard or puntoVenta/personalizacion access)
 app.use('/api/v2.0', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), customizationV2Routes);

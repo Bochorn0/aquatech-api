@@ -2,7 +2,6 @@
 // Routes for v2.0 API endpoints using PostgreSQL for customization data
 
 import express from 'express';
-import { authorizeRoles } from '../middlewares/auth.middleware.js';
 import {
   // Metrics
   getMetricsV2,
@@ -44,23 +43,10 @@ import {
   getCalidadAguaByIdV2,
   addCalidadAguaV2,
   updateCalidadAguaV2,
-  removeCalidadAguaV2,
-  generateMockPuntosVenta
+  removeCalidadAguaV2
 } from '../controllers/customizationV2.controller.js';
 
 const router = express.Router();
-
-// ============================================================================
-// ADMIN EVENTS (admin only – must be before /:id routes)
-// ============================================================================
-
-/**
- * @route   POST /api/v2.0/admin/events/generate-puntos-venta
- * @desc    Generate mock puntos de venta via MQTT (test scenario)
- * @body    { count?: number }  allowed: 5, 10, 25, 50, 135
- * @access  Admin
- */
-router.post('/admin/events/generate-puntos-venta', authorizeRoles('admin'), generateMockPuntosVenta);
 
 // ============================================================================
 // METRICS ROUTES
