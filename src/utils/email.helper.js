@@ -14,9 +14,22 @@ import config from '../config/config.js';
 class EmailHelper {
   constructor() {
     // Email provider: 'smtp', 'sendgrid', 'mailgun', 'resend', or 'none' (disabled - no config needed)
-    // Use API providers if SMTP ports are blocked by network. Use 'none' if you don't need email (password reset, alerts).
-    this.emailProvider = process.env.EMAIL_PROVIDER || (process.env.EMAIL_DISABLED === 'true' ? 'none' : 'smtp');
-    
+    const explicitProvider = process.env.EMAIL_PROVIDER;
+    const disabledByEnv = process.env.EMAIL_DISABLED === 'true';
+
+    if (disabledByEnv || explicitProvider === 'none') {
+      this.emailProvider = 'none';
+    } else if (explicitProvider) {
+      this.emailProvider = String(explicitProvider).toLowerCase();
+    } else {
+      // Auto-detect from available credentials (so e.g. only SENDGRID_API_KEY is needed)
+      if (process.env.SENDGRID_API_KEY) this.emailProvider = 'sendgrid';
+      else if (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) this.emailProvider = 'mailgun';
+      else if (process.env.RESEND_API_KEY) this.emailProvider = 'resend';
+      else if (process.env.SMTP_USER && (process.env.SMTP_PASSWORD || (process.env.OAUTH_CLIENT_ID && process.env.OAUTH_REFRESH_TOKEN))) this.emailProvider = 'smtp';
+      else this.emailProvider = 'none';
+    }
+
     // SendGrid configuration
     this.sendGridApiKey = process.env.SENDGRID_API_KEY || '';
     this.sendGridFromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.SMTP_USER || 'soporte@lcc.com.mx';
@@ -93,24 +106,38 @@ class EmailHelper {
     // Create transporter (reused for all emails) - only if using SMTP
     this.transporter = null;
     if (this.emailProvider === 'none') {
-      console.log('[EmailHelper] Email disabled (EMAIL_PROVIDER=none or EMAIL_DISABLED=true). Password reset and alert emails will not be sent.');
+      console.log('[EmailHelper] Email disabled. Password reset and alert emails will not be sent. To enable: set credentials for one of SMTP/SendGrid/Mailgun/Resend (see docs/EMAIL_CONFIG.md). Set EMAIL_PROVIDER=none to hide this message.');
     } else if (this.emailProvider === 'smtp') {
       this.initializeTransporter();
+      if (!this.transporter) {
+        this.emailProvider = 'none';
+        console.log('[EmailHelper] Email disabled (no SMTP credentials). Set SMTP_USER and SMTP_PASSWORD, or use SendGrid/Mailgun/Resend (see docs/EMAIL_CONFIG.md).');
+      }
     } else if (this.emailProvider === 'sendgrid') {
-      console.log('[EmailHelper] Using SendGrid API (HTTP/HTTPS, not SMTP ports)');
       if (!this.sendGridApiKey) {
-        console.warn('[EmailHelper] SENDGRID_API_KEY not set. Email sending will fail.');
+        this.emailProvider = 'none';
+        console.log('[EmailHelper] Email disabled (SENDGRID_API_KEY not set). See docs/EMAIL_CONFIG.md.');
+      } else {
+        console.log('[EmailHelper] Using SendGrid API');
       }
     } else if (this.emailProvider === 'mailgun') {
-      console.log('[EmailHelper] Using Mailgun API (HTTP/HTTPS, not SMTP ports)');
       if (!this.mailgunApiKey || !this.mailgunDomain) {
-        console.warn('[EmailHelper] MAILGUN_API_KEY or MAILGUN_DOMAIN not set. Email sending will fail.');
+        this.emailProvider = 'none';
+        console.log('[EmailHelper] Email disabled (MAILGUN_API_KEY or MAILGUN_DOMAIN not set). See docs/EMAIL_CONFIG.md.');
+      } else {
+        console.log('[EmailHelper] Using Mailgun API');
       }
     } else if (this.emailProvider === 'resend') {
-      console.log('[EmailHelper] Using Resend API (HTTP/HTTPS, not SMTP ports)');
       if (!this.resendApiKey) {
-        console.warn('[EmailHelper] RESEND_API_KEY not set. Email sending will fail.');
+        this.emailProvider = 'none';
+        console.log('[EmailHelper] Email disabled (RESEND_API_KEY not set). See docs/EMAIL_CONFIG.md.');
+      } else {
+        console.log('[EmailHelper] Using Resend API');
       }
+    }
+
+    if (this.emailProvider !== 'none') {
+      console.log('[EmailHelper] Email enabled via', this.emailProvider, '– password reset and alert emails will be sent.');
     }
   }
 
@@ -122,7 +149,6 @@ class EmailHelper {
       const authType = this.smtpConfig.auth.type || (this.smtpConfig.auth.pass ? 'password' : 'oauth2');
       const hasAnyCreds = this.smtpConfig.auth.user || this.smtpConfig.auth.pass || this.smtpConfig.auth.clientId || this.smtpConfig.auth.refreshToken;
       if (!hasAnyCreds) {
-        console.log('[EmailHelper] No email credentials set. Set EMAIL_PROVIDER=none to disable this message, or configure SMTP/OAuth/SendGrid/Mailgun/Resend.');
         this.transporter = null;
         return;
       }
