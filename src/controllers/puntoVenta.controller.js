@@ -215,15 +215,17 @@ async function buildPuntoResponseFromPostgres(pv) {
   let productosList = [];
   const productIds = pv.meta && typeof pv.meta === 'object' && Array.isArray(pv.meta.product_ids) ? pv.meta.product_ids : [];
   if (productIds.length > 0) {
-    try {
-      const resolved = await Promise.all(productIds.map((pid) => {
+    const resolved = await Promise.all(productIds.map(async (pid) => {
+      try {
         const num = typeof pid === 'number' ? pid : parseInt(String(pid), 10);
-        return Number.isNaN(num) ? null : ProductModel.findById(num);
-      }));
-      productosList = resolved.filter(Boolean).map((p) => ({ _id: p._id, id: p.id, name: p.name, device_id: p.device_id }));
-    } catch (e) {
-      // ignore
-    }
+        let product = !Number.isNaN(num) ? await ProductModel.findById(num) : null;
+        if (!product && pid != null) product = await ProductModel.findByDeviceId(String(pid));
+        return product;
+      } catch (e) {
+        return null;
+      }
+    }));
+    productosList = resolved.filter(Boolean).map((p) => ({ _id: p._id, id: p.id, name: p.name, device_id: p.device_id }));
   }
   // Region and ciudad (from MQTT hierarchy: tiwater/REGION/CIUDAD/CODIGO/data)
   let regionData = null;

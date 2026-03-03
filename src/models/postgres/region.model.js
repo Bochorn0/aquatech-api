@@ -39,6 +39,33 @@ class RegionModel {
     return (result.rows || []).map(row => this.parseRow(row));
   }
 
+  /**
+   * Create a new region (manual create; for get-or-create use getOrCreate).
+   * @param {Object} data - { code, name }
+   * @returns {Promise<Object|null>} Created region or null if code already exists
+   */
+  static async create(data) {
+    const code = (data.code || '').trim().toUpperCase();
+    const name = (data.name || '').trim() || code;
+    if (!code) return null;
+    const existing = await this.findByCode(code);
+    if (existing) return null;
+    const result = await query(
+      'INSERT INTO regions (code, name) VALUES ($1, $2) RETURNING *',
+      [code, name]
+    );
+    return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+  }
+
+  /**
+   * Delete a region by id. Cascades to region_punto_venta and ciudades (FK ON DELETE CASCADE).
+   */
+  static async delete(id) {
+    if (!id) return false;
+    const result = await query('DELETE FROM regions WHERE id = $1 RETURNING id', [id]);
+    return result.rowCount > 0;
+  }
+
   static async update(id, data) {
     const { code, name } = data;
     const updates = [];

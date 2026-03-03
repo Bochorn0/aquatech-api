@@ -176,7 +176,13 @@ class ProductModel {
 
   static parseRow(row) {
     if (!row) return null;
-    const status = Array.isArray(row.status) ? row.status : (row.status ? JSON.parse(row.status || '[]') : []);
+    let status = [];
+    if (row.status != null) {
+      if (Array.isArray(row.status)) status = row.status;
+      else if (typeof row.status === 'string') {
+        try { status = JSON.parse(row.status || '[]'); } catch (_) { status = []; }
+      }
+    }
     return {
       id: row.device_id,
       _id: String(row.id),

@@ -1,12 +1,16 @@
 import { Router } from 'express';
-import { getRegions, getRegionById, updateRegion, getRegionPuntos } from '../controllers/region.controller.js';
+import { getRegions, getRegionById, updateRegion, getRegionPuntos, createRegion, deleteRegion } from '../controllers/region.controller.js';
 import { authenticate, requirePermission } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
-router.get('/', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), getRegions);
-router.get('/:id/puntos', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), getRegionPuntos);
-router.get('/:id', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), getRegionById);
-router.patch('/:id', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), updateRegion);
+const regionPermission = ['/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'];
+
+router.get('/', authenticate, requirePermission(...regionPermission), getRegions);
+router.post('/', authenticate, requirePermission(...regionPermission), createRegion);
+router.get('/:id/puntos', authenticate, requirePermission(...regionPermission), getRegionPuntos);
+router.get('/:id', authenticate, requirePermission(...regionPermission), getRegionById);
+router.patch('/:id', authenticate, requirePermission(...regionPermission), updateRegion);
+router.delete('/:id', authenticate, requirePermission(...regionPermission), deleteRegion);
 
 export default router;
