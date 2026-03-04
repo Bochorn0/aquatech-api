@@ -577,34 +577,49 @@ export const getPuntosVentaV2 = async (req, res) => {
     // Get all puntos de venta from PostgreSQL
     const puntosPG = await PuntoVentaModel.find({}, { limit: 1000, offset: 0 });
 
-    // Check online status by querying sensors table for recent data
-    // A punto de venta is online if it has sensor data in the last 5 minutes
+    // Online = sensor_latest has a row for this codigo_tienda with updated_at or timestamp within 5 minutes
     const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-    const now = new Date();
-    const thresholdTime = new Date(now.getTime() - ONLINE_THRESHOLD_MS);
+    const thresholdTime = new Date(Date.now() - ONLINE_THRESHOLD_MS);
+    let onlineCodigoTiendas = new Set();
+    try {
+      const onlineQuery = `
+        SELECT DISTINCT codigo_tienda FROM sensor_latest
+        WHERE (updated_at >= $1 OR "timestamp" >= $1)
+      `;
+      const onlineResult = await query(onlineQuery, [thresholdTime]);
+      onlineResult.rows.forEach((row) => onlineCodigoTiendas.add((row.codigo_tienda || '').toString().trim().toUpperCase()));
+    } catch (err) {
+      // If sensor_latest table missing, fall back to sensores table
+      try {
+        const fallback = await query(
+          'SELECT DISTINCT codigotienda FROM sensores WHERE createdat >= $1',
+          [thresholdTime]
+        );
+        fallback.rows.forEach((row) => onlineCodigoTiendas.add((row.codigotienda || '').toString().trim().toUpperCase()));
+      } catch (_) {}
+    }
 
-    // Get online status for each punto de venta and fetch client data
+    // Sensor count per punto from puntoventasensors (configuration table)
+    const countsByPuntoId = {};
+    try {
+      const countResult = await query(
+        'SELECT punto_venta_id, COUNT(*) AS cnt FROM puntoventasensors GROUP BY punto_venta_id',
+        []
+      );
+      countResult.rows.forEach((row) => {
+        const id = row.punto_venta_id != null ? String(row.punto_venta_id) : '';
+        countsByPuntoId[id] = parseInt(row.cnt, 10) || 0;
+      });
+    } catch (err) {
+      // puntoventasensors may not exist in some envs
+    }
+
+    // Build response: use online set + counts, fetch client/region/city per punto
     const puntosConEstado = await Promise.all(
       puntosPG.map(async (pv) => {
-        let online = false;
-        
-        // Check if there are recent sensor readings for this punto de venta
-        if (pv.codigo_tienda || pv.code) {
-          const codigoTienda = (pv.codigo_tienda || pv.code).toUpperCase();
-          try {
-            const onlineCheckQuery = `
-              SELECT COUNT(*) as count
-              FROM sensores
-              WHERE codigotienda = $1
-                AND createdat >= $2
-              LIMIT 1
-            `;
-            const onlineResult = await query(onlineCheckQuery, [codigoTienda, thresholdTime]);
-            online = onlineResult.rows.length > 0 && parseInt(onlineResult.rows[0].count) > 0;
-          } catch (error) {
-            console.warn(`[getPuntosVentaV2] Error checking online status for ${codigoTienda}:`, error.message);
-          }
-        }
+        const codigoTienda = (pv.codigo_tienda || pv.code || '').toString().trim().toUpperCase();
+        const online = codigoTienda ? onlineCodigoTiendas.has(codigoTienda) : false;
+        const sensors_count = countsByPuntoId[String(pv.id)] ?? 0;
 
         // Fetch client data if clientId exists
         let clienteData = null;
@@ -698,8 +713,9 @@ export const getPuntosVentaV2 = async (req, res) => {
           address: addressObj || null,
           productos: [], // Products would need to be queried separately if needed
           controladores: [], // Controllers would need to be queried separately if needed
-          online: online,
+          online,
           status: pv.status || 'active',
+          sensors_count,
           owner: pv.owner || null,
           clientId: pv.clientId ? String(pv.clientId) : null,
           lat: pv.lat || null,
