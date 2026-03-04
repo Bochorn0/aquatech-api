@@ -2,6 +2,7 @@
 // Controller for v2.0 API endpoints using PostgreSQL sensores table
 
 import SensoresModel from '../models/postgres/sensores.model.js';
+import SensorLatestModel from '../models/postgres/sensorLatest.model.js';
 import { query } from '../config/postgres.config.js';
 import ClientModel from '../models/postgres/client.model.js';
 
@@ -2283,4 +2284,37 @@ export const getMainDashboardV2Metrics = async (req, res) => {
     });
   }
 };
+
+/**
+ * GET /api/v2.0/sensors/latest
+ * Returns the most recent value per sensor from sensor_latest (no time-series scan).
+ * Query: codigo_tienda (required) — single code or comma-separated list.
+ * Single: { codigo_tienda, sensors: [ { type, name, value, timestamp, resourceId, resourceType }, ... ] }
+ * Multiple: { [codigo_tienda]: [ ... ], ... }
+ */
+export async function getSensorLatest(req, res) {
+  try {
+    const raw = (req.query.codigo_tienda ?? req.query.codigoTienda ?? '').toString().trim();
+    if (!raw) {
+      return res.status(400).json({ message: 'codigo_tienda (or codigoTienda) is required' });
+    }
+    const codes = raw.split(',').map((c) => c.trim()).filter(Boolean);
+    if (codes.length === 0) {
+      return res.status(400).json({ message: 'At least one codigo_tienda is required' });
+    }
+
+    if (codes.length === 1) {
+      const sensors = await SensorLatestModel.getLatestByCodigoTienda(codes[0]);
+      return res.json({ codigo_tienda: codes[0], sensors });
+    }
+    const byCode = await SensorLatestModel.getLatestByCodigoTiendas(codes);
+    return res.json(byCode);
+  } catch (error) {
+    console.error('[getSensorLatest]', error);
+    res.status(500).json({
+      message: 'Error al obtener últimos valores de sensores',
+      error: error.message,
+    });
+  }
+}
 

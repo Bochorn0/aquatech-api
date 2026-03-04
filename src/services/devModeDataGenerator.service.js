@@ -5,6 +5,7 @@
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
 import SensoresModel from '../models/postgres/sensores.model.js';
+import SensorLatestModel from '../models/postgres/sensorLatest.model.js';
 import { buildTiwaterTopic } from '../utils/mqttTopic.js';
 
 /**
@@ -253,6 +254,11 @@ export async function generateRandomDataForDevModePuntos() {
 
       try {
         const saved = await SensoresModel.createMany(sensorRecords);
+        try {
+          await SensorLatestModel.upsertMany(sensorRecords);
+        } catch (latestErr) {
+          // ignore if sensor_latest table not yet created
+        }
         result.readingsCreated += saved.length;
         result.puntosProcessed += 1;
       } catch (err) {

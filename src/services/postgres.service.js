@@ -2,6 +2,7 @@
 // Service layer for PostgreSQL operations
 
 import SensoresModel from '../models/postgres/sensores.model.js';
+import SensorLatestModel from '../models/postgres/sensorLatest.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
 import RegionModel from '../models/postgres/region.model.js';
@@ -127,7 +128,13 @@ class PostgresService {
 
       // Save to PostgreSQL
       const savedSensor = await SensoresModel.create(sensorData);
-      
+
+      try {
+        await SensorLatestModel.upsertOne(sensorData);
+      } catch (latestErr) {
+        console.warn('[PostgresService] ⚠️  sensor_latest upsert failed:', latestErr.message);
+      }
+
       console.log(`[PostgresService] ✅ Sensor data saved to PostgreSQL: ID ${savedSensor.id}`);
       
       // Evaluate saved sensor against metric alerts and create notifications
@@ -407,6 +414,13 @@ class PostgresService {
       // Save all sensors in a single transaction
       const savedSensors = await SensoresModel.createMany(sensors);
       
+      // Update sensor_latest (one row per sensor type per store) for efficient "current value" reads
+      try {
+        await SensorLatestModel.upsertMany(sensors);
+      } catch (latestErr) {
+        console.warn('[PostgresService] ⚠️  sensor_latest upsert failed (table may not exist yet):', latestErr.message);
+      }
+
       console.log(`[PostgresService] ✅ ${savedSensors.length} sensor readings saved to PostgreSQL`);
       
       // Evaluate saved sensors against metric alerts and create notifications

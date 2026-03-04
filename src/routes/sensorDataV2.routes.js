@@ -7,6 +7,7 @@ import {
   getOsmosisSystemByPuntoVenta,
   getPuntoVentaDetalleV2,
   getPuntosVentaV2,
+  getSensorLatest,
   getSensorTimeSeries,
   getTiwaterSensorData
 } from '../controllers/sensorDataV2.controller.js';
@@ -59,6 +60,14 @@ router.get('/timeseries', getSensorTimeSeries);
  * @query   codigoTienda (required)
  */
 router.get('/tiwater', getTiwaterSensorData);
+
+/**
+ * @route   GET /api/v2.0/sensors/latest
+ * @desc    Get most recent value per sensor from sensor_latest (no time-series scan)
+ * @access  Private
+ * @query   codigo_tienda (required) — single code or comma-separated list
+ */
+router.get('/latest', getSensorLatest);
 
 export default router;
 
