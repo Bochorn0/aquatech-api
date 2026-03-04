@@ -41,18 +41,19 @@ class RegionModel {
 
   /**
    * Create a new region (manual create; for get-or-create use getOrCreate).
-   * @param {Object} data - { code, name }
+   * @param {Object} data - { code, name, color? }
    * @returns {Promise<Object|null>} Created region or null if code already exists
    */
   static async create(data) {
     const code = (data.code || '').trim().toUpperCase();
     const name = (data.name || '').trim() || code;
+    const color = data.color != null ? String(data.color).trim() || null : null;
     if (!code) return null;
     const existing = await this.findByCode(code);
     if (existing) return null;
     const result = await query(
-      'INSERT INTO regions (code, name) VALUES ($1, $2) RETURNING *',
-      [code, name]
+      'INSERT INTO regions (code, name, color) VALUES ($1, $2, $3) RETURNING *',
+      [code, name, color]
     );
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
@@ -67,7 +68,7 @@ class RegionModel {
   }
 
   static async update(id, data) {
-    const { code, name } = data;
+    const { code, name, color } = data;
     const updates = [];
     const values = [];
     let paramIndex = 1;
@@ -79,6 +80,11 @@ class RegionModel {
     if (name !== undefined) {
       updates.push(`name = $${paramIndex}`);
       values.push(String(name).trim());
+      paramIndex++;
+    }
+    if (color !== undefined) {
+      updates.push(`color = $${paramIndex}`);
+      values.push(color != null ? String(color).trim() || null : null);
       paramIndex++;
     }
     if (updates.length === 0) return this.findById(id);
@@ -96,6 +102,7 @@ class RegionModel {
       id: row.id ? String(row.id) : null,
       code: row.code || null,
       name: row.name || null,
+      color: row.color || null,
       createdAt: row.createdat || null,
       updatedAt: row.updatedat || null,
     };

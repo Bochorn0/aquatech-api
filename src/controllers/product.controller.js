@@ -6,6 +6,7 @@ import ControllerModel from '../models/postgres/controller.model.js';
 import ProductLogModel from '../models/postgres/productLog.model.js';
 import * as tuyaService from '../services/tuya.service.js';
 import moment from 'moment';
+import { devLog, devWarn } from '../utils/devLogger.js';
 
 // IDs de productos tipo "Nivel"
 const productos_nivel = [
@@ -85,7 +86,7 @@ export const getAllProducts = async (req, res) => {
       }
     }
 
-    console.log('Fetching products from Tuya (source of truth) with filters:', filtros);
+    devLog('Fetching products from Tuya (source of truth) with filters:', filtros);
 
     const clientesList = await ClientModel.find();
     const defaultCliente = clientesList.find(c => c.name === 'Caffenio') || clientesList.find(c => c.name === 'All') || clientesList[0];
@@ -94,7 +95,7 @@ export const getAllProducts = async (req, res) => {
     // Sync Tuya → PostgreSQL (non-blocking: Tuya is source of truth)
     let dbProducts = [];
     try {
-      console.log('🔄 [Sincronización] Iniciando sincronización de productos de Tuya con PostgreSQL...');
+      devLog('🔄 [Sincronización] Iniciando sincronización de productos de Tuya con PostgreSQL...');
       let productosActualizados = 0;
       let productosInsertados = 0;
       let productosConError = 0;
@@ -119,21 +120,21 @@ export const getAllProducts = async (req, res) => {
           };
           await ProductModel.create(productData);
           productosInsertados++;
-          console.log(`➕ [Sincronización] Producto almacenado desde Tuya: ${tuyaProduct.name} (id: ${tuyaProduct.id})`);
+          devLog(`➕ [Sincronización] Producto almacenado desde Tuya: ${tuyaProduct.name} (id: ${tuyaProduct.id})`);
         } catch (error) {
           productosConError++;
           console.error(`❌ [Sincronización] Error almacenando producto ${tuyaProduct.id} (${tuyaProduct.name}):`, error.message);
         }
       }
-      console.log(`🔄 [Sincronización] Completada: ${productosInsertados} nuevos almacenados, ${productosActualizados} ya existían, ${productosConError} con error`);
+      devLog(`🔄 [Sincronización] Completada: ${productosInsertados} nuevos almacenados, ${productosActualizados} ya existían, ${productosConError} con error`);
 
       dbProducts = await ProductModel.find(filtros);
-      console.log(`📦 Found ${dbProducts.length} products in database`);
+      devLog(`📦 Found ${dbProducts.length} products in database`);
     } catch (dbErr) {
-      console.warn('[getAllProducts] DB sync/query failed, using Tuya data only:', dbErr.message);
+      devWarn('[getAllProducts] DB sync/query failed, using Tuya data only:', dbErr.message);
     }
 
-    console.log(`🌐 Found ${realProducts.data?.length ?? 0} products from Tuya (source of truth)`);
+    devLog(`🌐 Found ${realProducts.data?.length ?? 0} products from Tuya (source of truth)`);
 
     const dbProductsMap = new Map();
     dbProducts.forEach(p => {
@@ -169,9 +170,9 @@ export const getAllProducts = async (req, res) => {
     });
 
     if (tuyaNotConfigured) {
-      console.log(`📦 [Tuya not configured] Using ${dbProducts.length} products from database only`);
+      devLog(`📦 [Tuya not configured] Using ${dbProducts.length} products from database only`);
     }
-    console.log(`✅ Total products to show: ${products.length}`);
+    devLog(`✅ Total products to show: ${products.length}`);
 
     // Aplicar transformaciones y filtros
     const filteredProducts = await Promise.all(products.map(async (product) => {
@@ -201,7 +202,7 @@ export const getAllProducts = async (req, res) => {
       //   const needsFlowSpeed2 = !flowSpeed2 || flowSpeed2.value === 0;
       
       //   if (needsFlowSpeed1 || needsFlowSpeed2) {
-      //     console.log(`🔍 [getAllProducts] Producto ${product.id}: flowrate en 0, consultando ProductLogModel...`);
+      //     devLog(`🔍 [getAllProducts] Producto ${product.id}: flowrate en 0, consultando ProductLogModel...`);
       
       //     try {
       //       // Obtener el registro más reciente de ProductLog
@@ -210,7 +211,7 @@ export const getAllProducts = async (req, res) => {
       //         .limit(1);
       
       //       if (latestLog) {
-      //         console.log(`✅ [getAllProducts] Log encontrado para ${product.id}`);
+      //         devLog(`✅ [getAllProducts] Log encontrado para ${product.id}`);
       
       //         if (needsFlowSpeed1 && latestLog.flujo_produccion) {
       //           if (flowSpeed1) {
@@ -218,7 +219,7 @@ export const getAllProducts = async (req, res) => {
       //           } else {
       //             product.status.push({ code: 'flowrate_speed_1', value: latestLog.flujo_produccion });
       //           }
-      //           console.log(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
+      //           devLog(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
       //         }
       
       //         if (needsFlowSpeed2 && latestLog.flujo_rechazo) {
@@ -227,10 +228,10 @@ export const getAllProducts = async (req, res) => {
       //           } else {
       //             product.status.push({ code: 'flowrate_speed_2', value: latestLog.flujo_rechazo });
       //           }
-      //           console.log(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
+      //           devLog(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
       //         }
       //       } else {
-      //         console.log(`⚠️ [getAllProducts] No se encontraron logs para ${product.id}`);
+      //         devLog(`⚠️ [getAllProducts] No se encontraron logs para ${product.id}`);
       //       }
       //     } catch (logError) {
       //       console.error(`❌ [getAllProducts] Error obteniendo logs para ${product.id}:`, logError.message);
@@ -308,7 +309,7 @@ export const getAllProducts = async (req, res) => {
       );
     }
 
-    console.log(`🎯 Final products after filters: ${finalProducts.length}`);
+    devLog(`🎯 Final products after filters: ${finalProducts.length}`);
 
     // 🔽 EXTRA: incluir productos sólo locales que no están en Tuya
     const idsTuya = new Set(realProducts.data.map(p => p.id));
@@ -351,7 +352,7 @@ export const getAllProducts = async (req, res) => {
       );
     }
 
-    console.log(`🎯 Final products after filters (combinados): ${todosLosProductos.length}`);
+    devLog(`🎯 Final products after filters (combinados): ${todosLosProductos.length}`);
     res.json(todosLosProductos);
   } catch (error) {
     console.error('Error fetching products:', error);
@@ -378,10 +379,10 @@ export const saveAllProducts = async (req, res) => {
         const created = await ProductModel.create({ ...p, client_id: p.cliente || (await ClientModel.find())[0]?.id });
         if (created) storedProducts.push(created);
       } catch (e) {
-        console.warn('saveAllProducts skip:', e.message);
+        devWarn('saveAllProducts skip:', e.message);
       }
     }
-    console.log(`${storedProducts.length} products saved to database.`);
+    devLog(`${storedProducts.length} products saved to database.`);
     res.status(200).json(storedProducts);
   } catch (error) {
       console.error("Error generating product data:", error);
@@ -562,19 +563,19 @@ export const getProductById = async (req, res) => {
     const { id } = req.params;
     const ONLINE_THRESHOLD_MS = 5000; // 5 segundos
     const now = Date.now();
-    console.log('Fetching product details for:', id);
+    devLog('Fetching product details for:', id);
 
     // Check if the product exists in MongoDB
     let product = await ProductModel.findByDeviceId(id);
 
     if (product) {
-      console.log('Product found in MongoDB. Fetching latest details from Tuya API...');
+      devLog('Product found in MongoDB. Fetching latest details from Tuya API...');
       product.online = product.last_time_active && (now - product.last_time_active <= ONLINE_THRESHOLD_MS);
       
       // Fetch the latest details from Tuya API
       const response = await tuyaService.getDeviceDetail(id);
       
-      console.log('response product detail', response)
+      devLog('response product detail', response)
       if (!response.success) {
         if (product) {
           const lastDisplayFail = await getLastUpdatedDisplay(id, product.update_time);
@@ -600,7 +601,7 @@ export const getProductById = async (req, res) => {
           'ebf9738480d78e0132gnru',
           'ebea4ffa2ab1483940nrqn'
         ];
-        console.log(`Product ${id} updated in MongoDB.`);
+        devLog(`Product ${id} updated in MongoDB.`);
         
         // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
         const isOsmosis = product.product_type === 'Osmosis' || product.product_type === 'osmosis';
@@ -613,14 +614,14 @@ export const getProductById = async (req, res) => {
           const needsFlowSpeed2 = !flowSpeed2 || flowSpeed2.value === 0;
           
           if (needsFlowSpeed1 || needsFlowSpeed2) {
-            console.log(`🔍 [getProductById] Producto ${id}: flowrate en 0, consultando ProductLogModel...`);
+            devLog(`🔍 [getProductById] Producto ${id}: flowrate en 0, consultando ProductLogModel...`);
             
             try {
               // Obtener el registro más reciente de ProductLog
               const latestLog = await ProductLogModel.findOne({ product_id: id });
               
               if (latestLog) {
-                console.log(`✅ [getProductById] Log encontrado para ${id}`);
+                devLog(`✅ [getProductById] Log encontrado para ${id}`);
                 
                 if (needsFlowSpeed1 && latestLog.flujo_produccion) {
                   if (flowSpeed1) {
@@ -628,7 +629,7 @@ export const getProductById = async (req, res) => {
                   } else {
                     product.status.push({ code: 'flowrate_speed_1', value: latestLog.flujo_produccion });
                   }
-                  console.log(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
+                  devLog(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
                 }
                 
                 if (needsFlowSpeed2 && latestLog.flujo_rechazo) {
@@ -637,10 +638,10 @@ export const getProductById = async (req, res) => {
                   } else {
                     product.status.push({ code: 'flowrate_speed_2', value: latestLog.flujo_rechazo });
                   }
-                  console.log(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
+                  devLog(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
                 }
               } else {
-                console.log(`⚠️ [getProductById] No se encontraron logs para ${id}`);
+                devLog(`⚠️ [getProductById] No se encontraron logs para ${id}`);
               }
             } catch (logError) {
               console.error(`❌ [getProductById] Error obteniendo logs para ${id}:`, logError.message);
@@ -675,7 +676,7 @@ export const getProductById = async (req, res) => {
       }
 
       // If Tuya API doesn't return data, return the existing MongoDB product
-      console.log('Tuya API did not return data. Returning existing MongoDB product.');
+      devLog('Tuya API did not return data. Returning existing MongoDB product.');
       const lastDisplayExisting = await getLastUpdatedDisplay(id, product.update_time);
       const outExisting = { ...product };
       outExisting.last_updated_display = lastDisplayExisting != null ? lastDisplayExisting : outExisting.update_time;
@@ -692,7 +693,7 @@ export const getProductById = async (req, res) => {
     } 
 
     // If product does not exist in MongoDB, fetch from Tuya API
-    console.log('Product not found in MongoDB. Fetching from Tuya API...');
+    devLog('Product not found in MongoDB. Fetching from Tuya API...');
     const response = await tuyaService.getDeviceDetail(id);
     if (!response.success) {
       return res.status(400).json({ message: response.error, code: response.code });
@@ -720,7 +721,7 @@ export const getProductById = async (req, res) => {
       return res.status(500).json({ message: 'Failed to create product' });
     }
 
-    console.log(`Product ${id} saved to Postgres.`);
+    devLog(`Product ${id} saved to Postgres.`);
     
     // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
     const isOsmosis = newProductModel.product_type === 'Osmosis' || newProductModel.product_type === 'osmosis';
@@ -733,14 +734,14 @@ export const getProductById = async (req, res) => {
       const needsFlowSpeed2 = !flowSpeed2 || flowSpeed2.value === 0;
       
       if (needsFlowSpeed1 || needsFlowSpeed2) {
-        console.log(`🔍 [getProductById - new] Producto ${id}: flowrate en 0, consultando ProductLogModel...`);
+        devLog(`🔍 [getProductById - new] Producto ${id}: flowrate en 0, consultando ProductLogModel...`);
         
         try {
           // Obtener el registro más reciente de ProductLog
           const latestLog = await ProductLogModel.findOne({ product_id: id });
           
           if (latestLog) {
-            console.log(`✅ [getProductById - new] Log encontrado para ${id}`);
+            devLog(`✅ [getProductById - new] Log encontrado para ${id}`);
             
             if (needsFlowSpeed1 && latestLog.flujo_produccion) {
               if (flowSpeed1) {
@@ -748,7 +749,7 @@ export const getProductById = async (req, res) => {
               } else {
                 newProductModel.status.push({ code: 'flowrate_speed_1', value: latestLog.flujo_produccion });
               }
-              console.log(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
+              devLog(`  📊 flowrate_speed_1 actualizado: ${latestLog.flujo_produccion}`);
             }
             
             if (needsFlowSpeed2 && latestLog.flujo_rechazo) {
@@ -757,10 +758,10 @@ export const getProductById = async (req, res) => {
               } else {
                 newProductModel.status.push({ code: 'flowrate_speed_2', value: latestLog.flujo_rechazo });
               }
-              console.log(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
+              devLog(`  📊 flowrate_speed_2 actualizado: ${latestLog.flujo_rechazo}`);
             }
           } else {
-            console.log(`⚠️ [getProductById - new] No se encontraron logs para ${id}`);
+            devLog(`⚠️ [getProductById - new] No se encontraron logs para ${id}`);
           }
         } catch (logError) {
           console.error(`❌ [getProductById - new] Error obteniendo logs para ${id}:`, logError.message);
@@ -821,7 +822,7 @@ export const getProductLogsById = async (req, res) => {
     const product = await ProductModel.findByDeviceId(id);
     const productType = product?.product_type || 'Osmosis';
     const isNivel = productType === 'Nivel' || productType === 'nivel';
-    console.log('Fetching product logs for:', { id, productType });
+    devLog('Fetching product logs for:', { id, productType });
 
     // ====== FUNCIÓN PARA APLICAR CONVERSIONES ======
     const applySpecialProductLogic = (fieldName, value) => {
@@ -876,7 +877,7 @@ export const getProductLogsById = async (req, res) => {
       last_row_key,
     };
 
-    console.log('📊 Filtros para Tuya:', filters);
+    devLog('📊 Filtros para Tuya:', filters);
 
     let rawLogs = [];
     let source = 'database';
@@ -889,12 +890,12 @@ export const getProductLogsById = async (req, res) => {
           ? mapTuyaLogsNivel(response.data.logs)
           : mapTuyaLogs(response.data.logs);
         source = 'tuya';
-        console.log(`✅ Logs obtenidos desde Tuya (${rawLogs.length})`);
+        devLog(`✅ Logs obtenidos desde Tuya (${rawLogs.length})`);
       } else {
-        console.warn('⚠️ No se encontraron logs en Tuya');
+        devWarn('⚠️ No se encontraron logs en Tuya');
       }
     } catch (err) {
-      console.warn('⚠️ Error al obtener logs de Tuya:', err.message);
+      devWarn('⚠️ Error al obtener logs de Tuya:', err.message);
     }
 
     // ====== Si Tuya no devolvió datos: para Nivel, intentar sync-on-read (guardar en ProductLog y luego leer de DB) ======
@@ -919,7 +920,7 @@ export const getProductLogsById = async (req, res) => {
                 }
                 await new Promise((r) => setTimeout(r, 200));
               } catch (codeErr) {
-                console.warn(`[getProductLogsById] Nivel sync: error fetching ${code}:`, codeErr.message);
+                devWarn(`[getProductLogsById] Nivel sync: error fetching ${code}:`, codeErr.message);
               }
             }
             if (allTuyaLogs.length > 0) {
@@ -958,17 +959,17 @@ export const getProductLogsById = async (req, res) => {
                   }));
                 if (toInsert.length > 0) {
                   await ProductLogModel.insertMany(toInsert);
-                  console.log(`📥 [getProductLogsById] Nivel sync-on-read: guardados ${toInsert.length} logs en ProductLog`);
+                  devLog(`📥 [getProductLogsById] Nivel sync-on-read: guardados ${toInsert.length} logs en ProductLog`);
                 }
               }
             }
           }
         } catch (nivelSyncErr) {
-          console.warn('[getProductLogsById] Nivel sync-on-read error:', nivelSyncErr.message);
+          devWarn('[getProductLogsById] Nivel sync-on-read error:', nivelSyncErr.message);
         }
       }
 
-      console.log('🔁 Consultando logs desde base de datos local...');
+      devLog('🔁 Consultando logs desde base de datos local...');
       const query = { product_id: id, _limit: parseInt(limit, 10) * 5 };
 
       if (start_date && end_date) {
@@ -986,7 +987,7 @@ export const getProductLogsById = async (req, res) => {
         source: 'database',
       }));
 
-      console.log(`✅ Logs obtenidos desde DB (${rawLogs.length})`);
+      devLog(`✅ Logs obtenidos desde DB (${rawLogs.length})`);
     } else {
       // Si los logs vienen de Tuya, asegurar que todos tengan source='tuya'
       rawLogs = rawLogs.map(log => ({
@@ -1093,7 +1094,7 @@ export const getProductLogsById = async (req, res) => {
               }));
             if (toInsert.length > 0) {
               await ProductLogModel.insertMany(toInsert);
-              console.log(`📥 [getProductLogsById] Synced ${toInsert.length} Tuya logs to ProductLogs (${logsWithData.length - toInsert.length} already in DB)`);
+              devLog(`📥 [getProductLogsById] Synced ${toInsert.length} Tuya logs to ProductLogs (${logsWithData.length - toInsert.length} already in DB)`);
             }
           }
         }
@@ -1195,7 +1196,7 @@ function mapTuyaLogsNivel(tuyaData) {
 // logs for products from logs table local logs
 // export const getProductLogsById = async (req, res) => {
 //   try {
-//     console.log('Fetching product logs for:', req.query);
+//     devLog('Fetching product logs for:', req.query);
 
 //     const {
 //       id,
@@ -1242,7 +1243,7 @@ function mapTuyaLogsNivel(tuyaData) {
 // Save a product from Tuya API to Postgres
 export const saveProduct = async (req, res) => {
   try {
-    console.log('Fetching product from Tuya API...');
+    devLog('Fetching product from Tuya API...');
     const { id } = req.params;
     const response = await tuyaService.getDeviceDetail(id);
     if (!response.success) {
@@ -1263,7 +1264,7 @@ export const saveProduct = async (req, res) => {
     if (!newProduct) {
       return res.status(500).json({ message: 'Failed to create product' });
     }
-    console.log(`Product ${id} saved to Postgres.`);
+    devLog(`Product ${id} saved to Postgres.`);
 
     res.status(201).json(newProduct);
   } catch (error) {
@@ -1282,7 +1283,7 @@ export const getProductMetrics = async (req, res) => {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    console.log('Fetching status from Tuya API...');
+    devLog('Fetching status from Tuya API...');
     const response = await tuyaService.getDeviceDetail(id);
     if (!response.success) {
       return res.status(400).json({ message: response.error, code: response.code });
@@ -1304,7 +1305,7 @@ export const getProductMetrics = async (req, res) => {
 // Execute commands on a device
 export const sendDeviceCommands = async (req, res) => {
   try {
-    console.log('Executing device commands...', req.body);
+    devLog('Executing device commands...', req.body);
     const { id, commands } = req.body; // Extract from request body
 
     if (!id || !commands || !Array.isArray(commands)) {
@@ -1312,13 +1313,13 @@ export const sendDeviceCommands = async (req, res) => {
       return res.status(400).json({ message: "Invalid request payload" });
     }
 
-    console.log(`Sending commands to device ${id}:`, commands);
+    devLog(`Sending commands to device ${id}:`, commands);
 
     const response = await tuyaService.executeCommands({id, commands});
     if (!response.success) {
       return res.status(400).json({ message: response.error, code: response.code });
     }
-    console.log('response commands:', response);
+    devLog('response commands:', response);
     // await new Promise(resolve => setTimeout(resolve, 2000)); // Simulating delay
     // const response = { executed: true };
     const deviceData = await tuyaService.getDeviceDetail(id);
@@ -1340,7 +1341,7 @@ export const sendDeviceCommands = async (req, res) => {
 
 // 🧩 — OSMOSIS
 async function handleOsmosisProduct(product, data) {
-  console.log('🧩 [Osmosis] Procesando actualización...');
+  devLog('🧩 [Osmosis] Procesando actualización...');
   const {
     pressure_valve1_psi,
     pressure_valve2_psi,
@@ -1360,10 +1361,10 @@ async function handleOsmosisProduct(product, data) {
     const existingStatus = product.status.find(st => st.code === code);
     if (existingStatus) {
       existingStatus.value = Number(value);
-      console.log(`🔄 [Osmosis] ${code} actualizado: ${value}`);
+      devLog(`🔄 [Osmosis] ${code} actualizado: ${value}`);
     } else {
       product.status.push({ code, value: Number(value) });
-      console.log(`➕ [Osmosis] ${code} agregado: ${value}`);
+      devLog(`➕ [Osmosis] ${code} agregado: ${value}`);
     }
   };
 
@@ -1377,10 +1378,10 @@ async function handleOsmosisProduct(product, data) {
     
     if (existingStatus) {
       existingStatus.value = newValue;
-      console.log(`➕ [Osmosis] ${code} incrementado: ${currentValue.toFixed(2)} + ${Number(valueToAdd).toFixed(4)} = ${newValue.toFixed(2)}`);
+      devLog(`➕ [Osmosis] ${code} incrementado: ${currentValue.toFixed(2)} + ${Number(valueToAdd).toFixed(4)} = ${newValue.toFixed(2)}`);
     } else {
       product.status.push({ code, value: newValue });
-      console.log(`➕ [Osmosis] ${code} creado con valor: ${newValue.toFixed(2)}`);
+      devLog(`➕ [Osmosis] ${code} creado con valor: ${newValue.toFixed(2)}`);
     }
   };
 
@@ -1401,12 +1402,12 @@ async function handleOsmosisProduct(product, data) {
         // Calcular litros acumulados: flujo_prod (L/min) * tiempo (ms) / 60000 (ms por minuto)
         const litrosPorIntervalo = (Number(flujo_prod) * deltaTimeMs) / 60000;
         addToStatus('flowrate_total_1', litrosPorIntervalo, 0);
-        console.log(`⏱️ [Osmosis] Tiempo transcurrido: ${deltaTimeMs}ms, Litros acumulados: ${litrosPorIntervalo.toFixed(4)} L`);
+        devLog(`⏱️ [Osmosis] Tiempo transcurrido: ${deltaTimeMs}ms, Litros acumulados: ${litrosPorIntervalo.toFixed(4)} L`);
       } else if (lastTimestamp == null) {
         // Primera vez, usar un valor conservador (asumir 1 segundo si no hay timestamp previo)
         const litrosPorIntervalo = Number(flujo_prod) / 60;
         addToStatus('flowrate_total_1', litrosPorIntervalo, 0);
-        console.log(`⏱️ [Osmosis] Primera llamada, usando 1 segundo por defecto`);
+        devLog(`⏱️ [Osmosis] Primera llamada, usando 1 segundo por defecto`);
       }
       
       // Actualizar el último timestamp
@@ -1433,7 +1434,7 @@ async function handleOsmosisProduct(product, data) {
         // Calcular litros acumulados: flujo_rech (L/min) * tiempo (ms) / 60000 (ms por minuto)
         const litrosPorIntervalo = (Number(flujo_rech) * deltaTimeMs) / 60000;
         addToStatus('flowrate_total_2', litrosPorIntervalo, 0);
-        console.log(`⏱️ [Osmosis] Tiempo transcurrido: ${deltaTimeMs}ms, Litros rechazo acumulados: ${litrosPorIntervalo.toFixed(4)} L`);
+        devLog(`⏱️ [Osmosis] Tiempo transcurrido: ${deltaTimeMs}ms, Litros rechazo acumulados: ${litrosPorIntervalo.toFixed(4)} L`);
       } else if (lastTimestamp == null) {
         // Primera vez, usar un valor conservador (asumir 1 segundo si no hay timestamp previo)
         const litrosPorIntervalo = Number(flujo_rech) / 60;
@@ -1468,17 +1469,17 @@ async function handleOsmosisProduct(product, data) {
 
   if (currentRelay === true && !startTime) {
     product.status.push({ code: 'start_time', value: timestamp });
-    console.log('▶️ [Osmosis] Ciclo iniciado');
+    devLog('▶️ [Osmosis] Ciclo iniciado');
   } else if (currentRelay === false && startTime) {
     const elapsed = Math.max(0, timestamp - startTime.value);
-    console.log(`⏱️ [Osmosis] Ciclo completado en ${elapsed} ms`);
+    devLog(`⏱️ [Osmosis] Ciclo completado en ${elapsed} ms`);
 
     const litrosProd = (pressure_valve1_psi / 100) * (elapsed / 1000);
     const litrosRech = (pressure_valve2_psi / 100) * (elapsed / 1000);
 
     // Nota: Los flujos ahora se actualizan directamente arriba, pero mantenemos esta lógica
     // por si acaso se necesita más adelante para acumulación de volúmenes
-    console.log(
+    devLog(
       `💧 [Osmosis] Volumen producción: ${litrosProd.toFixed(2)} L | Volumen rechazo: ${litrosRech.toFixed(2)} L`
     );
 
@@ -1487,7 +1488,7 @@ async function handleOsmosisProduct(product, data) {
   }
 
   await ProductModel.update(product.id, product);
-  console.log('💾 [Osmosis] Datos de osmosis actualizados correctamente');
+  devLog('💾 [Osmosis] Datos de osmosis actualizados correctamente');
 
   // Guardar log en ProductLog si hay datos relevantes
   if (flujo_prod != null || flujo_rech != null || tds != null || temperature != null) {
@@ -1529,9 +1530,9 @@ async function handleOsmosisProduct(product, data) {
 
       if (!existingLog) {
         await ProductLogModel.create(logData);
-        console.log(`📝 [Osmosis] Log guardado en ProductLog - TDS: ${tds}, Flujo Prod: ${flujo_prod}, Flujo Rech: ${flujo_rech}`);
+        devLog(`📝 [Osmosis] Log guardado en ProductLog - TDS: ${tds}, Flujo Prod: ${flujo_prod}, Flujo Rech: ${flujo_rech}`);
       } else {
-        console.log(`⏭️ [Osmosis] Log duplicado omitido para fecha ${logDate.toISOString()}`);
+        devLog(`⏭️ [Osmosis] Log duplicado omitido para fecha ${logDate.toISOString()}`);
       }
     } catch (logError) {
       console.error('❌ [Osmosis] Error guardando log en ProductLog:', logError.message);
@@ -1545,7 +1546,7 @@ async function handleOsmosisProduct(product, data) {
 // ⚙️ — PRESIÓN
 // 🔧 Lógica específica para productos de tipo "pressure"
 async function handlePressureProduct(product, data) {
-  // console.log('🔧 [handlePressure] Iniciando procesamiento del producto de tipo Pressure...');
+  // devLog('🔧 [handlePressure] Iniciando procesamiento del producto de tipo Pressure...');
   
   // Acceso seguro y normalización de nombres
   const inPsi  = data.pressure_valve1_psi ?? data.presion_in;
@@ -1556,19 +1557,19 @@ async function handlePressureProduct(product, data) {
   const voltage_in              = data.voltage_in;
   const voltage_out             = data.voltage_out;
 
-  // console.log('📦 [handlePressure] Datos recibidos:', {
+  // devLog('📦 [handlePressure] Datos recibidos:', {
   //   inPsi, outPsi, pressure_difference_psi, relay_state, temperature, voltage_in, voltage_out
   // });
 
   // Solo los códigos estándar para Pressure (incluyendo voltajes para monitoreo)
   const allowedCodes = ['presion_in', 'presion_out', 'pressure_difference_psi', 'relay_state', 'temperature', 'voltage_in', 'voltage_out'];
   if (!Array.isArray(product.status)) {
-    // console.log('🧩 [handlePressure] No existe array de status, creando uno nuevo.');
+    // devLog('🧩 [handlePressure] No existe array de status, creando uno nuevo.');
     product.status = [];
   }
   product.status = product.status.filter(s => allowedCodes.includes(s.code));
 
-  // console.log('📋 [handlePressure] Status actual antes de actualizar:', JSON.stringify(product.status, null, 2));
+  // devLog('📋 [handlePressure] Status actual antes de actualizar:', JSON.stringify(product.status, null, 2));
 
   // Sólo almacena los códigos normalizados
   const updates = [
@@ -1584,7 +1585,7 @@ async function handlePressureProduct(product, data) {
   for (const { code, value } of updates) {
     // Validación estándar: omitir valores null o undefined
     if (value === undefined || value === null) {
-      // console.log(`⚠️ [handlePressure] Valor omitido para '${code}' (undefined o null)`);
+      // devLog(`⚠️ [handlePressure] Valor omitido para '${code}' (undefined o null)`);
       continue;
     }
 
@@ -1592,17 +1593,17 @@ async function handlePressureProduct(product, data) {
     if ((code === 'voltage_in' || code === 'voltage_out')) {
       const numValue = Number(value);
       if (isNaN(numValue) || numValue < 0 || numValue > 5) {
-        // console.log(`⚠️ [handlePressure] Valor de voltaje inválido para '${code}': ${value} (omitido)`);
+        // devLog(`⚠️ [handlePressure] Valor de voltaje inválido para '${code}': ${value} (omitido)`);
         continue;
       }
     }
 
     const existing = product.status.find((s) => s.code === code);
     if (existing) {
-      // console.log(`🔁 [handlePressure] Actualizando '${code}' de ${existing.value} → ${value}`);
+      // devLog(`🔁 [handlePressure] Actualizando '${code}' de ${existing.value} → ${value}`);
       existing.value = value;
     } else {
-      // console.log(`➕ [handlePressure] Agregando nuevo status '${code}' = ${value}`);
+      // devLog(`➕ [handlePressure] Agregando nuevo status '${code}' = ${value}`);
       product.status.push({ code, value });
     }
   }
@@ -1616,7 +1617,7 @@ async function handlePressureProduct(product, data) {
 
   // Verificación post-save
   const refreshed = await ProductModel.findById(product._id);
-  // console.log('🧩 [handlePressure] Status final guardado en DB:', JSON.stringify(refreshed.status, null, 2));
+  // devLog('🧩 [handlePressure] Status final guardado en DB:', JSON.stringify(refreshed.status, null, 2));
 
   return { success: true, message: 'Datos de presión actualizados', product: refreshed };
 }
@@ -1624,7 +1625,7 @@ async function handlePressureProduct(product, data) {
 
 // 🌊 — NIVEL
 async function handleLevelProduct(product, data) {
-  console.log('🌊 [Nivel] Procesando actualización...');
+  devLog('🌊 [Nivel] Procesando actualización...');
   const { liquid_depth, liquid_state, liquid_level_percent, max_set, mini_set } = data;
 
   if (!product.status) product.status = [];
@@ -1643,15 +1644,15 @@ async function handleLevelProduct(product, data) {
     const existing = product.status.find(s => s.code === code);
     if (existing) {
       existing.value = value;
-      console.log(`🔁 [Nivel] Actualizado '${code}' = ${value}`);
+      devLog(`🔁 [Nivel] Actualizado '${code}' = ${value}`);
     } else {
       product.status.push({ code, value });
-      console.log(`➕ [Nivel] Agregado nuevo status '${code}' = ${value}`);
+      devLog(`➕ [Nivel] Agregado nuevo status '${code}' = ${value}`);
     }
   }
 
   await ProductModel.update(product.id, product);
-  console.log('💾 [Nivel] Datos de nivel actualizados correctamente');
+  devLog('💾 [Nivel] Datos de nivel actualizados correctamente');
   return { success: true, message: 'Datos de nivel actualizados', product };
 }
 
@@ -1661,7 +1662,7 @@ async function handleLevelProduct(product, data) {
 
 export const componentInput = async (req, res) => {
   try {
-     console.log('📥 [componentInput] Body recibido:', req.body);
+     devLog('📥 [componentInput] Body recibido:', req.body);
 
     const {
       productId = '',
@@ -1686,17 +1687,17 @@ export const componentInput = async (req, res) => {
     } = req.body;
 
     if (!productId) {
-      // console.log('⚠️ [componentInput] Faltan datos requeridos');
+      // devLog('⚠️ [componentInput] Faltan datos requeridos');
       return res.status(400).json({ message: 'Datos incompletos' });
     }
 
     const product = await ProductModel.findByIdOrDeviceId(productId);
     if (!product) {
-      // console.log('❌ [componentInput] Producto no encontrado');
+      // devLog('❌ [componentInput] Producto no encontrado');
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
-    // console.log(`✅ [componentInput] Producto encontrado: ${product.name} (${product.product_type || product.type})`);
+    // devLog(`✅ [componentInput] Producto encontrado: ${product.name} (${product.product_type || product.type})`);
 
     const data = {
       // Para Pressure: admite presion_in / presion_out o pressure_valve1_psi / pressure_valve2_psi
@@ -1948,11 +1949,11 @@ async function runFetchLogsRoutineInBackground() {
     type: p.product_type || 'Osmosis',
   }));
   if (!productosWhitelist || productosWhitelist.length === 0) {
-    console.warn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
+    devWarn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
     return;
   }
-  console.log('🔄 [fetchLogsRoutine] Iniciando rutina en segundo plano...');
-  console.log(`📋 [fetchLogsRoutine] Procesando ${productosWhitelist.length} productos...`);
+  devLog('🔄 [fetchLogsRoutine] Iniciando rutina en segundo plano...');
+  devLog(`📋 [fetchLogsRoutine] Procesando ${productosWhitelist.length} productos...`);
   await doFetchLogsRoutineWork(productosWhitelist);
 }
 
@@ -1989,15 +1990,15 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
     const nowLocal = nowDate.toLocaleString('es-MX', formatOptions);
     const startLocal = startDate.toLocaleString('es-MX', formatOptions);
     
-    console.log(`⏰ [fetchLogsRoutine] Hora actual del servidor:`);
-    console.log(`   - Hermosillo: ${nowLocal}`);
-    console.log(`   - UTC: ${nowDate.toISOString()}`);
-    console.log(`   - Timestamp: ${now}`);
+    devLog(`⏰ [fetchLogsRoutine] Hora actual del servidor:`);
+    devLog(`   - Hermosillo: ${nowLocal}`);
+    devLog(`   - UTC: ${nowDate.toISOString()}`);
+    devLog(`   - Timestamp: ${now}`);
     
-    console.log(`⏰ [fetchLogsRoutine] Rango de búsqueda (última 1 hora, Tuya dev limit 100/código):`);
-    console.log(`   - Desde (Hermosillo): ${startLocal}`);
-    console.log(`   - Hasta (Hermosillo): ${nowLocal}`);
-    console.log(`   - Timestamps: ${startTime} a ${now}`);
+    devLog(`⏰ [fetchLogsRoutine] Rango de búsqueda (última 1 hora, Tuya dev limit 100/código):`);
+    devLog(`   - Desde (Hermosillo): ${startLocal}`);
+    devLog(`   - Hasta (Hermosillo): ${nowLocal}`);
+    devLog(`   - Timestamps: ${startTime} a ${now}`);
 
     // ====== CÓDIGOS DE LOGS POR TIPO DE PRODUCTO ======
     const logCodesByType = {
@@ -2031,12 +2032,12 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
       const productType = productConfig.type;
       const logCodes = logCodesByType[productType] || logCodesByType['Osmosis'];
       try {
-        console.log(`\n📦 [fetchLogsRoutine] Procesando producto: ${productId} (Tipo: ${productType})`);
+        devLog(`\n📦 [fetchLogsRoutine] Procesando producto: ${productId} (Tipo: ${productType})`);
 
         // Verificar que el producto existe en la BD
         const product = await ProductModel.findByDeviceId(productId);
         if (!product) {
-          console.warn(`⚠️ [fetchLogsRoutine] Producto ${productId} no encontrado en BD`);
+          devWarn(`⚠️ [fetchLogsRoutine] Producto ${productId} no encontrado en BD`);
           results.errors.push({
             productId,
             error: 'Product not found in database',
@@ -2051,7 +2052,7 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
 
         for (const code of logCodes) {
           try {
-            console.log(`🔍 [fetchLogsRoutine] Obteniendo logs de código '${code}' para ${productId}...`);
+            devLog(`🔍 [fetchLogsRoutine] Obteniendo logs de código '${code}' para ${productId}...`);
             
             const filters = {
               id: productId,
@@ -2065,16 +2066,16 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
 
             if (response.code === TUYA_QUOTA_EXCEEDED_CODE) {
               tuyaQuotaExceeded = true;
-              console.warn(`⚠️ [fetchLogsRoutine] Tuya Trial quota exceeded (${TUYA_QUOTA_EXCEEDED_CODE}). Aborting routine to avoid blocking API/login.`);
+              devWarn(`⚠️ [fetchLogsRoutine] Tuya Trial quota exceeded (${TUYA_QUOTA_EXCEEDED_CODE}). Aborting routine to avoid blocking API/login.`);
               break;
             }
             if (response.success && response.data && response.data.logs && response.data.logs.length > 0) {
               const codeLogs = response.data.logs;
               allTuyaLogs.push(...codeLogs);
               totalLogsFetched += codeLogs.length;
-              console.log(`  ✅ ${codeLogs.length} logs obtenidos para código '${code}'`);
+              devLog(`  ✅ ${codeLogs.length} logs obtenidos para código '${code}'`);
             } else {
-              console.log(`  ⚠️ No se encontraron logs para código '${code}'`);
+              devLog(`  ⚠️ No se encontraron logs para código '${code}'`);
             }
 
             // Pequeña pausa entre requests para no saturar la API
@@ -2086,7 +2087,7 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
         }
 
         if (allTuyaLogs.length === 0) {
-          console.warn(`⚠️ [fetchLogsRoutine] No se encontraron logs en Tuya para ${productId}`);
+          devWarn(`⚠️ [fetchLogsRoutine] No se encontraron logs en Tuya para ${productId}`);
           results.errors.push({
             productId,
             error: 'No logs found in Tuya',
@@ -2094,7 +2095,7 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
           continue;
         }
 
-        console.log(`✅ [fetchLogsRoutine] Total ${totalLogsFetched} logs obtenidos de Tuya para ${productId} (${logCodes.length} códigos)`);
+        devLog(`✅ [fetchLogsRoutine] Total ${totalLogsFetched} logs obtenidos de Tuya para ${productId} (${logCodes.length} códigos)`);
 
         // ====== AGRUPAR LOGS POR TIMESTAMP ======
         const groupedLogs = {};
@@ -2167,7 +2168,7 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
           return hasValidData;
         });
 
-        console.log(`💾 [fetchLogsRoutine] ${logsToSave.length} logs con datos válidos para guardar (de ${Object.values(groupedLogs).length} totales)`);
+        devLog(`💾 [fetchLogsRoutine] ${logsToSave.length} logs con datos válidos para guardar (de ${Object.values(groupedLogs).length} totales)`);
 
         let insertedCount = 0;
         let duplicateCount = 0;
@@ -2193,13 +2194,13 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
         }
 
         if (skippedZeros > 0) {
-          console.log(`⏭️ [fetchLogsRoutine] ${skippedZeros} logs omitidos por tener todos los valores en 0`);
+          devLog(`⏭️ [fetchLogsRoutine] ${skippedZeros} logs omitidos por tener todos los valores en 0`);
         }
         if (duplicateCount > 0) {
-          console.log(`⏭️ [fetchLogsRoutine] ${duplicateCount} logs ya existían (duplicados omitidos) para ${productId}`);
+          devLog(`⏭️ [fetchLogsRoutine] ${duplicateCount} logs ya existían (duplicados omitidos) para ${productId}`);
         }
 
-        console.log(`✅ [fetchLogsRoutine] ${insertedCount} logs insertados para ${productId}`);
+        devLog(`✅ [fetchLogsRoutine] ${insertedCount} logs insertados para ${productId}`);
         
         results.success.push({
           productId,
@@ -2220,14 +2221,14 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
     }
 
     if (tuyaQuotaExceeded) {
-      console.log('✅ [fetchLogsRoutine] Rutina abortada por cuota Tuya agotada');
+      devLog('✅ [fetchLogsRoutine] Rutina abortada por cuota Tuya agotada');
       return;
     }
 
     // ====== FIN ======
-    console.log('✅ [fetchLogsRoutine] Rutina completada');
-    console.log(`📊 [fetchLogsRoutine] Resumen: ${results.success.length} exitosos, ${results.errors.length} errores`);
-    console.log(`📊 [fetchLogsRoutine] Total logs insertados: ${results.totalLogsInserted}`);
+    devLog('✅ [fetchLogsRoutine] Rutina completada');
+    devLog(`📊 [fetchLogsRoutine] Resumen: ${results.success.length} exitosos, ${results.errors.length} errores`);
+    devLog(`📊 [fetchLogsRoutine] Total logs insertados: ${results.totalLogsInserted}`);
   } catch (error) {
     console.error('❌ [fetchLogsRoutine] Error general en rutina:', error);
     throw error;
@@ -2248,7 +2249,7 @@ export const fetchLogsRoutine = async (req, res) => {
     }));
 
     if (!productosWhitelist || productosWhitelist.length === 0) {
-      console.warn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
+      devWarn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
       return res.status(400).json({
         success: false,
         message: 'No products with Tuya logs routine enabled. Enable them in Personalización > Productos rutina logs.',
@@ -2349,16 +2350,16 @@ export const generarLogsPorFecha = async (req, res) => {
     const DELAY_BETWEEN_WINDOWS = 100; // 100ms
 
     for (const date of dates) {
-      console.log(`📅 Procesando fecha ${date}`);
+      devLog(`📅 Procesando fecha ${date}`);
 
       // Procesar ventana de la mañana
       const morningWindow = WINDOWS[0];
       const morningStartTime = buildTimestamp(date, morningWindow.start);
       const morningEndTime = buildTimestamp(date, morningWindow.end);
 
-      console.log(`⏰ Ventana ${morningWindow.label}: ${morningWindow.start} - ${morningWindow.end}`);
-      console.log(`   Timestamps: ${morningStartTime} - ${morningEndTime}`);
-      console.log(`   Fechas: ${new Date(morningStartTime).toISOString()} - ${new Date(morningEndTime).toISOString()}`);
+      devLog(`⏰ Ventana ${morningWindow.label}: ${morningWindow.start} - ${morningWindow.end}`);
+      devLog(`   Timestamps: ${morningStartTime} - ${morningEndTime}`);
+      devLog(`   Fechas: ${new Date(morningStartTime).toISOString()} - ${new Date(morningEndTime).toISOString()}`);
 
       let morningLogs = [];
       try {
@@ -2374,28 +2375,28 @@ export const generarLogsPorFecha = async (req, res) => {
         if (response?.success && response?.data?.logs?.length) {
           morningLogs = response.data.logs;
           totalFetched += morningLogs.length;
-          console.log(`  ✅ ${morningLogs.length} logs obtenidos para ventana ${morningWindow.label}`);
+          devLog(`  ✅ ${morningLogs.length} logs obtenidos para ventana ${morningWindow.label}`);
           
           // Mostrar detalles de los logs obtenidos
           const codesCount = {};
           morningLogs.forEach(log => {
             codesCount[log.code] = (codesCount[log.code] || 0) + 1;
           });
-          console.log(`   Códigos encontrados:`, codesCount);
+          devLog(`   Códigos encontrados:`, codesCount);
           
           // Mostrar algunos ejemplos de logs
           if (morningLogs.length > 0) {
-            console.log(`   Ejemplo de logs (primeros 3):`);
+            devLog(`   Ejemplo de logs (primeros 3):`);
             morningLogs.slice(0, 3).forEach((log, idx) => {
-              console.log(`     [${idx + 1}] code: ${log.code}, value: ${log.value}, time: ${new Date(log.event_time).toISOString()}`);
+              devLog(`     [${idx + 1}] code: ${log.code}, value: ${log.value}, time: ${new Date(log.event_time).toISOString()}`);
             });
           }
         } else {
-          console.warn(`  ⚠️ No se obtuvieron logs para ventana ${morningWindow.label}`);
+          devWarn(`  ⚠️ No se obtuvieron logs para ventana ${morningWindow.label}`);
           if (response && !response.success) {
-            console.warn(`   Error: ${response.error || 'Sin datos'}`);
+            devWarn(`   Error: ${response.error || 'Sin datos'}`);
             if (response.code) {
-              console.warn(`   Código de error: ${response.code}`);
+              devWarn(`   Código de error: ${response.code}`);
             }
           }
         }
@@ -2411,9 +2412,9 @@ export const generarLogsPorFecha = async (req, res) => {
       const afternoonStartTime = buildTimestamp(date, afternoonWindow.start);
       const afternoonEndTime = buildTimestamp(date, afternoonWindow.end);
 
-      console.log(`⏰ Ventana ${afternoonWindow.label}: ${afternoonWindow.start} - ${afternoonWindow.end}`);
-      console.log(`   Timestamps: ${afternoonStartTime} - ${afternoonEndTime}`);
-      console.log(`   Fechas: ${new Date(afternoonStartTime).toISOString()} - ${new Date(afternoonEndTime).toISOString()}`);
+      devLog(`⏰ Ventana ${afternoonWindow.label}: ${afternoonWindow.start} - ${afternoonWindow.end}`);
+      devLog(`   Timestamps: ${afternoonStartTime} - ${afternoonEndTime}`);
+      devLog(`   Fechas: ${new Date(afternoonStartTime).toISOString()} - ${new Date(afternoonEndTime).toISOString()}`);
 
       let afternoonLogs = [];
       try {
@@ -2429,28 +2430,28 @@ export const generarLogsPorFecha = async (req, res) => {
         if (response?.success && response?.data?.logs?.length) {
           afternoonLogs = response.data.logs;
           totalFetched += afternoonLogs.length;
-          console.log(`  ✅ ${afternoonLogs.length} logs obtenidos para ventana ${afternoonWindow.label}`);
+          devLog(`  ✅ ${afternoonLogs.length} logs obtenidos para ventana ${afternoonWindow.label}`);
           
           // Mostrar detalles de los logs obtenidos
           const codesCount = {};
           afternoonLogs.forEach(log => {
             codesCount[log.code] = (codesCount[log.code] || 0) + 1;
           });
-          console.log(`   Códigos encontrados:`, codesCount);
+          devLog(`   Códigos encontrados:`, codesCount);
           
           // Mostrar algunos ejemplos de logs
           if (afternoonLogs.length > 0) {
-            console.log(`   Ejemplo de logs (primeros 3):`);
+            devLog(`   Ejemplo de logs (primeros 3):`);
             afternoonLogs.slice(0, 3).forEach((log, idx) => {
-              console.log(`     [${idx + 1}] code: ${log.code}, value: ${log.value}, time: ${new Date(log.event_time).toISOString()}`);
+              devLog(`     [${idx + 1}] code: ${log.code}, value: ${log.value}, time: ${new Date(log.event_time).toISOString()}`);
             });
           }
         } else {
-          console.warn(`  ⚠️ No se obtuvieron logs para ventana ${afternoonWindow.label}`);
+          devWarn(`  ⚠️ No se obtuvieron logs para ventana ${afternoonWindow.label}`);
           if (response && !response.success) {
-            console.warn(`   Error: ${response.error || 'Sin datos'}`);
+            devWarn(`   Error: ${response.error || 'Sin datos'}`);
             if (response.code) {
-              console.warn(`   Código de error: ${response.code}`);
+              devWarn(`   Código de error: ${response.code}`);
             }
           }
         }
@@ -2514,8 +2515,8 @@ export const generarLogsPorFecha = async (req, res) => {
         // log.flujo_rechazo // Comentado: no se usa
       );
 
-      console.log(`  📊 Logs agrupados: ${Object.keys(grouped).length} timestamps únicos`);
-      console.log(`  💾 Logs a guardar: ${logsToSave.length} (filtrados con datos válidos)`);
+      devLog(`  📊 Logs agrupados: ${Object.keys(grouped).length} timestamps únicos`);
+      devLog(`  💾 Logs a guardar: ${logsToSave.length} (filtrados con datos válidos)`);
 
       for (const logData of logsToSave) {
         const exists = await ProductLogModel.findOne({
@@ -2526,9 +2527,9 @@ export const generarLogsPorFecha = async (req, res) => {
         if (!exists) {
           await ProductLogModel.create(logData);
           totalInserted++;
-          console.log(`  ✅ Guardado log para fecha ${new Date(logData.date).toISOString()} - TDS: ${logData.tds}, Prod: ${logData.production_volume}, Rech: ${logData.rejected_volume}`);
+          devLog(`  ✅ Guardado log para fecha ${new Date(logData.date).toISOString()} - TDS: ${logData.tds}, Prod: ${logData.production_volume}, Rech: ${logData.rejected_volume}`);
         } else {
-          console.log(`  ⏭️  Log ya existe para fecha ${new Date(logData.date).toISOString()}, omitido`);
+          devLog(`  ⏭️  Log ya existe para fecha ${new Date(logData.date).toISOString()}, omitido`);
         }
       }
     }

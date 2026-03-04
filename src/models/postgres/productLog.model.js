@@ -1,6 +1,7 @@
 // PostgreSQL model for product_logs table (replaces MongoDB ProductLog)
 
 import { query } from '../../config/postgres.config.js';
+import { devWarn } from '../../utils/devLogger.js';
 
 class ProductLogModel {
   static async create(data) {
@@ -84,7 +85,7 @@ class ProductLogModel {
         const r = await this.create(data);
         if (r) created.push(r);
       } catch (e) {
-        console.warn('[ProductLogModel] insertMany skip:', e.message);
+        devWarn('[ProductLogModel] insertMany skip:', e.message);
       }
     }
     return created;

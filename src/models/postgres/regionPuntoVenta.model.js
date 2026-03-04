@@ -28,10 +28,10 @@ class RegionPuntoVentaModel {
     return result.rows?.length > 0;
   }
 
-  /** Get region for a punto_venta (first linked region) */
+  /** Get region for a punto_venta (first linked region), including color */
   static async getRegionForPuntoVenta(puntoVentaId) {
     const result = await query(
-      `SELECT r.id, r.code, r.name FROM regions r
+      `SELECT r.id, r.code, r.name, r.color FROM regions r
        JOIN region_punto_venta rpv ON rpv.region_id = r.id
        WHERE rpv.punto_venta_id = $1 LIMIT 1`,
       [puntoVentaId]

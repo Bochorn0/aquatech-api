@@ -258,7 +258,7 @@ async function buildPuntoResponseFromPostgres(pv) {
     codigo_tienda: pv.codigo_tienda || pv.code || null,
     cliente: clienteData ? { _id: String(clienteData.id), id: String(clienteData.id), name: clienteData.name, email: clienteData.email, phone: clienteData.phone } : null,
     city: cityData ? { _id: String(cityData.id), id: String(cityData.id), city: cityData.city, state: cityData.state, lat: cityData.lat, lon: cityData.lon } : (addressObj ? { _id: null, city: addressObj.city, state: addressObj.state, lat: pv.lat, lon: pv.long } : { _id: null, city: null, state: null, lat: pv.lat, lon: pv.long }),
-    region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name } : null,
+    region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name, color: regionData.color || null } : null,
     ciudad: ciudadData ? { id: String(ciudadData.id), name: ciudadData.name, regionId: ciudadData.regionId } : null,
     address: addressObj || null,
     productos: productosList,

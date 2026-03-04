@@ -28,12 +28,12 @@ export const getRegionById = async (req, res) => {
 export const updateRegion = async (req, res) => {
   try {
     const { id } = req.params;
-    const { code, name } = req.body || {};
+    const { code, name, color } = req.body || {};
     const region = await RegionModel.findById(id);
     if (!region) {
       return res.status(404).json({ message: 'Región no encontrada' });
     }
-    const updated = await RegionModel.update(id, { code, name });
+    const updated = await RegionModel.update(id, { code, name, color });
     res.json(updated);
   } catch (error) {
     console.error('[RegionController] Error updating region:', error);
@@ -58,12 +58,16 @@ export const getRegionPuntos = async (req, res) => {
 
 export const createRegion = async (req, res) => {
   try {
-    const { code, name } = req.body || {};
+    const { code, name, color } = req.body || {};
     const codeStr = (code || '').trim().toUpperCase();
     if (!codeStr) {
       return res.status(400).json({ message: 'El código de región es requerido' });
     }
-    const created = await RegionModel.create({ code: codeStr, name: (name || '').trim() || codeStr });
+    const created = await RegionModel.create({
+      code: codeStr,
+      name: (name || '').trim() || codeStr,
+      color: color != null ? String(color).trim() || null : null,
+    });
     if (!created) {
       return res.status(409).json({ message: 'Ya existe una región con ese código' });
     }

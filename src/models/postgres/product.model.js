@@ -1,6 +1,7 @@
 // PostgreSQL model for products table (replaces MongoDB Product)
 
 import { query } from '../../config/postgres.config.js';
+import { devWarn } from '../../utils/devLogger.js';
 
 class ProductModel {
   static async findById(id) {
@@ -33,7 +34,7 @@ class ProductModel {
         `, [row.device_id, row.active_time, row.last_time_active, row.product_type, row.biz_type, row.category, row.create_time, row.icon, row.ip, row.city, row.state, row.client_id, row.drive, row.lat, row.local_key, row.lon, row.model, row.name, row.online, row.owner_id, row.product_id, row.product_name, row.status, row.sub, row.time_zone, row.uid, row.update_time, row.uuid, row.tuya_logs_routine_enabled]);
         if (r.rows?.[0]) created.push(this.parseRow(r.rows[0]));
       } catch (e) {
-        console.warn('[ProductModel] insertMany skip:', e.message);
+        devWarn('[ProductModel] insertMany skip:', e.message);
       }
     }
     return created;
