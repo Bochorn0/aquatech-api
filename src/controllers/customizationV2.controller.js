@@ -20,6 +20,21 @@ import { REGIONS, buildMockTiwaterPayload, buildMockTiwaterPayloadSlice, MOCK_PA
 // ============================================================================
 
 /**
+ * Resolve punto_venta_id for metrics: frontend sends puntoventa (V2) id,
+ * DB expects puntoventa_v1 (V1) id. If rawId is V1 id (exists in puntoventa_v1), use as-is.
+ * Else treat as V2 id and map via puntoventa_v1.puntoventa_id.
+ */
+async function resolvePuntoVentaIdForMetrics(rawId) {
+  if (rawId == null) return null;
+  const id = parseInt(String(rawId), 10);
+  if (isNaN(id)) return null;
+  const asV1 = await PuntoVentaV1Model.findById(id);
+  if (asV1) return id; // Already puntoventa_v1 id
+  const byV2 = await PuntoVentaV1Model.findByPuntoventaId(id);
+  return byV2 ? parseInt(byV2.id, 10) : null;
+}
+
+/**
  * Get all metrics (v2.0 - PostgreSQL)
  * @route   GET /api/v2.0/metrics
  * @desc    Get all metrics from PostgreSQL
@@ -47,13 +62,14 @@ export const getMetricsV2 = async (req, res) => {
     }
     
     if (punto_venta_id) {
-      filters.puntoVentaId = parseInt(punto_venta_id, 10);
-      if (isNaN(filters.puntoVentaId)) {
+      const rawPvId = parseInt(punto_venta_id, 10);
+      if (isNaN(rawPvId)) {
         return res.status(400).json({
           success: false,
           message: 'Invalid punto_venta_id parameter'
         });
       }
+      filters.puntoVentaId = await resolvePuntoVentaIdForMetrics(rawPvId);
     }
     
     console.log(`[getMetricsV2] Fetching Metrics from PostgreSQL (v2.0) with filters:`, filters);
@@ -228,11 +244,12 @@ export const addMetricV2 = async (req, res) => {
       return res.status(400).json({ message: 'Cliente ID inválido' });
     }
     
-    // Convert punto_venta_id (string) to integer
-    const puntoVentaId = metricData.punto_venta_id ? parseInt(metricData.punto_venta_id, 10) : null;
-    if (isNaN(puntoVentaId) && metricData.punto_venta_id) {
+    // Convert punto_venta_id (string) to integer and resolve V2→V1 if needed
+    const rawPvId = metricData.punto_venta_id ? parseInt(metricData.punto_venta_id, 10) : null;
+    if (isNaN(rawPvId) && metricData.punto_venta_id) {
       return res.status(400).json({ message: 'Punto de Venta ID inválido' });
     }
+    const puntoVentaId = rawPvId != null ? await resolvePuntoVentaIdForMetrics(rawPvId) : null;
 
     // Whitelist: only pass fields for a single new metric. Ensure rules/conditions are stored in full.
     const rulesForCreate = Array.isArray(metricData.rules)
@@ -293,11 +310,11 @@ export const updateMetricV2 = async (req, res) => {
       }
     }
 
-    // Convert punto_venta_id to integer if needed
+    // Convert punto_venta_id to integer and resolve V2→V1 if needed
     let puntoVentaId = metricData.punto_venta_id;
     if (puntoVentaId != null) {
       const parsed = parseInt(puntoVentaId, 10);
-      if (!isNaN(parsed)) puntoVentaId = parsed;
+      if (!isNaN(parsed)) puntoVentaId = await resolvePuntoVentaIdForMetrics(parsed);
     }
 
     // Whitelist: only pass updatable fields for this metric (never spread full body to avoid overwriting other metrics)

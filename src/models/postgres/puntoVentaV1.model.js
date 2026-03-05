@@ -12,6 +12,18 @@ class PuntoVentaV1Model {
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
+  /** Find puntoventa_v1 by puntoventa (V2) id - for metrics mapping */
+  static async findByPuntoventaId(puntoventaId) {
+    if (puntoventaId == null) return null;
+    const id = parseInt(String(puntoventaId), 10);
+    if (isNaN(id)) return null;
+    const result = await query(
+      'SELECT * FROM puntoventa_v1 WHERE puntoventa_id = $1 LIMIT 1',
+      [id]
+    );
+    return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+  }
+
   static async findByCode(code) {
     if (!code) return null;
     const result = await query(
