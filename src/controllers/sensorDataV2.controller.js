@@ -614,12 +614,74 @@ export const getPuntosVentaV2 = async (req, res) => {
       // puntoventasensors may not exist in some envs
     }
 
-    // Build response: use online set + counts, fetch client/region/city per punto
+    // Last reading timestamp per codigo_tienda from sensor_latest (for Estado date display)
+    const lastUpdatedByCode = {};
+    const allCodes = puntosPG.map((p) => (p.codigo_tienda || p.code || '').toString().trim().toUpperCase()).filter(Boolean);
+    const uniqueCodes = [...new Set(allCodes)];
+    if (uniqueCodes.length > 0) {
+      try {
+        const placeholders = uniqueCodes.map((_, i) => `$${i + 1}`).join(', ');
+        const lastUpdRes = await query(
+          `SELECT codigo_tienda, MAX(updated_at) AS last_updated FROM sensor_latest WHERE codigo_tienda IN (${placeholders}) GROUP BY codigo_tienda`,
+          uniqueCodes
+        );
+        lastUpdRes.rows.forEach((row) => {
+          const code = (row.codigo_tienda || '').toString().trim().toUpperCase();
+          if (code) lastUpdatedByCode[code] = row.last_updated;
+        });
+      } catch (_) {}
+    }
+
+    // Sensor latest values per codigo_tienda (for metric status evaluation)
+    let sensorLatestByCode = {};
+    if (uniqueCodes.length > 0) {
+      try {
+        sensorLatestByCode = await SensorLatestModel.getLatestByCodigoTiendas(uniqueCodes);
+      } catch (_) {}
+    }
+
+    // All enabled metrics grouped by clientId (for evaluating nivel_cruda, nivel_purificada, eficiencia, etc.)
+    const MetricModel = (await import('../models/postgres/metric.model.js')).default;
+    let metricsByClientId = {};
+    try {
+      const allMetrics = await MetricModel.find({ enabled: true }, { limit: 2000 });
+      allMetrics.forEach((m) => {
+        const cid = m.clientId != null ? String(m.clientId) : '_';
+        if (!metricsByClientId[cid]) metricsByClientId[cid] = [];
+        metricsByClientId[cid].push(m);
+      });
+    } catch (_) {}
+
+    // Build response: use online set + counts + last_reading_at + metric_status, fetch client/region/city per punto
     const puntosConEstado = await Promise.all(
       puntosPG.map(async (pv) => {
         const codigoTienda = (pv.codigo_tienda || pv.code || '').toString().trim().toUpperCase();
         const online = codigoTienda ? onlineCodigoTiendas.has(codigoTienda) : false;
         const sensors_count = countsByPuntoId[String(pv.id)] ?? 0;
+        const last_reading_at = codigoTienda ? (lastUpdatedByCode[codigoTienda] || null) : null;
+
+        // Metric status: worst level across sensors (critico > preventivo > normal) using metric rules
+        let metric_status = 'normal';
+        const sensors = sensorLatestByCode[codigoTienda] || [];
+        const clientIdStr = pv.clientId != null ? String(pv.clientId) : '_';
+        const metricsForClient = metricsByClientId[clientIdStr] || [];
+        for (const s of sensors) {
+          const val = s.value;
+          const sensorType = (s.type || '').toLowerCase();
+          for (const metric of metricsForClient) {
+            const mt = (metric.sensor_type || '').toLowerCase();
+            if (!mt) continue;
+            const typeMatches = mt === sensorType || sensorType.includes(mt) || mt.includes(sensorType);
+            if (!typeMatches) continue;
+            const level = evaluateLevelFromRules(val, metric.rules);
+            if (level === 'critico') {
+              metric_status = 'critico';
+              break;
+            }
+            if (level === 'preventivo' && metric_status === 'normal') metric_status = 'preventivo';
+          }
+          if (metric_status === 'critico') break;
+        }
 
         // Fetch client data if clientId exists
         let clienteData = null;
@@ -716,6 +778,8 @@ export const getPuntosVentaV2 = async (req, res) => {
           online,
           status: pv.status || 'active',
           sensors_count,
+          last_reading_at: last_reading_at ? (last_reading_at instanceof Date ? last_reading_at.toISOString() : String(last_reading_at)) : null,
+          metric_status,
           owner: pv.owner || null,
           clientId: pv.clientId ? String(pv.clientId) : null,
           lat: pv.lat || null,
