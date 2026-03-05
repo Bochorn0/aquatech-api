@@ -660,15 +660,17 @@ export const getPuntosVentaV2 = async (req, res) => {
         const sensors_count = countsByPuntoId[String(pv.id)] ?? 0;
         const last_reading_at = codigoTienda ? (lastUpdatedByCode[codigoTienda] || null) : null;
 
-        // Metric status: worst level across sensors (critico > preventivo > normal) using metric rules
+        // Metric status: only use metrics defined for THIS punto (punto_venta_id = pv.id). Do not use other puntos' metrics.
         let metric_status = 'normal';
         const sensors = sensorLatestByCode[codigoTienda] || [];
+        const pvIdStr = String(pv.id);
         const clientIdStr = pv.clientId != null ? String(pv.clientId) : '_';
         const metricsForClient = metricsByClientId[clientIdStr] || [];
+        const metricsForPunto = metricsForClient.filter((m) => m.punto_venta_id != null && String(m.punto_venta_id) === pvIdStr);
         for (const s of sensors) {
           const val = s.value;
           const sensorType = (s.type || '').toLowerCase();
-          for (const metric of metricsForClient) {
+          for (const metric of metricsForPunto) {
             const mt = (metric.sensor_type || '').toLowerCase();
             if (!mt) continue;
             const typeMatches = mt === sensorType || sensorType.includes(mt) || mt.includes(sensorType);
