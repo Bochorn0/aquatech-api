@@ -150,6 +150,108 @@ MQTT_CLIENT_KEY_PATH=./certs/tiwater-api-consumer.key
 
 ---
 
+## What you need from Azure to connect as **publisher** (e.g. onboard script)
+
+The onboard script (`scripts/onboard-puntos-venta-mqtt.js`) publishes to `tiwater/REGION/CIUDAD/CODIGO/data`. To connect as a **publisher** to Azure Event Grid you need the same connection details as the API, plus **Publisher** permission.
+
+| From Azure | Use in .env |
+|------------|-------------|
+| **Namespace hostname** (Overview or `mqtt_azure_config.json`) | `MQTT_BROKER=tiwatermqtt.eastus-1.eventgrid.azure.net` (or `...ts.eventgrid.azure.net` if the other fails) |
+| **Port** | `MQTT_PORT=8883`, `MQTT_USE_TLS=true` |
+| **A Client** with **Publisher** permission | Create a client (or reuse the API client); ensure a **Permission binding** with Permission = **Publisher** exists for the topic space that matches `tiwater/#` or `tiwater/+/+/+/data`. |
+| **Client authentication name** | `MQTT_USERNAME=<exactly that name>` (e.g. `tiwater-api-consumer`) |
+| **X.509 certificate** for that client | `MQTT_CLIENT_CERT_B64` and `MQTT_CLIENT_KEY_B64` (or `MQTT_CLIENT_CERT_PATH` / `MQTT_CLIENT_KEY_PATH`) |
+| **No password** | Do **not** set `MQTT_PASSWORD` for Event Grid; the script skips it when the broker hostname contains `eventgrid.azure.net`. |
+
+Checklist:
+
+1. **Topic space** – Topic template must allow your topics, e.g. `tiwater/#` or `tiwater/+/+/+/data`.
+2. **Permission binding** – One binding with **Publisher** for the client (or `$all`) on that topic space.
+3. **Client** – Client’s Primary thumbprint in Azure must match the cert you use for `MQTT_CLIENT_CERT_*`.
+4. **Single session** – If the API is already connected with the same `MQTT_USERNAME`, only one MQTT session is allowed per auth name. Run the onboard script when the API is stopped, or use a **different client** (new cert + new Client authentication name in Azure) for the script.
+
+---
+
+## Dedicated MQTT user with Publisher-only (e.g. for Lcc_mqtt_mocker)
+
+To give the load-test / mocker app its own identity and **only publish** (no subscribe), use a separate **Client** and a **Client group** that has only a **Publisher** permission binding.
+
+**Note:** The **Access keys** blade on the Event Grid Namespace is for the **namespace REST/management API**, not for MQTT. MQTT connections use **X.509 client certificates** and **Clients** (below).
+
+### 1. Create a Client group (publisher-only)
+
+1. Left menu → **MQTT broker** → **Client groups**
+2. **+ Client group**
+3. **Name:** `mqtt-mocker-publishers` (or similar)
+4. **Description:** optional, e.g. “Publisher-only for Lcc_mqtt_mocker”
+5. **Create** (you’ll add the client to this group after creating the client)
+
+### 2. Generate a certificate for the mocker
+
+From your machine (same place you have `step` and your CA, e.g. `~`):
+
+```bash
+cd ~
+
+# Create client cert for the mocker (use your CA from step ca init)
+step certificate create lcc-mqtt-mocker lcc-mqtt-mocker.pem lcc-mqtt-mocker.key \
+  --ca .step/certs/intermediate_ca.crt --ca-key .step/secrets/intermediate_ca_key \
+  --no-password --insecure --not-after 2400h
+
+# Thumbprint – you’ll paste this in Azure when creating the Client
+step certificate fingerprint lcc-mqtt-mocker.pem
+```
+
+Save the thumbprint; do **not** commit `.pem` / `.key` to git.
+
+### 3. Create the Client in Azure
+
+1. Left menu → **MQTT broker** → **Clients**
+2. **+ Client**
+3. **Name:** `lcc-mqtt-mocker`
+4. **Client authentication name:** `lcc-mqtt-mocker` (this is the MQTT username the app will use)
+5. **Primary thumbprint:** paste the thumbprint from step 2
+6. **Client groups:** add the group `mqtt-mocker-publishers` (so this client is only in that group)
+7. **Create**
+
+### 4. Permission binding (Publisher only for this group)
+
+1. Left menu → **Permission bindings**
+2. **+ Permission binding**
+3. **Name:** `tiwater-mocker-publisher`
+4. **Client group:** `mqtt-mocker-publishers`
+5. **Topic space:** `tiwater-topics` (same as your existing one)
+6. **Permission:** **Publisher**
+7. **Create**
+
+Now only clients in `mqtt-mocker-publishers` (your mocker) have **Publisher** on `tiwater-topics`. Your API can keep using the existing client (e.g. `tiwater-api-consumer`) and its existing bindings (e.g. `$all` with Subscriber + Publisher).
+
+### 5. Use the new client in MQTT-MOCKER (Azure Function)
+
+1. **Base64 for Azure App Settings** (from the folder with the cert files):
+
+   ```bash
+   base64 -i lcc-mqtt-mocker.pem | tr -d '\n'
+   base64 -i lcc-mqtt-mocker.key | tr -d '\n'
+   ```
+
+2. In **MQTT-MOCKER** Function App → **Environment variables**, set:
+
+   | Name | Value |
+   |------|--------|
+   | `MQTT_BROKER` | Your namespace hostname (e.g. `tiwatermqtt.eastus-1.eventgrid.azure.net` or `...ts.eventgrid.azure.net`) |
+   | `MQTT_PORT` | `8883` |
+   | `MQTT_USE_TLS` | `true` |
+   | `MQTT_USERNAME` | `lcc-mqtt-mocker` (must match Client authentication name) |
+   | `MQTT_CLIENT_CERT_B64` | Output of first `base64` command |
+   | `MQTT_CLIENT_KEY_B64` | Output of second `base64` command |
+
+   Do **not** set `MQTT_PASSWORD` for Event Grid.
+
+Result: the mocker connects as `lcc-mqtt-mocker` with **publisher-only** permission; the API keeps its own client and permissions.
+
+---
+
 ## Step 7: Test Flow
 
 ### From Frontend (or Postman)
