@@ -71,6 +71,9 @@ if (!fs.existsSync(MQTT_LOG_DIR)) {
   fs.mkdirSync(MQTT_LOG_DIR, { recursive: true });
 }
 
+// Máximo de guardados tiwater→PostgreSQL simultáneos para no agotar el pool (default 20)
+const MQTT_TIWATER_SAVE_CONCURRENCY = Math.max(1, parseInt(process.env.MQTT_TIWATER_SAVE_CONCURRENCY || '10', 10));
+
 // Topics a los que nos suscribimos
 // Nuevo: tiwater/CODIGO_REGION/CIUDAD/CODIGO_TIENDA/data
 // Legacy: tiwater/CODIGO_TIENDA/data (usa NoRegion, ciudad vacía)
@@ -85,6 +88,9 @@ class MQTTService {
     this.isConnected = false;
     this.messageHandlers = new Map();
     this.lastError = null;  // For debugging (status endpoint)
+    // Cola de guardados tiwater→PostgreSQL para limitar concurrencia y no agotar el pool
+    this._tiwaterSaveQueue = [];
+    this._tiwaterSaveRunning = 0;
   }
 
   /** Diagnostic info for MQTT status endpoint (no secrets) */
@@ -122,6 +128,32 @@ class MQTTService {
       });
     } catch (error) {
       console.error('[MQTT] ❌ Error en logMessageToFile:', error.message);
+    }
+  }
+
+  /** Encola guardado tiwater→PostgreSQL; procesa con concurrencia limitada para no agotar el pool. */
+  enqueueTiwaterSave(payload) {
+    this._tiwaterSaveQueue.push(payload);
+    this._processTiwaterSaveQueue();
+  }
+
+  /** Procesa la cola de guardados con máximo MQTT_TIWATER_SAVE_CONCURRENCY simultáneos. */
+  _processTiwaterSaveQueue() {
+    while (this._tiwaterSaveRunning < MQTT_TIWATER_SAVE_CONCURRENCY && this._tiwaterSaveQueue.length > 0) {
+      const payload = this._tiwaterSaveQueue.shift();
+      this._tiwaterSaveRunning += 1;
+      this._runOneTiwaterSave(payload);
+    }
+  }
+
+  async _runOneTiwaterSave(payload) {
+    try {
+      await this.saveSensorData(payload);
+    } catch (err) {
+      console.error('[MQTT] ❌ Error al guardar datos de sensores (cola):', err?.message || err);
+    } finally {
+      this._tiwaterSaveRunning -= 1;
+      this._processTiwaterSaveQueue();
     }
   }
 
@@ -524,9 +556,8 @@ class MQTTService {
         });
       }
       
-      // Guardar datos en PostgreSQL (codigo_region y ciudad ya en payload para PostgresService)
-      await this.saveSensorData(sensorDataPayload);
-      console.log(`[MQTT] ✅ Datos guardados para tiwater/${codigo_tienda}`);
+      // Encolar guardado en PostgreSQL (concurrencia limitada para no agotar el pool)
+      this.enqueueTiwaterSave(sensorDataPayload);
       
     } catch (error) {
       console.error(`[MQTT] ❌ Error al procesar datos de tiwater/${codigo_tienda}:`, error);
