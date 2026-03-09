@@ -812,6 +812,7 @@ export const getPuntosVentaV2 = async (req, res) => {
 export const getPuntoVentaDetalleV2 = async (req, res) => {
   try {
     const { id } = req.params;
+    const light = req.query.light === '1' || req.query.light === 'true';
 
     // Import PostgreSQL PuntoVenta model first (v2.0 uses PostgreSQL)
     const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
@@ -1451,8 +1452,8 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           statusCount: osmosis.status?.length || 0
         });
         
-        // Generar histórico para "Nivel Purificada" si existe
-        if (hasNivelPurificada) {
+        // Generar histórico para "Nivel Purificada" si existe (omitido si ?light=1)
+        if (!light && hasNivelPurificada) {
           console.log(`[SensorDataV2] Generando histórico para TIWater ${osmosis.resourceId} (Nivel Purificada)`);
           
           try {
@@ -1471,8 +1472,8 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           }
         }
         
-        // Generar histórico para "Nivel Recuperada" si existe
-        if (hasNivelRecuperada) {
+        // Generar histórico para "Nivel Recuperada" si existe (omitido si ?light=1)
+        if (!light && hasNivelRecuperada) {
           console.log(`[SensorDataV2] Generando histórico para TIWater ${osmosis.resourceId} (Nivel Recuperada)`);
           
           try {
@@ -1491,8 +1492,8 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           }
         }
         
-        // Generar histórico para "Nivel Cruda (%)" si existe (sensores.name = 'Nivel Cruda (%)')
-        if (hasNivelCruda) {
+        // Generar histórico para "Nivel Cruda (%)" si existe (omitido si ?light=1)
+        if (!light && hasNivelCruda) {
           console.log(`[SensorDataV2] Generando histórico para TIWater ${osmosis.resourceId} (Nivel Cruda)`);
           try {
             [historicoHoraCruda, historicoDiarioCruda] = await Promise.all([
@@ -1507,7 +1508,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           }
         }
         
-        if (!hasNivelPurificada && !hasNivelRecuperada && !hasNivelCruda) {
+        if (!light && !hasNivelPurificada && !hasNivelRecuperada && !hasNivelCruda) {
           console.log(`[SensorDataV2] TIWater ${osmosis.resourceId} no tiene datos de nivel para generar histórico`);
         }
       }
@@ -1564,11 +1565,15 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
 
         if (!latestSensor) continue;
 
-        // Generar histórico por hora (día actual) y histórico diario (últimos días)
-        const [historicoHora, historicoDiario] = await Promise.all([
-          generateNivelHistoricoV2(codigoTienda, resourceId, 'liquid_level_percent'),
-          generateNivelHistoricoDiarioV2(codigoTienda, resourceId, 'liquid_level_percent', 30)
-        ]);
+        // Generar histórico por hora (día actual) y histórico diario (últimos días); omitido si ?light=1
+        let historicoHora = null;
+        let historicoDiario = null;
+        if (!light) {
+          [historicoHora, historicoDiario] = await Promise.all([
+            generateNivelHistoricoV2(codigoTienda, resourceId, 'liquid_level_percent'),
+            generateNivelHistoricoDiarioV2(codigoTienda, resourceId, 'liquid_level_percent', 30)
+          ]);
+        }
 
         const nivelData = {
           _id: `nivel-${resourceId}`,

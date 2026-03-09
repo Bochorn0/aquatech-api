@@ -1,0 +1,501 @@
+
+2026-03-03T07:15:59.5326918Z [0mGET /api/v1.0/notifications?userId=2 [36m304[0m 97.810 ms - -[0m
+2026-03-03T07:15:59.5422366Z [0mPOST /api/v1.0/auth/verify [32m200[0m 1.761 ms - 28[0m
+2026-03-03T07:15:59.6210561Z [getMetricsV2] Fetching Metrics from PostgreSQL (v2.0) with filters: {}
+2026-03-03T07:15:59.6323124Z [getMetricsV2] Found 2 metrics
+2026-03-03T07:15:59.6330619Z [getMetricsV2] Need to fetch 1 clients and 1 puntos de venta
+2026-03-03T07:15:59.6428975Z [getMetricsV2] Successfully fetched 1 clients
+2026-03-03T07:15:59.654389Z [getMetricsV2] Successfully fetched 1 puntos de venta
+2026-03-03T07:15:59.6714725Z [getMetricsV2] ✅ Successfully returning 2 metrics
+2026-03-03T07:15:59.6714987Z [0mGET /api/v2.0/metrics [36m304[0m 59.850 ms - -[0m
+2026-03-03T07:15:59.7741758Z Fetching Puntos de Venta from PostgreSQL (v2.0)...
+2026-03-03T07:15:59.8346291Z Fetching Clients from PostgreSQL (v2.0)...
+2026-03-03T07:15:59.8432301Z Fetching Cities from PostgreSQL (v2.0)...
+2026-03-03T07:15:59.8546816Z [getClientsV2] ✅ Found 3 clients from PostgreSQL
+2026-03-03T07:15:59.8727182Z [0mGET /api/v2.0/clients [36m304[0m 232.550 ms - -[0m
+2026-03-03T07:15:59.8752894Z [getCitiesV2] ✅ Found 32 cities from PostgreSQL
+2026-03-03T07:15:59.8854117Z [0mGET /api/v2.0/cities [36m304[0m 241.868 ms - -[0m
+2026-03-03T07:15:59.9130238Z [getPuntosVentaV2] ✅ Found 2 puntos de venta from PostgreSQL
+2026-03-03T07:15:59.9153115Z [0mGET /api/v2.0/puntoVentas/all [36m304[0m 310.009 ms - -[0m
+2026-03-03T07:16:04.2675259Z [MQTT Publisher] ✅ Publicado en tiwater/Suroeste/Chilpancingo/TIENDA_001/data: {"CAUDAL PURIFICADA":1.48,"CAUDAL RECUPERACION":2.42,"CAUDAL RECHAZO":0.33,"NIVEL PURIFICADA":65.7,"...
+2026-03-03T07:16:04.2967357Z [MQTT Publisher] ✅ Publicado en tiwater/Centro/Zacatecas/TIENDA_002/data: {"CAUDAL PURIFICADA":0.82,"CAUDAL RECUPERACION":1.67,"CAUDAL RECHAZO":0.18,"NIVEL PURIFICADA":42.2,"...
+2026-03-03T07:16:04.3297043Z [MQTT Publisher] ✅ Publicado en tiwater/Centro/Aguascalientes/TIENDA_003/data: {"CAUDAL PURIFICADA":1.37,"CAUDAL RECUPERACION":2.02,"CAUDAL RECHAZO":0.14,"NIVEL PURIFICADA":31.3,"...
+2026-03-03T07:16:04.3504567Z [MQTT] 📨 Mensaje recibido en tiwater/Suroeste/Chilpancingo/TIENDA_001/data: {"CAUDAL PURIFICADA":1.48,"CAUDAL RECUPERACION":2.42,"CAUDAL RECHAZO":0.33,"NIVEL PURIFICADA":65.7,"NIVEL CRUDA":41.2,"PORCENTAJE NIVEL PURIFICADA":65.7,"PORCENTAJE NIVEL CRUDA":41.2,"CAUDAL CRUDA":2.12,"ACUMULADO CRUDA":4122.1,"CAUDAL CRUDA L/min":21.174,"vida":171,"TDS":108,"PRESION CO2":42.33,"ch1":2.92,"ch2":3.19,"ch3":2.47,"ch4":4.34,"EFICIENCIA":69,"timestamp":1772522164,"lat":17.559441221116533,"long":-99.51198409104677}
+2026-03-03T07:16:04.3514794Z [MQTT] 📊 Datos de tiwater/TIENDA_001: {
+2026-03-03T07:16:04.3515013Z   "CAUDAL PURIFICADA": 1.48,
+2026-03-03T07:16:04.3515084Z   "CAUDAL RECUPERACION": 2.42,
+2026-03-03T07:16:04.35151Z   "CAUDAL RECHAZO": 0.33,
+2026-03-03T07:16:04.3515117Z   "NIVEL PURIFICADA": 65.7,
+2026-03-03T07:16:04.3515132Z   "NIVEL CRUDA": 41.2,
+2026-03-03T07:16:04.3515148Z   "PORCENTAJE NIVEL PURIFICADA": 65.7,
+2026-03-03T07:16:04.3515164Z   "PORCENTAJE NIVEL CRUDA": 41.2,
+2026-03-03T07:16:04.3515179Z   "CAUDAL CRUDA": 2.12,
+2026-03-03T07:16:04.3515195Z   "ACUMULADO CRUDA": 4122.1,
+2026-03-03T07:16:04.351521Z   "CAUDAL CRUDA L/min": 21.174,
+2026-03-03T07:16:04.3515224Z   "vida": 171,
+2026-03-03T07:16:04.3515239Z   "TDS": 108,
+2026-03-03T07:16:04.3515275Z   "PRESION CO2": 42.33,
+2026-03-03T07:16:04.351529Z   "ch1": 2.92,
+2026-03-03T07:16:04.3515304Z   "ch2": 3.19,
+2026-03-03T07:16:04.3515318Z   "ch3": 2.47,
+2026-03-03T07:16:04.3515332Z   "ch4": 4.34,
+2026-03-03T07:16:04.3515347Z   "EFICIENCIA": 69,
+2026-03-03T07:16:04.3515363Z   "timestamp": 1772522164,
+2026-03-03T07:16:04.3515379Z   "lat": 17.559441221116533,
+2026-03-03T07:16:04.3515393Z   "long": -99.51198409104677
+2026-03-03T07:16:04.3515407Z }
+2026-03-03T07:16:04.3642675Z [MQTT] ⚡ Corrientes en mensaje original: {
+2026-03-03T07:16:04.3642905Z   ch1: 2.92,
+2026-03-03T07:16:04.3642982Z   ch2: 3.19,
+2026-03-03T07:16:04.3642998Z   ch3: 2.47,
+2026-03-03T07:16:04.3643013Z   ch4: 4.34,
+2026-03-03T07:16:04.3643029Z   total_corriente: undefined
+2026-03-03T07:16:04.3643042Z }
+2026-03-03T07:16:04.3643062Z [MQTT] ⚡ Corrientes después de mapTiwaterDataToStandard: {
+2026-03-03T07:16:04.3643076Z   corriente_ch1: 2.92,
+2026-03-03T07:16:04.364309Z   corriente_ch2: 3.19,
+2026-03-03T07:16:04.3643105Z   corriente_ch3: 2.47,
+2026-03-03T07:16:04.3643119Z   corriente_ch4: 4.34,
+2026-03-03T07:16:04.3643133Z   corriente_total: null
+2026-03-03T07:16:04.3643147Z }
+2026-03-03T07:16:04.3643185Z [MQTT] ⚡ Corrientes mapeadas para tiwater/TIENDA_001: { ch1: 2.92, ch2: 3.19, ch3: 2.47, ch4: 4.34, total: null }
+2026-03-03T07:16:04.3643204Z [MQTT] ⚡ Corrientes en payload: { ch1: 2.92, ch2: 3.19, ch3: 2.47, ch4: 4.34, total_corriente: null }
+2026-03-03T07:16:04.3672992Z [MQTT Publisher] ✅ Publicado en tiwater/Centro/Pachuca/TIENDA_004/data: {"CAUDAL PURIFICADA":1.87,"CAUDAL RECUPERACION":1.93,"CAUDAL RECHAZO":0.39,"NIVEL PURIFICADA":31.7,"...
+2026-03-03T07:16:04.3872495Z [PostgresService] ✅ Region SUROESTE (ID: 3)
+2026-03-03T07:16:04.3873167Z [MQTT] 📨 Mensaje recibido en tiwater/Centro/Zacatecas/TIENDA_002/data: {"CAUDAL PURIFICADA":0.82,"CAUDAL RECUPERACION":1.67,"CAUDAL RECHAZO":0.18,"NIVEL PURIFICADA":42.2,"NIVEL CRUDA":73.2,"PORCENTAJE NIVEL PURIFICADA":42.2,"PORCENTAJE NIVEL CRUDA":73.2,"CAUDAL CRUDA":1.54,"ACUMULADO CRUDA":4370.4,"CAUDAL CRUDA L/min":21.175,"vida":54,"TDS":40,"PRESION CO2":51.46,"ch1":4.4,"ch2":4.86,"ch3":1.93,"ch4":3.4,"EFICIENCIA":57,"timestamp":1772522164,"lat":22.763427570321213,"long":-102.57407249365461}
+2026-03-03T07:16:04.3873195Z [MQTT] 📊 Datos de tiwater/TIENDA_002: {
+2026-03-03T07:16:04.3873213Z   "CAUDAL PURIFICADA": 0.82,
+2026-03-03T07:16:04.3873232Z   "CAUDAL RECUPERACION": 1.67,
+2026-03-03T07:16:04.3873328Z   "CAUDAL RECHAZO": 0.18,
+2026-03-03T07:16:04.3873343Z   "NIVEL PURIFICADA": 42.2,
+2026-03-03T07:16:04.3873359Z   "NIVEL CRUDA": 73.2,
+2026-03-03T07:16:04.3873376Z   "PORCENTAJE NIVEL PURIFICADA": 42.2,
+2026-03-03T07:16:04.3873392Z   "PORCENTAJE NIVEL CRUDA": 73.2,
+2026-03-03T07:16:04.3873407Z   "CAUDAL CRUDA": 1.54,
+2026-03-03T07:16:04.3873423Z   "ACUMULADO CRUDA": 4370.4,
+2026-03-03T07:16:04.387344Z   "CAUDAL CRUDA L/min": 21.175,
+2026-03-03T07:16:04.3873454Z   "vida": 54,
+2026-03-03T07:16:04.3873468Z   "TDS": 40,
+2026-03-03T07:16:04.3873484Z   "PRESION CO2": 51.46,
+2026-03-03T07:16:04.3873516Z   "ch1": 4.4,
+2026-03-03T07:16:04.3873533Z   "ch2": 4.86,
+2026-03-03T07:16:04.3873547Z   "ch3": 1.93,
+2026-03-03T07:16:04.3873561Z   "ch4": 3.4,
+2026-03-03T07:16:04.3873577Z   "EFICIENCIA": 57,
+2026-03-03T07:16:04.3873593Z   "timestamp": 1772522164,
+2026-03-03T07:16:04.3873608Z   "lat": 22.763427570321213,
+2026-03-03T07:16:04.3873622Z   "long": -102.57407249365461
+2026-03-03T07:16:04.3873636Z }
+2026-03-03T07:16:04.3873655Z [MQTT] ⚡ Corrientes en mensaje original: {
+2026-03-03T07:16:04.3873669Z   ch1: 4.4,
+2026-03-03T07:16:04.3873684Z   ch2: 4.86,
+2026-03-03T07:16:04.3873715Z   ch3: 1.93,
+2026-03-03T07:16:04.387373Z   ch4: 3.4,
+2026-03-03T07:16:04.3873745Z   total_corriente: undefined
+2026-03-03T07:16:04.3873759Z }
+2026-03-03T07:16:04.3873777Z [MQTT] ⚡ Corrientes después de mapTiwaterDataToStandard: {
+2026-03-03T07:16:04.3873806Z   corriente_ch1: 4.4,
+2026-03-03T07:16:04.3873822Z   corriente_ch2: 4.86,
+2026-03-03T07:16:04.3873838Z   corriente_ch3: 1.93,
+2026-03-03T07:16:04.3873852Z   corriente_ch4: 3.4,
+2026-03-03T07:16:04.3873867Z   corriente_total: null
+2026-03-03T07:16:04.387388Z }
+2026-03-03T07:16:04.3873916Z [MQTT] ⚡ Corrientes mapeadas para tiwater/TIENDA_002: { ch1: 4.4, ch2: 4.86, ch3: 1.93, ch4: 3.4, total: null }
+2026-03-03T07:16:04.3873935Z [MQTT] ⚡ Corrientes en payload: { ch1: 4.4, ch2: 4.86, ch3: 1.93, ch4: 3.4, total_corriente: null }
+2026-03-03T07:16:04.3874976Z [MQTT] 📨 Mensaje recibido en tiwater/Centro/Aguascalientes/TIENDA_003/data: {"CAUDAL PURIFICADA":1.37,"CAUDAL RECUPERACION":2.02,"CAUDAL RECHAZO":0.14,"NIVEL PURIFICADA":31.3,"NIVEL CRUDA":77,"PORCENTAJE NIVEL PURIFICADA":31.3,"PORCENTAJE NIVEL CRUDA":77,"CAUDAL CRUDA":2.35,"ACUMULADO CRUDA":2394,"CAUDAL CRUDA L/min":20.998,"vida":78,"TDS":76,"PRESION CO2":92.21,"ch1":2.39,"ch2":2.61,"ch3":1.21,"ch4":2.39,"EFICIENCIA":59.4,"timestamp":1772522164,"lat":21.885765059738286,"long":-102.30070630913505}
+2026-03-03T07:16:04.3971589Z [MQTT] 📊 Datos de tiwater/TIENDA_003: {
+2026-03-03T07:16:04.3971817Z   "CAUDAL PURIFICADA": 1.37,
+2026-03-03T07:16:04.3971837Z   "CAUDAL RECUPERACION": 2.02,
+2026-03-03T07:16:04.3971853Z   "CAUDAL RECHAZO": 0.14,
+2026-03-03T07:16:04.3971876Z   "NIVEL PURIFICADA": 31.3,
+2026-03-03T07:16:04.3971893Z   "NIVEL CRUDA": 77,
+2026-03-03T07:16:04.3971976Z   "PORCENTAJE NIVEL PURIFICADA": 31.3,
+2026-03-03T07:16:04.3971992Z   "PORCENTAJE NIVEL CRUDA": 77,
+2026-03-03T07:16:04.3972006Z   "CAUDAL CRUDA": 2.35,
+2026-03-03T07:16:04.3972022Z   "ACUMULADO CRUDA": 2394,
+2026-03-03T07:16:04.3972037Z   "CAUDAL CRUDA L/min": 20.998,
+2026-03-03T07:16:04.3972052Z   "vida": 78,
+2026-03-03T07:16:04.3972066Z   "TDS": 76,
+2026-03-03T07:16:04.3972081Z   "PRESION CO2": 92.21,
+2026-03-03T07:16:04.3972095Z   "ch1": 2.39,
+2026-03-03T07:16:04.3972109Z   "ch2": 2.61,
+2026-03-03T07:16:04.3972124Z   "ch3": 1.21,
+2026-03-03T07:16:04.3972153Z   "ch4": 2.39,
+2026-03-03T07:16:04.397217Z   "EFICIENCIA": 59.4,
+2026-03-03T07:16:04.3972185Z   "timestamp": 1772522164,
+2026-03-03T07:16:04.3972199Z   "lat": 21.885765059738286,
+2026-03-03T07:16:04.3972214Z   "long": -102.30070630913505
+2026-03-03T07:16:04.3972229Z }
+2026-03-03T07:16:04.3972263Z [MQTT] ⚡ Corrientes en mensaje original: {
+2026-03-03T07:16:04.3972285Z   ch1: 2.39,
+2026-03-03T07:16:04.39723Z   ch2: 2.61,
+2026-03-03T07:16:04.3972338Z   ch3: 1.21,
+2026-03-03T07:16:04.3972352Z   ch4: 2.39,
+2026-03-03T07:16:04.3972367Z   total_corriente: undefined
+2026-03-03T07:16:04.397238Z }
+2026-03-03T07:16:04.3972398Z [MQTT] ⚡ Corrientes después de mapTiwaterDataToStandard: {
+2026-03-03T07:16:04.3972413Z   corriente_ch1: 2.39,
+2026-03-03T07:16:04.3972427Z   corriente_ch2: 2.61,
+2026-03-03T07:16:04.3972441Z   corriente_ch3: 1.21,
+2026-03-03T07:16:04.3972455Z   corriente_ch4: 2.39,
+2026-03-03T07:16:04.3972469Z   corriente_total: null
+2026-03-03T07:16:04.3972482Z }
+2026-03-03T07:16:04.3972504Z [MQTT] ⚡ Corrientes mapeadas para tiwater/TIENDA_003: { ch1: 2.39, ch2: 2.61, ch3: 1.21, ch4: 2.39, total: null }
+2026-03-03T07:16:04.3972539Z [MQTT] ⚡ Corrientes en payload: { ch1: 2.39, ch2: 2.61, ch3: 1.21, ch4: 2.39, total_corriente: null }
+2026-03-03T07:16:04.4155722Z [PostgresService] ✅ Region CENTRO (ID: 4)
+2026-03-03T07:16:04.4250009Z [MQTT] 📨 Mensaje recibido en tiwater/Centro/Pachuca/TIENDA_004/data: {"CAUDAL PURIFICADA":1.87,"CAUDAL RECUPERACION":1.93,"CAUDAL RECHAZO":0.39,"NIVEL PURIFICADA":31.7,"NIVEL CRUDA":75.5,"PORCENTAJE NIVEL PURIFICADA":31.7,"PORCENTAJE NIVEL CRUDA":75.5,"CAUDAL CRUDA":2.01,"ACUMULADO CRUDA":1752.4,"CAUDAL CRUDA L/min":22.68,"vida":53,"TDS":140,"PRESION CO2":71.61,"ch1":3.35,"ch2":3.27,"ch3":1.32,"ch4":3.11,"EFICIENCIA":67.8,"timestamp":1772522164,"lat":20.13271019607771,"long":-98.72879590905806}
+2026-03-03T07:16:04.4250266Z [MQTT] 📊 Datos de tiwater/TIENDA_004: {
+2026-03-03T07:16:04.4250289Z   "CAUDAL PURIFICADA": 1.87,
+2026-03-03T07:16:04.4250305Z   "CAUDAL RECUPERACION": 1.93,
+2026-03-03T07:16:04.4250321Z   "CAUDAL RECHAZO": 0.39,
+2026-03-03T07:16:04.4250338Z   "NIVEL PURIFICADA": 31.7,
+2026-03-03T07:16:04.425036Z   "NIVEL CRUDA": 75.5,
+2026-03-03T07:16:04.4250426Z   "PORCENTAJE NIVEL PURIFICADA": 31.7,
+2026-03-03T07:16:04.4250443Z   "PORCENTAJE NIVEL CRUDA": 75.5,
+2026-03-03T07:16:04.4250459Z   "CAUDAL CRUDA": 2.01,
+2026-03-03T07:16:04.4250475Z   "ACUMULADO CRUDA": 1752.4,
+2026-03-03T07:16:04.425049Z   "CAUDAL CRUDA L/min": 22.68,
+2026-03-03T07:16:04.4250505Z   "vida": 53,
+2026-03-03T07:16:04.4250518Z   "TDS": 140,
+2026-03-03T07:16:04.4250533Z   "PRESION CO2": 71.61,
+2026-03-03T07:16:04.4250547Z   "ch1": 3.35,
+2026-03-03T07:16:04.4250561Z   "ch2": 3.27,
+2026-03-03T07:16:04.4250575Z   "ch3": 1.32,
+2026-03-03T07:16:04.425059Z   "ch4": 3.11,
+2026-03-03T07:16:04.4250627Z   "EFICIENCIA": 67.8,
+2026-03-03T07:16:04.4250642Z   "timestamp": 1772522164,
+2026-03-03T07:16:04.4250694Z   "lat": 20.13271019607771,
+2026-03-03T07:16:04.4250709Z   "long": -98.72879590905806
+2026-03-03T07:16:04.4250722Z }
+2026-03-03T07:16:04.4447051Z [MQTT] ⚡ Corrientes en mensaje original: {
+2026-03-03T07:16:04.444734Z   ch1: 3.35,
+2026-03-03T07:16:04.444736Z   ch2: 3.27,
+2026-03-03T07:16:04.444738Z   ch3: 1.32,
+2026-03-03T07:16:04.4447395Z   ch4: 3.11,
+2026-03-03T07:16:04.4447412Z   total_corriente: undefined
+2026-03-03T07:16:04.4447493Z }
+2026-03-03T07:16:04.4447514Z [MQTT] ⚡ Corrientes después de mapTiwaterDataToStandard: {
+2026-03-03T07:16:04.4447529Z   corriente_ch1: 3.35,
+2026-03-03T07:16:04.4447545Z   corriente_ch2: 3.27,
+2026-03-03T07:16:04.4447559Z   corriente_ch3: 1.32,
+2026-03-03T07:16:04.4447573Z   corriente_ch4: 3.11,
+2026-03-03T07:16:04.4447588Z   corriente_total: null
+2026-03-03T07:16:04.4447602Z }
+2026-03-03T07:16:04.4447624Z [MQTT] ⚡ Corrientes mapeadas para tiwater/TIENDA_004: { ch1: 3.35, ch2: 3.27, ch3: 1.32, ch4: 3.11, total: null }
+2026-03-03T07:16:04.4447643Z [MQTT] ⚡ Corrientes en payload: { ch1: 3.35, ch2: 3.27, ch3: 1.32, ch4: 3.11, total_corriente: null }
+2026-03-03T07:16:04.444766Z [PostgresService] ✅ Ciudad Chilpancingo (ID: 1)
+2026-03-03T07:16:04.4447677Z [PostgresService] ✅ Region CENTRO (ID: 4)
+2026-03-03T07:16:04.4459996Z [MQTT Publisher] ✅ Publicado en tiwater/Bajio/Guadalajara/TIENDA_005/data: {"CAUDAL PURIFICADA":1.04,"CAUDAL RECUPERACION":2.47,"CAUDAL RECHAZO":0.26,"NIVEL PURIFICADA":31.7,"...
+2026-03-03T07:16:04.4477957Z [PostgresService] ✅ Ciudad Zacatecas (ID: 2)
+2026-03-03T07:16:04.4560239Z [PuntoVentaModel] ✅ PuntoVenta encontrado (ID: 1) para código: TIENDA_001
+2026-03-03T07:16:04.4565009Z [PostgresService] ✅ PuntoVenta creado para codigo_tienda: TIENDA_001 (ID: 1)
+2026-03-03T07:16:04.4575499Z [PostgresService] ✅ Ciudad Aguascalientes (ID: 3)
+2026-03-03T07:16:04.465554Z [PostgresService] ✅ Region CENTRO (ID: 4)
+2026-03-03T07:16:04.4669926Z [PuntoVentaModel] ✅ PuntoVenta encontrado (ID: 2) para código: TIENDA_002
+2026-03-03T07:16:04.46772Z [PostgresService] ✅ PuntoVenta creado para codigo_tienda: TIENDA_002 (ID: 2)
+2026-03-03T07:16:04.485163Z [MQTT] 📨 Mensaje recibido en tiwater/Bajio/Guadalajara/TIENDA_005/data: {"CAUDAL PURIFICADA":1.04,"CAUDAL RECUPERACION":2.47,"CAUDAL RECHAZO":0.26,"NIVEL PURIFICADA":31.7,"NIVEL CRUDA":51.6,"PORCENTAJE NIVEL PURIFICADA":31.7,"PORCENTAJE NIVEL CRUDA":51.6,"CAUDAL CRUDA":1.66,"ACUMULADO CRUDA":3969.7,"CAUDAL CRUDA L/min":20.089,"vida":69,"TDS":112,"PRESION CO2":55.36,"ch1":4.57,"ch2":2.5,"ch3":2.64,"ch4":3.79,"EFICIENCIA":63.5,"timestamp":1772522164,"lat":20.66144619582232,"long":-103.34281677209961}
+2026-03-03T07:16:04.4863123Z [MQTT] 📊 Datos de tiwater/TIENDA_005: {
+2026-03-03T07:16:04.4863337Z   "CAUDAL PURIFICADA": 1.04,
+2026-03-03T07:16:04.4863363Z   "CAUDAL RECUPERACION": 2.47,
+2026-03-03T07:16:04.4863379Z   "CAUDAL RECHAZO": 0.26,
+2026-03-03T07:16:04.4863394Z   "NIVEL PURIFICADA": 31.7,
+2026-03-03T07:16:04.4863408Z   "NIVEL CRUDA": 51.6,
+2026-03-03T07:16:04.4863425Z   "PORCENTAJE NIVEL PURIFICADA": 31.7,
+2026-03-03T07:16:04.4863479Z   "PORCENTAJE NIVEL CRUDA": 51.6,
+2026-03-03T07:16:04.4863495Z   "CAUDAL CRUDA": 1.66,
+2026-03-03T07:16:04.486351Z   "ACUMULADO CRUDA": 3969.7,
+2026-03-03T07:16:04.4863525Z   "CAUDAL CRUDA L/min": 20.089,
+2026-03-03T07:16:04.486354Z   "vida": 69,
+2026-03-03T07:16:04.4863635Z   "TDS": 112,
+2026-03-03T07:16:04.4863654Z   "PRESION CO2": 55.36,
+2026-03-03T07:16:04.4863669Z   "ch1": 4.57,
+2026-03-03T07:16:04.4863683Z   "ch2": 2.5,
+2026-03-03T07:16:04.4863697Z   "ch3": 2.64,
+2026-03-03T07:16:04.4863711Z   "ch4": 3.79,
+2026-03-03T07:16:04.4863726Z   "EFICIENCIA": 63.5,
+2026-03-03T07:16:04.4863758Z   "timestamp": 1772522164,
+2026-03-03T07:16:04.4863773Z   "lat": 20.66144619582232,
+2026-03-03T07:16:04.4863789Z   "long": -103.34281677209961
+2026-03-03T07:16:04.4863804Z }
+2026-03-03T07:16:04.498046Z [MQTT] ⚡ Corrientes en mensaje original: {
+2026-03-03T07:16:04.4980626Z   ch1: 4.57,
+2026-03-03T07:16:04.4980648Z   ch2: 2.5,
+2026-03-03T07:16:04.4980662Z   ch3: 2.64,
+2026-03-03T07:16:04.4980677Z   ch4: 3.79,
+2026-03-03T07:16:04.4980693Z   total_corriente: undefined
+2026-03-03T07:16:04.4980706Z }
+2026-03-03T07:16:04.4980751Z [MQTT] ⚡ Corrientes después de mapTiwaterDataToStandard: {
+2026-03-03T07:16:04.4980767Z   corriente_ch1: 4.57,
+2026-03-03T07:16:04.4980781Z   corriente_ch2: 2.5,
+2026-03-03T07:16:04.4980796Z   corriente_ch3: 2.64,
+2026-03-03T07:16:04.498081Z   corriente_ch4: 3.79,
+2026-03-03T07:16:04.4980825Z   corriente_total: null
+2026-03-03T07:16:04.4980842Z }
+2026-03-03T07:16:04.4980863Z [MQTT] ⚡ Corrientes mapeadas para tiwater/TIENDA_005: { ch1: 4.57, ch2: 2.5, ch3: 2.64, ch4: 3.79, total: null }
+2026-03-03T07:16:04.4980883Z [MQTT] ⚡ Corrientes en payload: { ch1: 4.57, ch2: 2.5, ch3: 2.64, ch4: 3.79, total_corriente: null }
+2026-03-03T07:16:04.49809Z [PostgresService] ✅ Ciudad Pachuca (ID: 4)
+2026-03-03T07:16:04.517794Z [PuntoVentaModel] ✅ PuntoVenta ya existe (ID: 3), retornando existente para código: TIENDA_003
+2026-03-03T07:16:04.5178294Z [PostgresService] ✅ PuntoVenta creado para codigo_tienda: TIENDA_003 (ID: 3)
+2026-03-03T07:16:04.5178316Z [PostgresService] ✅ ClientId 1 obtenido de puntoVenta para TIENDA_002
+2026-03-03T07:16:04.5451513Z [PostgresService] ✅ ClientId 1 obtenido de puntoVenta para TIENDA_001
+2026-03-03T07:16:04.5664726Z [PuntoVentaModel] ✅ PuntoVenta ya existe (ID: 4), retornando existente para código: TIENDA_004
+2026-03-03T07:16:04.5674705Z [PostgresService] ✅ PuntoVenta creado para codigo_tienda: TIENDA_004 (ID: 4)
+2026-03-03T07:16:04.6673504Z [PostgresService] ✅ Region BAJIO (ID: 6)
+2026-03-03T07:16:04.6781763Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch1", name="Corriente Canal 1", value=2.92
+2026-03-03T07:16:04.6975085Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch2", name="Corriente Canal 2", value=3.19
+2026-03-03T07:16:04.7071195Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch3", name="Corriente Canal 3", value=2.47
+2026-03-03T07:16:04.7083865Z [PostgresService] ✅ Ciudad Guadalajara (ID: 5)
+2026-03-03T07:16:04.7169066Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch4", name="Corriente Canal 4", value=4.34
+2026-03-03T07:16:04.7367499Z [PuntoVentaModel] ✅ PuntoVenta ya existe (ID: 5), retornando existente para código: TIENDA_005
+2026-03-03T07:16:04.7375926Z [PostgresService] ✅ PuntoVenta creado para codigo_tienda: TIENDA_005 (ID: 5)
+2026-03-03T07:16:04.8282721Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch1", name="Corriente Canal 1", value=2.39
+2026-03-03T07:16:04.841193Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch2", name="Corriente Canal 2", value=2.61
+2026-03-03T07:16:04.8685039Z [PostgresService] ✅ 18 sensor readings saved to PostgreSQL
+2026-03-03T07:16:04.8691452Z [MQTT] ✅ Datos guardados para tiwater/TIENDA_001
+2026-03-03T07:16:04.8694541Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch3", name="Corriente Canal 3", value=1.21
+2026-03-03T07:16:04.8783731Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_produccion, value=1.48, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:04.887184Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch1", name="Corriente Canal 1", value=4.4
+2026-03-03T07:16:04.888136Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch4", name="Corriente Canal 4", value=2.39
+2026-03-03T07:16:04.8974731Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_produccion, client=1, puntoVentaId=1
+2026-03-03T07:16:04.8979808Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_produccion" for client 1)
+2026-03-03T07:16:04.8985242Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_rechazo, value=0.33, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:04.8994133Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch2", name="Corriente Canal 2", value=4.86
+2026-03-03T07:16:04.9091304Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_rechazo, client=1, puntoVentaId=1
+2026-03-03T07:16:04.9094895Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_rechazo" for client 1)
+2026-03-03T07:16:04.9100219Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_recuperacion, value=2.42, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:04.9182639Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch1", name="Corriente Canal 1", value=3.35
+2026-03-03T07:16:04.9191081Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch3", name="Corriente Canal 3", value=1.93
+2026-03-03T07:16:04.9288881Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_recuperacion, client=1, puntoVentaId=1
+2026-03-03T07:16:04.9293171Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_recuperacion" for client 1)
+2026-03-03T07:16:04.9298849Z [MetricNotification] ─── STEP 1: Sensor received ─── type=tds, value=108, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:04.9392691Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch2", name="Corriente Canal 2", value=3.27
+2026-03-03T07:16:04.947502Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=tds, client=1, puntoVentaId=1
+2026-03-03T07:16:04.9480971Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="tds" for client 1)
+2026-03-03T07:16:04.9482787Z [MetricNotification] ─── STEP 1: Sensor received ─── type=electronivel_purificada, value=65.7, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:04.9488373Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch4", name="Corriente Canal 4", value=3.4
+2026-03-03T07:16:04.9494878Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch1", name="Corriente Canal 1", value=4.57
+2026-03-03T07:16:04.9693645Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch3", name="Corriente Canal 3", value=1.32
+2026-03-03T07:16:04.969391Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=electronivel_purificada, client=1, puntoVentaId=1
+2026-03-03T07:16:04.9693936Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="electronivel_purificada" for client 1)
+2026-03-03T07:16:04.9693961Z [MetricNotification] ─── STEP 1: Sensor received ─── type=electronivel_cruda, value=41.2, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:04.9703338Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch2", name="Corriente Canal 2", value=2.5
+2026-03-03T07:16:04.987379Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch4", name="Corriente Canal 4", value=3.11
+2026-03-03T07:16:04.9874055Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=electronivel_cruda, client=1, puntoVentaId=1
+2026-03-03T07:16:04.9874083Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="electronivel_cruda" for client 1)
+2026-03-03T07:16:04.9874105Z [MetricNotification] ─── STEP 1: Sensor received ─── type=nivel_purificada, value=65.7, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:04.9888076Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch3", name="Corriente Canal 3", value=2.64
+2026-03-03T07:16:04.9980258Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=nivel_purificada, client=1, puntoVentaId=1
+2026-03-03T07:16:04.9984001Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="nivel_purificada" for client 1)
+2026-03-03T07:16:04.9987901Z [MetricNotification] ─── STEP 1: Sensor received ─── type=nivel_cruda, value=41.2, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:05.0080689Z [PostgresService] ⚡ Guardando corriente: type="corriente_ch4", name="Corriente Canal 4", value=3.79
+2026-03-03T07:16:05.008867Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 2 metrics for sensor_type=nivel_cruda, client=1, puntoVentaId=1
+2026-03-03T07:16:05.0093471Z [MetricNotification]   [1] metric_id=2, name=NIVEL AGUA CRUDA
+2026-03-03T07:16:05.009661Z [MetricNotification]   [2] metric_id=1, name=NIVEL AGUA CRUDA
+2026-03-03T07:16:05.0100057Z [MetricNotification] ─── STEP 3: Alerts lookup ─── metric_id=2, name=NIVEL AGUA CRUDA
+2026-03-03T07:16:05.0291956Z [MetricNotification]   Found 1 alerts for metric 2
+2026-03-03T07:16:05.0297343Z [MetricNotification] ─── STEP 4: Rules evaluation ─── value=41.2
+2026-03-03T07:16:05.0305312Z [MetricNotification]   1 alerts triggered
+2026-03-03T07:16:05.0400933Z [MetricNotification] ─── STEP 5: User lookup ─── alert.correo=luis.cordova@lcc.com.mx, alert.usuario=luis.cordova
+2026-03-03T07:16:05.0679689Z [MetricNotification]   Found 1 users to notify
+2026-03-03T07:16:05.0680023Z [MetricNotification] ─── STEP 6: Create notification ─── user=luis.cordova@lcc.com.mx, url=https://www.lcc.com.mx/PuntoVenta/1
+2026-03-03T07:16:05.0900234Z [MetricNotification]   ✅ Created for luis.cordova@lcc.com.mx
+2026-03-03T07:16:05.0982121Z [MetricNotification] ─── STEP 7: Email notification ─── alert_id=1, correo=luis.cordova@lcc.com.mx
+2026-03-03T07:16:05.1705835Z [PostgresService] ✅ 18 sensor readings saved to PostgreSQL
+2026-03-03T07:16:05.1714856Z [MQTT] ✅ Datos guardados para tiwater/TIENDA_003
+2026-03-03T07:16:05.2310156Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_produccion, value=1.37, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.2600468Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_produccion, client=null, puntoVentaId=3
+2026-03-03T07:16:05.2607949Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_produccion" for client null)
+2026-03-03T07:16:05.2611461Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_rechazo, value=0.14, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.2721824Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_rechazo, client=null, puntoVentaId=3
+2026-03-03T07:16:05.2726367Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_rechazo" for client null)
+2026-03-03T07:16:05.2800386Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_recuperacion, value=2.02, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.2891117Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_recuperacion, client=null, puntoVentaId=3
+2026-03-03T07:16:05.2898474Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_recuperacion" for client null)
+2026-03-03T07:16:05.290166Z [MetricNotification] ─── STEP 1: Sensor received ─── type=tds, value=76, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.2908683Z [PostgresService] ✅ 18 sensor readings saved to PostgreSQL
+2026-03-03T07:16:05.2914211Z [MQTT] ✅ Datos guardados para tiwater/TIENDA_002
+2026-03-03T07:16:05.3004013Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_produccion, value=0.82, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.3004246Z [PostgresService] ✅ 18 sensor readings saved to PostgreSQL
+2026-03-03T07:16:05.3004273Z [MQTT] ✅ Datos guardados para tiwater/TIENDA_004
+2026-03-03T07:16:05.3004295Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_produccion, value=1.87, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.3103248Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=tds, client=null, puntoVentaId=3
+2026-03-03T07:16:05.3103579Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="tds" for client null)
+2026-03-03T07:16:05.3103616Z [MetricNotification] ─── STEP 1: Sensor received ─── type=electronivel_purificada, value=31.3, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.3103637Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_produccion, client=1, puntoVentaId=2
+2026-03-03T07:16:05.3103657Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_produccion" for client 1)
+2026-03-03T07:16:05.3103678Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_rechazo, value=0.18, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.31037Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_produccion, client=null, puntoVentaId=4
+2026-03-03T07:16:05.3103721Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_produccion" for client null)
+2026-03-03T07:16:05.3103742Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_rechazo, value=0.39, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.3219371Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=electronivel_purificada, client=null, puntoVentaId=3
+2026-03-03T07:16:05.3223905Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="electronivel_purificada" for client null)
+2026-03-03T07:16:05.3229211Z [MetricNotification] ─── STEP 1: Sensor received ─── type=electronivel_cruda, value=77, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.3294308Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_rechazo, client=null, puntoVentaId=4
+2026-03-03T07:16:05.3302258Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_rechazo" for client null)
+2026-03-03T07:16:05.3305687Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_recuperacion, value=1.93, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.3312544Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_rechazo, client=1, puntoVentaId=2
+2026-03-03T07:16:05.3316172Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_rechazo" for client 1)
+2026-03-03T07:16:05.3321184Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_recuperacion, value=1.67, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.3397409Z [PostgresService] ✅ 18 sensor readings saved to PostgreSQL
+2026-03-03T07:16:05.3401343Z [MQTT] ✅ Datos guardados para tiwater/TIENDA_005
+2026-03-03T07:16:05.3405382Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_produccion, value=1.04, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.3496818Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_recuperacion, client=null, puntoVentaId=4
+2026-03-03T07:16:05.3501334Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_recuperacion" for client null)
+2026-03-03T07:16:05.3504628Z [MetricNotification] ─── STEP 1: Sensor received ─── type=tds, value=140, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.3510644Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=electronivel_cruda, client=null, puntoVentaId=3
+2026-03-03T07:16:05.3518854Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="electronivel_cruda" for client null)
+2026-03-03T07:16:05.3525144Z [MetricNotification] ─── STEP 1: Sensor received ─── type=nivel_purificada, value=31.3, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.3610576Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_recuperacion, client=1, puntoVentaId=2
+2026-03-03T07:16:05.3610851Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_recuperacion" for client 1)
+2026-03-03T07:16:05.361088Z [MetricNotification] ─── STEP 1: Sensor received ─── type=tds, value=40, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.3610956Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_produccion, client=null, puntoVentaId=5
+2026-03-03T07:16:05.3610977Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_produccion" for client null)
+2026-03-03T07:16:05.3610998Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_rechazo, value=0.26, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.3721203Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_rechazo, client=null, puntoVentaId=5
+2026-03-03T07:16:05.3818177Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_rechazo" for client null)
+2026-03-03T07:16:05.3818334Z [MetricNotification] ─── STEP 1: Sensor received ─── type=flujo_recuperacion, value=2.47, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.3818366Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=tds, client=null, puntoVentaId=4
+2026-03-03T07:16:05.3818387Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="tds" for client null)
+2026-03-03T07:16:05.381841Z [MetricNotification] ─── STEP 1: Sensor received ─── type=electronivel_purificada, value=31.7, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.3818734Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=nivel_purificada, client=null, puntoVentaId=3
+2026-03-03T07:16:05.3818759Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="nivel_purificada" for client null)
+2026-03-03T07:16:05.381878Z [MetricNotification] ─── STEP 1: Sensor received ─── type=nivel_cruda, value=77, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.38188Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=tds, client=1, puntoVentaId=2
+2026-03-03T07:16:05.3818819Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="tds" for client 1)
+2026-03-03T07:16:05.3818839Z [MetricNotification] ─── STEP 1: Sensor received ─── type=electronivel_purificada, value=42.2, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.3920838Z [EmailHelper] Email sent via Mailgun: {
+2026-03-03T07:16:05.3921083Z   to: 'luis.cordova@lcc.com.mx',
+2026-03-03T07:16:05.3921108Z   subject: 'Alerta Preventivo: NIVEL AGUA CRUDA - TI Water',
+2026-03-03T07:16:05.3921165Z   messageId: '<20260303071605.5b02a581b2171231@lcc.com.mx>'
+2026-03-03T07:16:05.3921181Z }
+2026-03-03T07:16:05.4103607Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=flujo_recuperacion, client=null, puntoVentaId=5
+2026-03-03T07:16:05.4114552Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="flujo_recuperacion" for client null)
+2026-03-03T07:16:05.4121614Z [MetricNotification] ─── STEP 1: Sensor received ─── type=tds, value=112, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.4199592Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=electronivel_purificada, client=null, puntoVentaId=4
+2026-03-03T07:16:05.4203202Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="electronivel_purificada" for client null)
+2026-03-03T07:16:05.420633Z [MetricNotification] ─── STEP 1: Sensor received ─── type=electronivel_cruda, value=75.5, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.421585Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=nivel_cruda, client=null, puntoVentaId=3
+2026-03-03T07:16:05.4219326Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="nivel_cruda" for client null)
+2026-03-03T07:16:05.4225048Z [MetricNotification] ─── STEP 1: Sensor received ─── type=caudal_cruda, value=2.35, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.430031Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=electronivel_purificada, client=1, puntoVentaId=2
+2026-03-03T07:16:05.4303712Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="electronivel_purificada" for client 1)
+2026-03-03T07:16:05.430687Z [MetricNotification] ─── STEP 1: Sensor received ─── type=electronivel_cruda, value=73.2, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.4323075Z [MetricNotification] 📧 Email sent to luis.cordova@lcc.com.mx (preventivo)
+2026-03-03T07:16:05.4326644Z [MetricNotification] ─── STEP 3: Alerts lookup ─── metric_id=1, name=NIVEL AGUA CRUDA
+2026-03-03T07:16:05.4400837Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=tds, client=null, puntoVentaId=5
+2026-03-03T07:16:05.4404197Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="tds" for client null)
+2026-03-03T07:16:05.4407571Z [MetricNotification] ─── STEP 1: Sensor received ─── type=electronivel_purificada, value=31.7, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.4413747Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=electronivel_cruda, client=null, puntoVentaId=4
+2026-03-03T07:16:05.4417115Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="electronivel_cruda" for client null)
+2026-03-03T07:16:05.4420453Z [MetricNotification] ─── STEP 1: Sensor received ─── type=nivel_purificada, value=31.7, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.4426516Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=caudal_cruda, client=null, puntoVentaId=3
+2026-03-03T07:16:05.4430015Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="caudal_cruda" for client null)
+2026-03-03T07:16:05.4512868Z [MetricNotification] ─── STEP 1: Sensor received ─── type=caudal_cruda_lmin, value=20.998, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.4513006Z [MetricNotification]   Found 0 alerts for metric 1
+2026-03-03T07:16:05.4513032Z [MetricNotification] ⏭️  SKIP metric 1: no alerts (insert into metric_alerts for metric_id=1)
+2026-03-03T07:16:05.4513052Z [MetricNotification] ─── DONE ─── Total notifications created: 1
+2026-03-03T07:16:05.4513074Z [MetricNotification] ─── STEP 1: Sensor received ─── type=caudal_cruda, value=2.12, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:05.4530171Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=electronivel_purificada, client=null, puntoVentaId=5
+2026-03-03T07:16:05.4531168Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="electronivel_purificada" for client null)
+2026-03-03T07:16:05.4531207Z [MetricNotification] ─── STEP 1: Sensor received ─── type=electronivel_cruda, value=51.6, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.4720574Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=electronivel_cruda, client=1, puntoVentaId=2
+2026-03-03T07:16:05.4802171Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="electronivel_cruda" for client 1)
+2026-03-03T07:16:05.4804243Z [MetricNotification] ─── STEP 1: Sensor received ─── type=nivel_purificada, value=42.2, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.4806193Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=nivel_purificada, client=null, puntoVentaId=4
+2026-03-03T07:16:05.4808306Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="nivel_purificada" for client null)
+2026-03-03T07:16:05.4810209Z [MetricNotification] ─── STEP 1: Sensor received ─── type=nivel_cruda, value=75.5, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.4812982Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=caudal_cruda_lmin, client=null, puntoVentaId=3
+2026-03-03T07:16:05.4814916Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="caudal_cruda_lmin" for client null)
+2026-03-03T07:16:05.4816836Z [MetricNotification] ─── STEP 1: Sensor received ─── type=acumulado_cruda, value=2394, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.4818751Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=caudal_cruda, client=1, puntoVentaId=1
+2026-03-03T07:16:05.4820659Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="caudal_cruda" for client 1)
+2026-03-03T07:16:05.4822562Z [MetricNotification] ─── STEP 1: Sensor received ─── type=caudal_cruda_lmin, value=21.174, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:05.4824527Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=electronivel_cruda, client=null, puntoVentaId=5
+2026-03-03T07:16:05.4826703Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="electronivel_cruda" for client null)
+2026-03-03T07:16:05.4828652Z [MetricNotification] ─── STEP 1: Sensor received ─── type=nivel_purificada, value=31.7, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.4830693Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=nivel_purificada, client=1, puntoVentaId=2
+2026-03-03T07:16:05.5001147Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="nivel_purificada" for client 1)
+2026-03-03T07:16:05.5001279Z [MetricNotification] ─── STEP 1: Sensor received ─── type=nivel_cruda, value=73.2, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.5001313Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=acumulado_cruda, client=null, puntoVentaId=3
+2026-03-03T07:16:05.500141Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="acumulado_cruda" for client null)
+2026-03-03T07:16:05.5001431Z [MetricNotification] ─── STEP 1: Sensor received ─── type=presion_co2, value=92.21, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.5001849Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=nivel_cruda, client=null, puntoVentaId=4
+2026-03-03T07:16:05.5001875Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="nivel_cruda" for client null)
+2026-03-03T07:16:05.5001895Z [MetricNotification] ─── STEP 1: Sensor received ─── type=caudal_cruda, value=2.01, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.5001916Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=caudal_cruda_lmin, client=1, puntoVentaId=1
+2026-03-03T07:16:05.5001936Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="caudal_cruda_lmin" for client 1)
+2026-03-03T07:16:05.5001957Z [MetricNotification] ─── STEP 1: Sensor received ─── type=acumulado_cruda, value=4122.1, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:05.5001979Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=nivel_purificada, client=null, puntoVentaId=5
+2026-03-03T07:16:05.500202Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="nivel_purificada" for client null)
+2026-03-03T07:16:05.5002042Z [MetricNotification] ─── STEP 1: Sensor received ─── type=nivel_cruda, value=51.6, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.5002063Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=nivel_cruda, client=1, puntoVentaId=2
+2026-03-03T07:16:05.5002082Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="nivel_cruda" for client 1)
+2026-03-03T07:16:05.5002103Z [MetricNotification] ─── STEP 1: Sensor received ─── type=caudal_cruda, value=1.54, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.5027389Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=caudal_cruda, client=null, puntoVentaId=4
+2026-03-03T07:16:05.5102533Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="caudal_cruda" for client null)
+2026-03-03T07:16:05.5111855Z [MetricNotification] ─── STEP 1: Sensor received ─── type=caudal_cruda_lmin, value=22.68, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.5127373Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=presion_co2, client=null, puntoVentaId=3
+2026-03-03T07:16:05.5216559Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="presion_co2" for client null)
+2026-03-03T07:16:05.521675Z [MetricNotification] ─── STEP 1: Sensor received ─── type=eficiencia, value=59.4, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.5234715Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=nivel_cruda, client=null, puntoVentaId=5
+2026-03-03T07:16:05.5414542Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="nivel_cruda" for client null)
+2026-03-03T07:16:05.5417504Z [MetricNotification] ─── STEP 1: Sensor received ─── type=caudal_cruda, value=1.66, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.5419654Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=acumulado_cruda, client=1, puntoVentaId=1
+2026-03-03T07:16:05.5422061Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="acumulado_cruda" for client 1)
+2026-03-03T07:16:05.5424087Z [MetricNotification] ─── STEP 1: Sensor received ─── type=presion_co2, value=42.33, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:05.5425993Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=caudal_cruda_lmin, client=null, puntoVentaId=4
+2026-03-03T07:16:05.5427906Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="caudal_cruda_lmin" for client null)
+2026-03-03T07:16:05.5430389Z [MetricNotification] ─── STEP 1: Sensor received ─── type=acumulado_cruda, value=1752.4, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.5604292Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=caudal_cruda, client=1, puntoVentaId=2
+2026-03-03T07:16:05.5604402Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="caudal_cruda" for client 1)
+2026-03-03T07:16:05.5604429Z [MetricNotification] ─── STEP 1: Sensor received ─── type=caudal_cruda_lmin, value=21.175, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.5604855Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=caudal_cruda, client=null, puntoVentaId=5
+2026-03-03T07:16:05.560488Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="caudal_cruda" for client null)
+2026-03-03T07:16:05.5604957Z [MetricNotification] ─── STEP 1: Sensor received ─── type=caudal_cruda_lmin, value=20.089, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.5604978Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=eficiencia, client=null, puntoVentaId=3
+2026-03-03T07:16:05.5604997Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="eficiencia" for client null)
+2026-03-03T07:16:05.5605018Z [MetricNotification] ─── STEP 1: Sensor received ─── type=vida, value=78, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.5605038Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=presion_co2, client=1, puntoVentaId=1
+2026-03-03T07:16:05.5605057Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="presion_co2" for client 1)
+2026-03-03T07:16:05.5605078Z [MetricNotification] ─── STEP 1: Sensor received ─── type=eficiencia, value=69, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:05.5611178Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=acumulado_cruda, client=null, puntoVentaId=4
+2026-03-03T07:16:05.5611368Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="acumulado_cruda" for client null)
+2026-03-03T07:16:05.5612761Z [MetricNotification] ─── STEP 1: Sensor received ─── type=presion_co2, value=71.61, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.5618075Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=caudal_cruda_lmin, client=1, puntoVentaId=2
+2026-03-03T07:16:05.561958Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="caudal_cruda_lmin" for client 1)
+2026-03-03T07:16:05.5619652Z [MetricNotification] ─── STEP 1: Sensor received ─── type=acumulado_cruda, value=4370.4, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.5711859Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=caudal_cruda_lmin, client=null, puntoVentaId=5
+2026-03-03T07:16:05.5725607Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="caudal_cruda_lmin" for client null)
+2026-03-03T07:16:05.6021161Z [MetricNotification] ─── STEP 1: Sensor received ─── type=acumulado_cruda, value=3969.7, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.602214Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=vida, client=null, puntoVentaId=3
+2026-03-03T07:16:05.6022176Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="vida" for client null)
+2026-03-03T07:16:05.6022199Z [MetricNotification] ─── STEP 1: Sensor received ─── type=corriente_ch1, value=2.39, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.6022221Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=eficiencia, client=1, puntoVentaId=1
+2026-03-03T07:16:05.6022241Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="eficiencia" for client 1)
+2026-03-03T07:16:05.6022263Z [MetricNotification] ─── STEP 1: Sensor received ─── type=vida, value=171, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:05.6022284Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=presion_co2, client=null, puntoVentaId=4
+2026-03-03T07:16:05.6022303Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="presion_co2" for client null)
+2026-03-03T07:16:05.6022325Z [MetricNotification] ─── STEP 1: Sensor received ─── type=eficiencia, value=67.8, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.6022367Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=acumulado_cruda, client=1, puntoVentaId=2
+2026-03-03T07:16:05.6022388Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="acumulado_cruda" for client 1)
+2026-03-03T07:16:05.6022408Z [MetricNotification] ─── STEP 1: Sensor received ─── type=presion_co2, value=51.46, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.6308244Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=acumulado_cruda, client=null, puntoVentaId=5
+2026-03-03T07:16:05.6308607Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="acumulado_cruda" for client null)
+2026-03-03T07:16:05.6308634Z [MetricNotification] ─── STEP 1: Sensor received ─── type=presion_co2, value=55.36, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.6308656Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=corriente_ch1, client=null, puntoVentaId=3
+2026-03-03T07:16:05.6308677Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="corriente_ch1" for client null)
+2026-03-03T07:16:05.63087Z [MetricNotification] ─── STEP 1: Sensor received ─── type=corriente_ch2, value=2.61, client=null, codigoTienda=TIENDA_003
+2026-03-03T07:16:05.6326695Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=eficiencia, client=null, puntoVentaId=4
+2026-03-03T07:16:05.6335991Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="eficiencia" for client null)
+2026-03-03T07:16:05.6339221Z [MetricNotification] ─── STEP 1: Sensor received ─── type=vida, value=53, client=null, codigoTienda=TIENDA_004
+2026-03-03T07:16:05.6510412Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=vida, client=1, puntoVentaId=1
+2026-03-03T07:16:05.6510647Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="vida" for client 1)
+2026-03-03T07:16:05.6510676Z [MetricNotification] ─── STEP 1: Sensor received ─── type=corriente_ch1, value=2.92, client=1, codigoTienda=TIENDA_001
+2026-03-03T07:16:05.6510698Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=presion_co2, client=1, puntoVentaId=2
+2026-03-03T07:16:05.6510725Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="presion_co2" for client 1)
+2026-03-03T07:16:05.6510795Z [MetricNotification] ─── STEP 1: Sensor received ─── type=eficiencia, value=57, client=1, codigoTienda=TIENDA_002
+2026-03-03T07:16:05.6617724Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=presion_co2, client=null, puntoVentaId=5
+2026-03-03T07:16:05.662673Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="presion_co2" for client null)
+2026-03-03T07:16:05.6637268Z [MetricNotification] ─── STEP 1: Sensor received ─── type=eficiencia, value=63.5, client=null, codigoTienda=TIENDA_005
+2026-03-03T07:16:05.6827479Z [MetricNotification] ─── STEP 2: Metrics lookup ─── Found 0 metrics for sensor_type=corriente_ch2, client=null, puntoVentaId=3
+2026-03-03T07:16:05.6827682Z [MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="corriente_ch2" for client null)
