@@ -7,6 +7,10 @@ import MetricModel from '../models/postgres/metric.model.js';
 import MetricAlertModel from '../models/postgres/metricAlert.model.js';
 import MetricEmailLogModel from '../models/postgres/metricEmailLog.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
+import PuntoVentaV1Model from '../models/postgres/puntoVentaV1.model.js';
+import RegionPuntoVentaModel from '../models/postgres/regionPuntoVenta.model.js';
+import RegionMetricModel from '../models/postgres/regionMetric.model.js';
+import RegionMetricAlertModel from '../models/postgres/regionMetricAlert.model.js';
 import emailHelper from '../utils/email.helper.js';
 
 /**
@@ -39,65 +43,105 @@ class MetricNotificationService {
         return [];
       }
 
-      // Resolve codigoTienda -> puntoVentaId (metrics are linked to specific punto venta)
-      let puntoVentaId = null;
+      // Resolve codigoTienda -> punto venta (V2 id; metrics table uses V1 id)
+      let puntoVentaIdV2 = null;
       if (codigoTienda) {
         try {
           const puntoVenta = await PuntoVentaModel.findByCode(codigoTienda);
-          if (puntoVenta) puntoVentaId = parseInt(puntoVenta.id, 10);
+          if (puntoVenta) puntoVentaIdV2 = parseInt(puntoVenta.id, 10);
         } catch (err) {
           console.warn(`[MetricNotification] ⚠️  Could not resolve punto venta for codigoTienda=${codigoTienda}:`, err.message);
         }
       }
 
-      // Only evaluate metrics for the punto venta where sensor data came from
-      if (puntoVentaId == null || isNaN(puntoVentaId)) {
+      if (puntoVentaIdV2 == null || isNaN(puntoVentaIdV2)) {
         console.log(`[MetricNotification] ⏭️  STOP: no punto venta for codigoTienda=${codigoTienda} (metrics are PV-specific)`);
         return [];
       }
 
+      // Resolve V2 -> V1 for metrics table (metrics.punto_venta_id is puntoventa_v1.id)
+      let puntoVentaIdV1 = null;
+      try {
+        const v1 = await PuntoVentaV1Model.findByPuntoventaId(puntoVentaIdV2);
+        if (v1) puntoVentaIdV1 = parseInt(v1.id, 10);
+      } catch (_) {}
+
       const metrics = await MetricModel.find({
         clientId,
-        puntoVentaId,
+        puntoVentaId: puntoVentaIdV1 ?? puntoVentaIdV2,
         sensor_type: type,
         enabled: true
       });
 
-      console.log(`[MetricNotification] ─── STEP 2: Metrics lookup ─── Found ${metrics?.length || 0} metrics for sensor_type=${type}, client=${clientId}, puntoVentaId=${puntoVentaId ?? 'N/A'}`);
+      console.log(`[MetricNotification] ─── STEP 2: Metrics lookup ─── Found ${metrics?.length || 0} metrics for sensor_type=${type}, client=${clientId}, puntoVentaId(V1)=${puntoVentaIdV1 ?? 'N/A'}`);
       if (metrics?.length) {
         metrics.forEach((m, i) => console.log(`[MetricNotification]   [${i + 1}] metric_id=${m.id}, name=${m.metric_name || m.metricName || m.metric_type}`));
       }
 
-      if (!metrics || metrics.length === 0) {
-        console.log(`[MetricNotification] ⏭️  STOP: no metrics match (add metric with sensor_type="${type}" for client ${clientId})`);
-        return [];
-      }
-
       const createdNotifications = [];
 
-      for (const metric of metrics) {
+      if (metrics && metrics.length > 0) {
+        for (const metric of metrics) {
+          try {
+            console.log(`[MetricNotification] ─── STEP 3: Alerts lookup ─── metric_id=${metric.id}, name=${metric.metric_name || metric.metricName || metric.metric_type}`);
+
+            const alerts = await MetricAlertModel.findByMetricId(metric.id);
+
+            console.log(`[MetricNotification]   Found ${alerts?.length || 0} alerts for metric ${metric.id}`);
+
+            if (!alerts || alerts.length === 0) {
+              console.log(`[MetricNotification] ⏭️  SKIP metric ${metric.id}: no alerts (insert into metric_alerts for metric_id=${metric.id})`);
+              continue;
+            }
+
+            console.log(`[MetricNotification] ─── STEP 4: Rules evaluation ─── value=${value}`);
+            const triggeredAlerts = this.evaluateAlertRules(value, alerts, metric);
+            console.log(`[MetricNotification]   ${triggeredAlerts.length} alerts triggered`);
+
+            for (const alert of triggeredAlerts) {
+              const notifications = await this.createNotificationsForAlert(alert, metric, sensorData);
+              createdNotifications.push(...notifications);
+            }
+          } catch (error) {
+            console.error(`[MetricNotification] ❌ Error evaluating metric ${metric.id}:`, error);
+          }
+        }
+      } else {
+        // Fallback: use region metrics when no punto-venta-specific metrics exist
+        let region = null;
         try {
-          console.log(`[MetricNotification] ─── STEP 3: Alerts lookup ─── metric_id=${metric.id}, name=${metric.metric_name || metric.metricName || metric.metric_type}`);
+          region = await RegionPuntoVentaModel.getRegionForPuntoVenta(puntoVentaIdV2);
+        } catch (err) {
+          console.warn(`[MetricNotification] ⚠️  Could not get region for punto venta ${puntoVentaIdV2}:`, err.message);
+        }
 
-          const alerts = await MetricAlertModel.findByMetricId(metric.id);
+        if (region && region.id) {
+          const regionMetrics = await RegionMetricModel.find({
+            clientId,
+            regionId: parseInt(region.id, 10),
+            sensor_type: type,
+            enabled: true
+          });
 
-          console.log(`[MetricNotification]   Found ${alerts?.length || 0} alerts for metric ${metric.id}`);
+          console.log(`[MetricNotification] ─── STEP 2 (fallback): Region metrics ─── Found ${regionMetrics?.length || 0} for region_id=${region.id}, sensor_type=${type}`);
 
-          if (!alerts || alerts.length === 0) {
-            console.log(`[MetricNotification] ⏭️  SKIP metric ${metric.id}: no alerts (insert into metric_alerts for metric_id=${metric.id})`);
-            continue;
+          for (const rm of regionMetrics || []) {
+            try {
+              const alerts = await RegionMetricAlertModel.findByRegionMetricId(rm.id);
+              if (!alerts || alerts.length === 0) continue;
+
+              const triggeredAlerts = this.evaluateAlertRules(value, alerts, rm);
+              const metricLike = { ...rm, punto_venta_id: puntoVentaIdV2 };
+              for (const alert of triggeredAlerts) {
+                const notifications = await this.createNotificationsForAlert(alert, metricLike, sensorData);
+                createdNotifications.push(...notifications);
+              }
+            } catch (error) {
+              console.error(`[MetricNotification] ❌ Error evaluating region metric ${rm.id}:`, error);
+            }
           }
-
-          console.log(`[MetricNotification] ─── STEP 4: Rules evaluation ─── value=${value}`);
-          const triggeredAlerts = this.evaluateAlertRules(value, alerts, metric);
-          console.log(`[MetricNotification]   ${triggeredAlerts.length} alerts triggered`);
-
-          for (const alert of triggeredAlerts) {
-            const notifications = await this.createNotificationsForAlert(alert, metric, sensorData);
-            createdNotifications.push(...notifications);
-          }
-        } catch (error) {
-          console.error(`[MetricNotification] ❌ Error evaluating metric ${metric.id}:`, error);
+        } else {
+          console.log(`[MetricNotification] ⏭️  STOP: no metrics match and no region fallback (add metric or region metric with sensor_type="${type}" for client ${clientId})`);
         }
       }
 

@@ -14,6 +14,16 @@ import {
   addMetricAlertV2,
   updateMetricAlertV2,
   removeMetricAlertV2,
+  // Region Metrics
+  getRegionMetricsV2,
+  getRegionMetricByIdV2,
+  addRegionMetricV2,
+  updateRegionMetricV2,
+  removeRegionMetricV2,
+  getRegionMetricAlertsV2,
+  addRegionMetricAlertV2,
+  updateRegionMetricAlertV2,
+  removeRegionMetricAlertV2,
   // Clients
   getClientsV2,
   getClientByIdV2,
@@ -114,6 +124,20 @@ router.patch('/metrics/:id([^/]+)$', updateMetricV2);
  * @access  Private
  */
 router.delete('/metrics/:id([^/]+)$', removeMetricV2);
+
+// ============================================================================
+// REGION METRICS ROUTES
+// ============================================================================
+
+router.get('/region-metrics', getRegionMetricsV2);
+router.get('/region-metrics/:id', getRegionMetricByIdV2);
+router.post('/region-metrics', addRegionMetricV2);
+router.patch('/region-metrics/:id', updateRegionMetricV2);
+router.delete('/region-metrics/:id', removeRegionMetricV2);
+router.get('/region-metrics/:id/alerts', getRegionMetricAlertsV2);
+router.post('/region-metrics/:id/alerts', addRegionMetricAlertV2);
+router.patch('/region-metrics/:id/alerts/:alertId', updateRegionMetricAlertV2);
+router.delete('/region-metrics/:id/alerts/:alertId', removeRegionMetricAlertV2);
 
 // ============================================================================
 // CLIENTS ROUTES

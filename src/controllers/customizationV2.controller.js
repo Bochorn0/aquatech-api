@@ -10,6 +10,9 @@ import PuntoVentaV1Model from '../models/postgres/puntoVentaV1.model.js';
 import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
 import SensoresModel from '../models/postgres/sensores.model.js';
 import CalidadAguaModel from '../models/postgres/calidadAgua.model.js';
+import RegionModel from '../models/postgres/region.model.js';
+import RegionMetricModel from '../models/postgres/regionMetric.model.js';
+import RegionMetricAlertModel from '../models/postgres/regionMetricAlert.model.js';
 import { query } from '../config/postgres.config.js';
 import mqttService from '../services/mqtt.service.js';
 import { buildTiwaterTopic } from '../utils/mqttTopic.js';
@@ -665,6 +668,272 @@ export const removeMetricAlertV2 = async (req, res) => {
       message: 'Error deleting metric alert',
       error: error.message 
     });
+  }
+};
+
+// ============================================================================
+// REGION METRICS CONTROLLERS
+// ============================================================================
+
+/**
+ * Get all region metrics (v2.0 - PostgreSQL)
+ * @route   GET /api/v2.0/region-metrics
+ * @query   clientId, regionId
+ */
+export const getRegionMetricsV2 = async (req, res) => {
+  try {
+    const { clientId, regionId } = req.query;
+    const filters = {};
+    if (clientId) {
+      const c = parseInt(clientId, 10);
+      if (isNaN(c)) return res.status(400).json({ success: false, message: 'Invalid clientId' });
+      filters.clientId = c;
+    }
+    if (regionId) {
+      const r = parseInt(regionId, 10);
+      if (isNaN(r)) return res.status(400).json({ success: false, message: 'Invalid regionId' });
+      filters.regionId = r;
+    }
+    const list = await RegionMetricModel.find(filters, { limit: 500, offset: 0 });
+    const clientIds = [...new Set(list.map(m => m.clientId).filter(Boolean))];
+    const regionIds = [...new Set(list.map(m => m.regionId).filter(Boolean))];
+    const clientMap = new Map();
+    const regionMap = new Map();
+    if (clientIds.length > 0 && clientIds.length <= 100) {
+      const clients = await Promise.all(clientIds.map(id => ClientModel.findById(id).catch(() => null)));
+      clients.filter(c => c).forEach(c => clientMap.set(String(c.id), c.name));
+    }
+    if (regionIds.length > 0 && regionIds.length <= 100) {
+      const regions = await Promise.all(regionIds.map(id => RegionModel.findById(id).catch(() => null)));
+      regions.filter(r => r).forEach(r => regionMap.set(String(r.id), r.name || r.code));
+    }
+    const mapped = list.map(m => ({
+      ...m,
+      client_name: m.clientId ? (clientMap.get(String(m.clientId)) || '') : '',
+      region_name: m.regionId ? (regionMap.get(String(m.regionId)) || '') : ''
+    }));
+    return res.json(mapped);
+  } catch (error) {
+    console.error('Error fetching region metrics (v2.0):', error);
+    return res.status(500).json({ success: false, message: 'Error fetching region metrics', error: error.message });
+  }
+};
+
+/**
+ * Get region metric by ID
+ * @route   GET /api/v2.0/region-metrics/:id
+ */
+export const getRegionMetricByIdV2 = async (req, res) => {
+  try {
+    const metric = await RegionMetricModel.findById(parseInt(req.params.id, 10));
+    if (!metric) return res.status(404).json({ success: false, message: 'Métrica por región no encontrada' });
+    res.json(metric);
+  } catch (error) {
+    console.error('Error fetching region metric (v2.0):', error);
+    res.status(500).json({ success: false, message: 'Error fetching region metric', error: error.message });
+  }
+};
+
+/**
+ * Create region metric
+ * @route   POST /api/v2.0/region-metrics
+ */
+export const addRegionMetricV2 = async (req, res) => {
+  try {
+    const body = req.body;
+    if (body.metric_type && !body.metric_name) {
+      return res.status(400).json({ message: 'El nombre de métrica es requerido cuando se especifica el tipo' });
+    }
+    if (body.metric_type && !body.sensor_type) {
+      return res.status(400).json({ message: 'El tipo de sensor es requerido cuando se especifica el tipo de métrica' });
+    }
+    if (body.rules && Array.isArray(body.rules)) {
+      for (const rule of body.rules) {
+        if (rule.min === null && rule.max === null) {
+          return res.status(400).json({ message: 'Cada regla debe tener al menos un valor mínimo o máximo' });
+        }
+        if (!rule.color || !rule.label) {
+          return res.status(400).json({ message: 'Cada regla debe tener un color y una etiqueta' });
+        }
+      }
+    }
+    const clientId = body.cliente != null ? parseInt(body.cliente, 10) : (body.clientId != null ? parseInt(body.clientId, 10) : null);
+    const regionId = body.regionId != null ? parseInt(body.regionId, 10) : null;
+    if (clientId == null || isNaN(clientId) || regionId == null || isNaN(regionId)) {
+      return res.status(400).json({ message: 'Cliente y región son requeridos' });
+    }
+    const createPayload = {
+      clientId,
+      regionId,
+      metric_name: body.metric_name ?? null,
+      metric_type: body.metric_type ?? null,
+      sensor_type: body.sensor_type ?? null,
+      sensor_unit: body.sensor_unit ?? null,
+      rules: Array.isArray(body.rules) ? body.rules : (body.rules != null ? [body.rules] : null),
+      conditions: body.conditions != null && typeof body.conditions === 'object' ? body.conditions : null,
+      enabled: body.enabled !== undefined ? body.enabled : true,
+      read_only: body.read_only !== undefined ? body.read_only : false,
+      display_order: Number(body.display_order) || 0
+    };
+    const created = await RegionMetricModel.create(createPayload);
+    res.status(201).json(created);
+  } catch (error) {
+    console.error('Error creating region metric (v2.0):', error);
+    res.status(500).json({ success: false, message: 'Error creating region metric', error: error.message });
+  }
+};
+
+/**
+ * Update region metric
+ * @route   PATCH /api/v2.0/region-metrics/:id
+ */
+export const updateRegionMetricV2 = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const body = req.body;
+    if (isNaN(id)) return res.status(400).json({ success: false, message: 'Invalid ID' });
+    if (body.rules && Array.isArray(body.rules)) {
+      for (const rule of body.rules) {
+        if (rule.min === null && rule.max === null) {
+          return res.status(400).json({ message: 'Cada regla debe tener al menos un valor mínimo o máximo' });
+        }
+        if (!rule.color || !rule.label) {
+          return res.status(400).json({ message: 'Cada regla debe tener un color y una etiqueta' });
+        }
+      }
+    }
+    const updatePayload = {};
+    if (body.clientId !== undefined) updatePayload.clientId = parseInt(body.clientId, 10);
+    if (body.regionId !== undefined) updatePayload.regionId = parseInt(body.regionId, 10);
+    if (body.metric_name !== undefined) updatePayload.metric_name = body.metric_name;
+    if (body.metric_type !== undefined) updatePayload.metric_type = body.metric_type;
+    if (body.sensor_type !== undefined) updatePayload.sensor_type = body.sensor_type;
+    if (body.sensor_unit !== undefined) updatePayload.sensor_unit = body.sensor_unit;
+    if (body.rules !== undefined) updatePayload.rules = Array.isArray(body.rules) ? body.rules : (body.rules != null ? [body.rules] : null);
+    if (body.conditions !== undefined) updatePayload.conditions = body.conditions != null && typeof body.conditions === 'object' ? body.conditions : null;
+    if (body.enabled !== undefined) updatePayload.enabled = body.enabled;
+    if (body.read_only !== undefined) updatePayload.read_only = body.read_only;
+    if (body.display_order !== undefined) updatePayload.display_order = Number(body.display_order);
+    const updated = await RegionMetricModel.update(id, updatePayload);
+    if (!updated) return res.status(404).json({ success: false, message: 'Métrica por región no encontrada' });
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating region metric (v2.0):', error);
+    res.status(500).json({ success: false, message: 'Error updating region metric', error: error.message });
+  }
+};
+
+/**
+ * Delete region metric
+ * @route   DELETE /api/v2.0/region-metrics/:id
+ */
+export const removeRegionMetricV2 = async (req, res) => {
+  try {
+    const deleted = await RegionMetricModel.delete(parseInt(req.params.id, 10));
+    if (!deleted) return res.status(404).json({ success: false, message: 'Métrica por región no encontrada' });
+    res.json({ success: true, message: 'Métrica por región eliminada exitosamente' });
+  } catch (error) {
+    console.error('Error deleting region metric (v2.0):', error);
+    res.status(500).json({ success: false, message: 'Error deleting region metric', error: error.message });
+  }
+};
+
+/**
+ * Get alerts for a region metric
+ * @route   GET /api/v2.0/region-metrics/:id/alerts
+ */
+export const getRegionMetricAlertsV2 = async (req, res) => {
+  try {
+    const regionMetricId = parseInt(req.params.id, 10);
+    if (isNaN(regionMetricId)) return res.status(400).json({ success: false, message: 'Invalid ID' });
+    const alerts = await RegionMetricAlertModel.findByRegionMetricId(regionMetricId);
+    res.json(alerts);
+  } catch (error) {
+    console.error('Error getting region metric alerts (v2.0):', error);
+    res.status(500).json({ success: false, message: 'Error getting region metric alerts', error: error.message });
+  }
+};
+
+/**
+ * Add alert to region metric
+ * @route   POST /api/v2.0/region-metrics/:id/alerts
+ */
+export const addRegionMetricAlertV2 = async (req, res) => {
+  try {
+    const regionMetricId = parseInt(req.params.id, 10);
+    if (isNaN(regionMetricId)) return res.status(400).json({ success: false, message: 'Invalid ID' });
+    const existing = await RegionMetricModel.findById(regionMetricId);
+    if (!existing) return res.status(404).json({ success: false, message: 'Métrica por región no encontrada' });
+    const { usuario, correo, celular, celularAlert, dashboardAlert, emailAlert, preventivo, correctivo, emailCooldownMinutes, emailMaxPerDay } = req.body;
+    if (!usuario || !correo) return res.status(400).json({ success: false, message: 'Usuario y correo son requeridos' });
+    if (!celularAlert && !dashboardAlert && !emailAlert) return res.status(400).json({ success: false, message: 'Al menos un tipo de alerta debe estar habilitado' });
+    if (celularAlert && !celular) return res.status(400).json({ success: false, message: 'Celular es requerido cuando celular_alert está habilitado' });
+    if (!preventivo && !correctivo) return res.status(400).json({ success: false, message: 'Al menos uno de preventivo o correctivo debe estar habilitado' });
+    const newAlert = await RegionMetricAlertModel.create({
+      regionMetricId,
+      usuario,
+      correo,
+      celular,
+      celularAlert: celularAlert || false,
+      dashboardAlert: dashboardAlert || false,
+      emailAlert: emailAlert || false,
+      preventivo: preventivo || false,
+      correctivo: correctivo || false,
+      emailCooldownMinutes: emailCooldownMinutes ?? 10,
+      emailMaxPerDay: emailMaxPerDay ?? 5
+    });
+    res.status(201).json(newAlert);
+  } catch (error) {
+    console.error('Error creating region metric alert (v2.0):', error);
+    res.status(500).json({ success: false, message: 'Error creating region metric alert', error: error.message });
+  }
+};
+
+/**
+ * Update region metric alert
+ * @route   PATCH /api/v2.0/region-metrics/:id/alerts/:alertId
+ */
+export const updateRegionMetricAlertV2 = async (req, res) => {
+  try {
+    const alertId = parseInt(req.params.alertId, 10);
+    if (isNaN(alertId)) return res.status(400).json({ success: false, message: 'Invalid ID' });
+    const existing = await RegionMetricAlertModel.findById(alertId);
+    if (!existing) return res.status(404).json({ success: false, message: 'Alert no encontrado' });
+    const body = req.body;
+    const updated = await RegionMetricAlertModel.update(alertId, {
+      usuario: body.usuario,
+      correo: body.correo,
+      celular: body.celular,
+      celularAlert: body.celularAlert,
+      dashboardAlert: body.dashboardAlert,
+      emailAlert: body.emailAlert,
+      preventivo: body.preventivo,
+      correctivo: body.correctivo,
+      emailCooldownMinutes: body.emailCooldownMinutes,
+      emailMaxPerDay: body.emailMaxPerDay
+    });
+    if (!updated) return res.status(404).json({ success: false, message: 'Alert no encontrado' });
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating region metric alert (v2.0):', error);
+    res.status(500).json({ success: false, message: 'Error updating region metric alert', error: error.message });
+  }
+};
+
+/**
+ * Delete region metric alert
+ * @route   DELETE /api/v2.0/region-metrics/:id/alerts/:alertId
+ */
+export const removeRegionMetricAlertV2 = async (req, res) => {
+  try {
+    const alertId = parseInt(req.params.alertId, 10);
+    if (isNaN(alertId)) return res.status(400).json({ success: false, message: 'Invalid ID' });
+    const deleted = await RegionMetricAlertModel.delete(alertId);
+    if (!deleted) return res.status(404).json({ success: false, message: 'Alert no encontrado' });
+    res.json({ success: true, message: 'Alert eliminado exitosamente' });
+  } catch (error) {
+    console.error('Error deleting region metric alert (v2.0):', error);
+    res.status(500).json({ success: false, message: 'Error deleting region metric alert', error: error.message });
   }
 };
 
