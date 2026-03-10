@@ -48,7 +48,7 @@ export async function upsertMany(dataArray) {
 
 /**
  * Get latest values for a store code (e.g. for dashboard / punto venta).
- * Returns array of { type, name, value, timestamp }.
+ * Returns array of { type, name, value, timestamp, resourceId, resourceType }.
  */
 export async function getLatestByCodigoTienda(codigoTienda) {
   const code = (codigoTienda ?? '').toString().trim();
@@ -58,6 +58,31 @@ export async function getLatestByCodigoTienda(codigoTienda) {
     `SELECT type, name, value, "timestamp", resource_id, resource_type
      FROM ${TABLE}
      WHERE codigo_tienda = $1
+     ORDER BY type`,
+    [code]
+  );
+  return (result.rows || []).map((row) => ({
+    type: row.type,
+    name: row.name,
+    value: row.value != null ? parseFloat(row.value) : null,
+    timestamp: row.timestamp,
+    resourceId: row.resource_id || null,
+    resourceType: row.resource_type || null,
+  }));
+}
+
+/**
+ * Get latest values for a store code with case-insensitive match (avoids sensores table).
+ * Use this for punto venta detalle when sensores is under heavy write load.
+ */
+export async function getLatestByCodigoTiendaNormalized(codigoTienda) {
+  const code = (codigoTienda ?? '').toString().trim();
+  if (!code) return [];
+
+  const result = await query(
+    `SELECT type, name, value, "timestamp", resource_id, resource_type
+     FROM ${TABLE}
+     WHERE LOWER(TRIM(codigo_tienda)) = LOWER(TRIM($1))
      ORDER BY type`,
     [code]
   );

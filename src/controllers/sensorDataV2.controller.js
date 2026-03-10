@@ -1029,10 +1029,38 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     // Normalize codigo so we match sensores regardless of stored case (same as simulate handlers)
     const codigoTiendaNorm = (codigoTienda || '').toString().trim().toUpperCase();
 
-    // Query to get distinct osmosis/tiwater systems (by resourceId)
-    // Include both 'osmosis' and 'tiwater' resource types
-    // For tiwater, resourceId might be NULL, so we'll treat all tiwater sensors as one system
-    const distinctSystemsQuery = `
+    // When light=true: use sensor_latest only to avoid blocking on the busy sensores table (MQTT writes)
+    let lightLatestRows = [];
+    if (light) {
+      try {
+        lightLatestRows = await SensorLatestModel.getLatestByCodigoTiendaNormalized(codigoTiendaNorm);
+        if (lightLatestRows.length === 0) {
+          lightLatestRows = await SensorLatestModel.getLatestByCodigoTienda(codigoTiendaNorm) || [];
+        }
+      } catch (err) {
+        console.warn('[SensorDataV2] sensor_latest read failed (light path), falling back to sensores:', err.message);
+      }
+    }
+
+    let systemRows = [];
+    if (light && lightLatestRows.length > 0) {
+      const systemKeys = new Set();
+      for (const r of lightLatestRows) {
+        const rtype = (r.resourceType || '').toString().toLowerCase();
+        if (rtype !== 'osmosis' && rtype !== 'tiwater') continue;
+        const rid = (r.resourceId || '').toString().trim() || 'tiwater-system';
+        const key = `${rid}|${rtype}`;
+        if (!systemKeys.has(key)) {
+          systemKeys.add(key);
+          systemRows.push({ resourceid: rid, resourcetype: rtype });
+        }
+      }
+      if (systemRows.length === 0 && lightLatestRows.some((r) => (r.resourceType || '').toString().toLowerCase() === 'tiwater')) {
+        systemRows.push({ resourceid: 'tiwater-system', resourcetype: 'tiwater' });
+      }
+    } else {
+      // Query sensores for distinct systems (can block under heavy write load)
+      const distinctSystemsQuery = `
       SELECT DISTINCT 
         COALESCE(resourceid, 'tiwater-system') as resourceid,
         resourcetype
@@ -1041,18 +1069,16 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         AND (resourcetype = 'osmosis' OR resourcetype = 'tiwater')
       ORDER BY resourcetype, resourceid
     `;
-
-    const systemsResult = await query(distinctSystemsQuery, [codigoTiendaNorm]);
-    const systemRows = systemsResult.rows || [];
-    
-    // If no systems found but we have tiwater data, create a default system entry
-    if (systemRows.length === 0) {
-      const hasTiwaterData = await query(
-        `SELECT COUNT(*) as count FROM sensores WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater'`,
-        [codigoTiendaNorm]
-      );
-      if (hasTiwaterData.rows[0]?.count > 0) {
-        systemRows.push({ resourceid: 'tiwater-system', resourcetype: 'tiwater' });
+      const systemsResult = await query(distinctSystemsQuery, [codigoTiendaNorm]);
+      systemRows = systemsResult.rows || [];
+      if (systemRows.length === 0) {
+        const hasTiwaterData = await query(
+          `SELECT COUNT(*) as count FROM sensores WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater'`,
+          [codigoTiendaNorm]
+        );
+        if (hasTiwaterData.rows[0]?.count > 0) {
+          systemRows.push({ resourceid: 'tiwater-system', resourcetype: 'tiwater' });
+        }
       }
     }
 
@@ -1060,53 +1086,36 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     for (const row of systemRows) {
       const resourceId = row.resourceid;
       const resourceType = row.resourcetype || 'osmosis';
-      
+
       try {
-        // Build filters (use normalized codigo for queries so we match regardless of stored case)
         const filters = {
           codigoTienda: codigoTiendaNorm,
           resourceType: resourceType,
           resourceId: resourceId
         };
 
-        // Get latest sensor readings for this system
-        // First, let's check what sensors exist
-        let checkSensorsQuery;
-        let checkParams;
-        
-        if (resourceId === 'tiwater-system' && resourceType === 'tiwater') {
-          checkSensorsQuery = `
-            SELECT DISTINCT name, COUNT(*) as count
-            FROM sensores
-            WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-              AND resourcetype = $2
-              AND (resourceid IS NULL OR resourceid = 'tiwater-system')
-            GROUP BY name
-          `;
-          checkParams = [filters.codigoTienda, filters.resourceType];
+        let sensors = [];
+        if (light && lightLatestRows.length > 0) {
+          sensors = lightLatestRows
+            .filter((r) => {
+              const rid = (r.resourceId || '').toString().trim() || 'tiwater-system';
+              const rtype = (r.resourceType || '').toString().toLowerCase();
+              const matchResource = resourceId === 'tiwater-system' ? (rid === 'tiwater-system' || !rid) : rid === resourceId;
+              return matchResource && rtype === resourceType;
+            })
+            .map((r) => ({
+              name: r.name,
+              type: r.type,
+              value: r.value,
+              timestamp: r.timestamp,
+              label: r.name,
+              meta: {}
+            }));
         } else {
-          checkSensorsQuery = `
-            SELECT DISTINCT name, COUNT(*) as count
-            FROM sensores
-            WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-              AND resourcetype = $2
-              AND resourceid = $3
-            GROUP BY name
-          `;
-          checkParams = [filters.codigoTienda, filters.resourceType, resourceId];
-        }
-        
-        const checkResult = await query(checkSensorsQuery, checkParams);
-        console.log(`[SensorDataV2] Available sensors for ${filters.codigoTienda}/${filters.resourceType}/${resourceId}:`, checkResult.rows);
-
-        // Get latest sensor readings for this system
-        // Handle NULL resourceId for tiwater systems
-        let latestSensorsQuery;
-        let queryParams;
-        
-        if (resourceId === 'tiwater-system' && resourceType === 'tiwater') {
-          // For tiwater systems without resourceId, search for NULL resourceId (case-insensitive codigotienda)
-          latestSensorsQuery = `
+          let latestSensorsQuery;
+          let queryParams;
+          if (resourceId === 'tiwater-system' && resourceType === 'tiwater') {
+            latestSensorsQuery = `
             SELECT DISTINCT ON (type) 
               name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
             FROM sensores
@@ -1115,9 +1124,9 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
               AND (resourceid IS NULL OR resourceid = 'tiwater-system')
             ORDER BY type, timestamp DESC
           `;
-          queryParams = [filters.codigoTienda, filters.resourceType];
-        } else {
-          latestSensorsQuery = `
+            queryParams = [filters.codigoTienda, filters.resourceType];
+          } else {
+            latestSensorsQuery = `
             SELECT DISTINCT ON (type) 
               name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
             FROM sensores
@@ -1126,11 +1135,11 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
               AND resourceid = $3
             ORDER BY type, timestamp DESC
           `;
-          queryParams = [filters.codigoTienda, filters.resourceType, resourceId];
+            queryParams = [filters.codigoTienda, filters.resourceType, resourceId];
+          }
+          const result = await query(latestSensorsQuery, queryParams);
+          sensors = result.rows || [];
         }
-
-        const result = await query(latestSensorsQuery, queryParams);
-        const sensors = result.rows || [];
 
         console.log(`[SensorDataV2] Found ${sensors.length} sensors for osmosis system ${resourceId} in ${filters.codigoTienda}`);
         console.log(`[SensorDataV2] Sensor names:`, sensors.map(s => s.name));
@@ -1400,20 +1409,12 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         const lastUpdate = osmosisData.lastUpdate ? new Date(osmosisData.lastUpdate) : null;
         osmosisData.online = lastUpdate && (now - lastUpdate < 5 * 60 * 1000);
 
-        // Para productos TIWater, agregar histórico de niveles si tienen datos de nivel
-        if (resourceType === 'tiwater' && resourceId) {
-          // Verificar si tiene datos de nivel (Nivel Purificada o Nivel Recuperada)
+        // Histórico only when !light (light path uses separate /historico endpoint)
+        if (!light && resourceType === 'tiwater' && resourceId) {
           const nivelCodes = osmosisData.status?.map(s => s.code) || [];
           const hasNivelPurificada = osmosisData.status?.some(s => s.code === 'level_purificada' || s.code === 'electronivel_purificada');
           const hasNivelRecuperada = osmosisData.status?.some(s => s.code === 'level_recuperada' || s.code === 'electronivel_recuperada');
-          
-          console.log(`[SensorDataV2] Verificando histórico para TIWater ${resourceId} en osmosisSystems:`, {
-            hasNivelPurificada,
-            hasNivelRecuperada,
-            nivelCodes: nivelCodes.filter(c => c.includes('nivel') || c.includes('level')),
-            statusCount: osmosisData.status?.length || 0
-          });
-          
+
           // Generar histórico para "Nivel Purificada" si existe
           if (hasNivelPurificada) {
             console.log(`[SensorDataV2] Generando histórico para TIWater ${resourceId} en osmosisSystems (Nivel Purificada)`);
@@ -1584,9 +1585,31 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       };
     }));
 
-    // Get nivel products from PostgreSQL (resourceType = 'nivel')
+    // Get nivel products (from sensor_latest when light, else sensores)
     const nivelProducts = [];
-    const distinctNivelesQuery = `
+    let nivelResourceIds = [];
+    if (light && lightLatestRows.length > 0) {
+      const nivelRows = lightLatestRows.filter((r) => (r.resourceType || '').toString().toLowerCase() === 'nivel');
+      const byRes = new Map();
+      for (const r of nivelRows) {
+        const rid = (r.resourceId || '').toString().trim();
+        if (!rid) continue;
+        if (!byRes.has(rid)) byRes.set(rid, r);
+      }
+      for (const [resourceId, r] of byRes) {
+        nivelProducts.push({
+          _id: `nivel-${resourceId}`,
+          id: resourceId,
+          name: `Nivel ${resourceId}`,
+          product_type: 'Nivel',
+          status: [{ code: 'liquid_level_percent', value: parseFloat(r.value) || 0, label: 'Nivel', unit: '%', timestamp: r.timestamp }],
+          online: true,
+          historico: null,
+          historico_diario: null
+        });
+      }
+    } else {
+      const distinctNivelesQuery = `
       SELECT DISTINCT resourceid
       FROM sensores
       WHERE codigotienda = $1 
@@ -1594,11 +1617,11 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         AND resourceid IS NOT NULL
       ORDER BY resourceid
     `;
+      const nivelesResult = await query(distinctNivelesQuery, [codigoTienda]);
+      nivelResourceIds = nivelesResult.rows.map((row) => row.resourceid);
+    }
 
-    const nivelesResult = await query(distinctNivelesQuery, [codigoTienda]);
-    const nivelResourceIds = nivelesResult.rows.map(row => row.resourceid);
-
-    // Get nivel data for each system with historical data
+    // Get nivel data for each system with historical data (only when !light)
     for (const resourceId of nivelResourceIds) {
       try {
         // Get latest sensor reading
@@ -1662,9 +1685,28 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       }
     }
 
-    // Get metricas (agua cruda y recuperación)
+    // Get metricas (from sensor_latest when light, else sensores)
     const metricaProducts = [];
-    const distinctMetricasQuery = `
+    if (light && lightLatestRows.length > 0) {
+      const metricaRows = lightLatestRows.filter((r) => (r.resourceType || '').toString().toLowerCase() === 'metrica');
+      const byRes = new Map();
+      for (const r of metricaRows) {
+        const rid = (r.resourceId || '').toString().trim();
+        if (!rid) continue;
+        if (!byRes.has(rid)) byRes.set(rid, r);
+      }
+      for (const [resourceId, r] of byRes) {
+        metricaProducts.push({
+          _id: `metrica-${resourceId}`,
+          id: resourceId,
+          name: r.name || `Métrica ${resourceId}`,
+          product_type: 'Metrica',
+          status: [{ code: 'liquid_level_percent', value: parseFloat(r.value) || 0, label: r.name || 'Nivel', unit: '%', timestamp: r.timestamp }],
+          online: true
+        });
+      }
+    } else {
+      const distinctMetricasQuery = `
       SELECT DISTINCT resourceid
       FROM sensores
       WHERE codigotienda = $1 
@@ -1672,13 +1714,11 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         AND resourceid IS NOT NULL
       ORDER BY resourceid
     `;
-
-    const metricasResult = await query(distinctMetricasQuery, [codigoTienda]);
-    const metricaResourceIds = metricasResult.rows.map(row => row.resourceid);
-
-    for (const resourceId of metricaResourceIds) {
-      try {
-        const latestMetricaQuery = `
+      const metricasResult = await query(distinctMetricasQuery, [codigoTienda]);
+      const metricaResourceIds = metricasResult.rows.map((row) => row.resourceid);
+      for (const resourceId of metricaResourceIds) {
+        try {
+          const latestMetricaQuery = `
           SELECT DISTINCT ON (name) 
             name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
           FROM sensores
@@ -1689,30 +1729,20 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           ORDER BY name, timestamp DESC
           LIMIT 1
         `;
-
-        const latestResult = await query(latestMetricaQuery, [codigoTienda, resourceId]);
-        const latestSensor = latestResult.rows[0];
-
-        if (!latestSensor) continue;
-
-        const metricaData = {
-          _id: `metrica-${resourceId}`,
-          id: resourceId,
-          name: latestSensor.label || `Métrica ${resourceId}`,
-          product_type: 'Metrica',
-          status: [{
-            code: 'liquid_level_percent',
-            value: parseFloat(latestSensor.value) || 0,
-            label: latestSensor.label || 'Nivel',
-            unit: '%',
-            timestamp: latestSensor.timestamp
-          }],
-          online: true
-        };
-
-        metricaProducts.push(metricaData);
-      } catch (error) {
-        console.error(`[SensorDataV2] Error getting metrica ${resourceId}:`, error);
+          const latestResult = await query(latestMetricaQuery, [codigoTienda, resourceId]);
+          const latestSensor = latestResult.rows[0];
+          if (!latestSensor) continue;
+          metricaProducts.push({
+            _id: `metrica-${resourceId}`,
+            id: resourceId,
+            name: latestSensor.label || `Métrica ${resourceId}`,
+            product_type: 'Metrica',
+            status: [{ code: 'liquid_level_percent', value: parseFloat(latestSensor.value) || 0, label: latestSensor.label || 'Nivel', unit: '%', timestamp: latestSensor.timestamp }],
+            online: true
+          });
+        } catch (error) {
+          console.error(`[SensorDataV2] Error getting metrica ${resourceId}:`, error);
+        }
       }
     }
 
@@ -1732,33 +1762,38 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     let latestSensorTimestamp = null;
     
     try {
-      // Query for the most recent sensor data for this punto de venta
-      const latestSensorQuery = `
+      if (light && lightLatestRows.length > 0) {
+        const tsList = lightLatestRows.map((r) => r.timestamp).filter(Boolean);
+        if (tsList.length > 0) {
+          latestSensorTimestamp = tsList.reduce((a, b) => (new Date(a) > new Date(b) ? a : b));
+          const timestampMs = new Date(latestSensorTimestamp).getTime();
+          const timeSinceLastData = now - timestampMs;
+          isOnline = timeSinceLastData <= ONLINE_THRESHOLD_MS;
+        }
+      } else {
+        const latestSensorQuery = `
         SELECT MAX(timestamp) as latest_timestamp
         FROM sensores
         WHERE codigotienda = $1
           AND timestamp IS NOT NULL
           AND timestamp > NOW() - INTERVAL '1 day'
       `;
-      
-      const latestResult = await query(latestSensorQuery, [codigoTienda]);
-      
-      if (latestResult.rows.length > 0 && latestResult.rows[0].latest_timestamp) {
-        latestSensorTimestamp = latestResult.rows[0].latest_timestamp;
-        const timestampMs = new Date(latestSensorTimestamp).getTime();
-        const timeSinceLastData = now - timestampMs;
-        
-        isOnline = timeSinceLastData <= ONLINE_THRESHOLD_MS;
-        
-        console.log(`[SensorDataV2] Online status for ${codigoTienda}:`, {
-          latestSensorTimestamp,
-          timeSinceLastDataMs: timeSinceLastData,
-          timeSinceLastDataMinutes: (timeSinceLastData / 60000).toFixed(2),
-          threshold: ONLINE_THRESHOLD_MS / 60000,
-          isOnline
-        });
-      } else {
-        console.log(`[SensorDataV2] No recent sensor data found for ${codigoTienda}, marking as offline`);
+        const latestResult = await query(latestSensorQuery, [codigoTienda]);
+        if (latestResult.rows.length > 0 && latestResult.rows[0].latest_timestamp) {
+          latestSensorTimestamp = latestResult.rows[0].latest_timestamp;
+          const timestampMs = new Date(latestSensorTimestamp).getTime();
+          const timeSinceLastData = now - timestampMs;
+          isOnline = timeSinceLastData <= ONLINE_THRESHOLD_MS;
+          console.log(`[SensorDataV2] Online status for ${codigoTienda}:`, {
+            latestSensorTimestamp,
+            timeSinceLastDataMs: timeSinceLastData,
+            timeSinceLastDataMinutes: (timeSinceLastData / 60000).toFixed(2),
+            threshold: ONLINE_THRESHOLD_MS / 60000,
+            isOnline
+          });
+        } else {
+          console.log(`[SensorDataV2] No recent sensor data found for ${codigoTienda}, marking as offline`);
+        }
       }
     } catch (error) {
       console.error('[SensorDataV2] Error checking online status:', error);
