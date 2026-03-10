@@ -1815,58 +1815,66 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       ...metricaProducts
     ];
 
-    // Determine if punto is online based on latest sensor data timestamp
+    // Determine if punto is online using same logic as puntoventa v2 list:
+    // online = any row in sensor_latest for this codigo_tienda with (updated_at OR timestamp) within 5 minutes
     const now = Date.now();
     const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-    
+    const thresholdTime = new Date(now - ONLINE_THRESHOLD_MS);
+
     let isOnline = false;
     let latestSensorTimestamp = null;
-    
+
     try {
-      if (light) {
-        if (lightLatestRows.length > 0) {
-          const tsList = lightLatestRows.map((r) => r.timestamp).filter(Boolean);
+      // Same rule as getPuntosVentaV2: sensor_latest (updated_at >= threshold OR "timestamp" >= threshold)
+      const onlineQuery = `
+        SELECT 1 FROM sensor_latest
+        WHERE UPPER(TRIM(codigo_tienda)) = $1
+          AND (updated_at >= $2 OR "timestamp" >= $2)
+        LIMIT 1
+      `;
+      const onlineResult = await query(onlineQuery, [codigoTiendaNorm, thresholdTime]);
+      if (onlineResult.rows && onlineResult.rows.length > 0) {
+        isOnline = true;
+      }
+
+      // Last reading timestamp from sensor_latest (same as list's last_reading_at: MAX(updated_at))
+      const lastUpdQuery = `
+        SELECT MAX(updated_at) AS last_updated FROM sensor_latest
+        WHERE UPPER(TRIM(codigo_tienda)) = $1
+      `;
+      const lastUpdResult = await query(lastUpdQuery, [codigoTiendaNorm]);
+      if (lastUpdResult.rows?.[0]?.last_updated) {
+        latestSensorTimestamp = lastUpdResult.rows[0].last_updated;
+      }
+    } catch (err) {
+      // If sensor_latest missing or fails, fall back to previous logic (light: lightLatestRows; else: sensores)
+      try {
+        if (light && lightLatestRows.length > 0) {
+          const tsList = lightLatestRows.map((r) => r.timestamp || r.updated_at).filter(Boolean);
           if (tsList.length > 0) {
             latestSensorTimestamp = tsList.reduce((a, b) => (new Date(a) > new Date(b) ? a : b));
             const timestampMs = new Date(latestSensorTimestamp).getTime();
-            const timeSinceLastData = now - timestampMs;
-            isOnline = timeSinceLastData <= ONLINE_THRESHOLD_MS;
+            isOnline = (now - timestampMs) <= ONLINE_THRESHOLD_MS;
+          }
+        } else {
+          const latestSensorQuery = `
+            SELECT MAX(timestamp) as latest_timestamp FROM sensores
+            WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
+              AND timestamp IS NOT NULL AND timestamp > NOW() - INTERVAL '1 day'
+          `;
+          const latestResult = await query(latestSensorQuery, [codigoTiendaNorm]);
+          if (latestResult.rows?.[0]?.latest_timestamp) {
+            latestSensorTimestamp = latestResult.rows[0].latest_timestamp;
+            isOnline = (now - new Date(latestSensorTimestamp).getTime()) <= ONLINE_THRESHOLD_MS;
           }
         }
-        // else: test mode, no sensores query for online status
-      } else {
-        const latestSensorQuery = `
-        SELECT MAX(timestamp) as latest_timestamp
-        FROM sensores
-        WHERE codigotienda = $1
-          AND timestamp IS NOT NULL
-          AND timestamp > NOW() - INTERVAL '1 day'
-      `;
-        const latestResult = await query(latestSensorQuery, [codigoTienda]);
-        if (latestResult.rows.length > 0 && latestResult.rows[0].latest_timestamp) {
-          latestSensorTimestamp = latestResult.rows[0].latest_timestamp;
-          const timestampMs = new Date(latestSensorTimestamp).getTime();
-          const timeSinceLastData = now - timestampMs;
-          isOnline = timeSinceLastData <= ONLINE_THRESHOLD_MS;
-          console.log(`[SensorDataV2] Online status for ${codigoTienda}:`, {
-            latestSensorTimestamp,
-            timeSinceLastDataMs: timeSinceLastData,
-            timeSinceLastDataMinutes: (timeSinceLastData / 60000).toFixed(2),
-            threshold: ONLINE_THRESHOLD_MS / 60000,
-            isOnline
-          });
-        } else {
-          console.log(`[SensorDataV2] No recent sensor data found for ${codigoTienda}, marking as offline`);
-        }
+      } catch (fallbackErr) {
+        const tieneControladorOnline = punto.controladores?.some(
+          (ctrl) => ctrl.last_time_active && (now - ctrl.last_time_active * 1000 <= ONLINE_THRESHOLD_MS)
+        );
+        const tieneOsmosisOnline = osmosisSystems.some((osmosis) => osmosis.online);
+        isOnline = tieneControladorOnline || tieneOsmosisOnline;
       }
-    } catch (error) {
-      console.error('[SensorDataV2] Error checking online status:', error);
-      // Fallback to checking controllers/osmosis if sensor query fails
-      const tieneControladorOnline = punto.controladores?.some(
-        (ctrl) => ctrl.last_time_active && (now - ctrl.last_time_active * 1000 <= ONLINE_THRESHOLD_MS)
-      );
-      const tieneOsmosisOnline = osmosisSystems.some((osmosis) => osmosis.online);
-      isOnline = tieneControladorOnline || tieneOsmosisOnline;
     }
 
     const safePunto = {
