@@ -1031,18 +1031,15 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
 
     // When light=true: use sensor_latest only to avoid blocking on the busy sensores table (MQTT writes)
     let lightLatestRows = [];
-    // TEST: skip sensor_latest fetch to verify if detalle hang is related to this table. If detalle loads fast with this commented, the block is here. Uncomment when done testing.
     if (light) {
-      // try {
-      //   lightLatestRows = await SensorLatestModel.getLatestByCodigoTiendaNormalized(codigoTiendaNorm);
-      //   if (lightLatestRows.length === 0) {
-      //     lightLatestRows = await SensorLatestModel.getLatestByCodigoTienda(codigoTiendaNorm) || [];
-      //   }
-      // } catch (err) {
-      //   console.warn('[SensorDataV2] sensor_latest read failed (light path), falling back to sensores:', err.message);
-      // }
-      lightLatestRows = []; // force empty so we never touch sensores in light path below
-      console.log('[SensorDataV2] getPuntoVentaDetalleV2 sensor_latest fetch SKIPPED (test mode) – returning detalle without sensor data');
+      try {
+        lightLatestRows = await SensorLatestModel.getLatestByCodigoTiendaNormalized(codigoTiendaNorm);
+        if (lightLatestRows.length === 0) {
+          lightLatestRows = await SensorLatestModel.getLatestByCodigoTienda(codigoTiendaNorm) || [];
+        }
+      } catch (err) {
+        console.warn('[SensorDataV2] sensor_latest read failed (light path):', err.message);
+      }
     }
 
     let systemRows = [];
