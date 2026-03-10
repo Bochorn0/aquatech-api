@@ -685,6 +685,7 @@ export const getPuntosVentaV2 = async (req, res) => {
 
         // Metric status: use punto-specific metrics first; fallback to region metrics (higher hierarchy than client-only)
         let metric_status = 'normal';
+        let metric_status_detail = null; // { metric_name, sensor_type, value, hint } for tooltip when critico/preventivo
         const sensors = sensorLatestByCode[codigoTienda] || [];
         const pvIdStr = String(pv.id);
         const clientIdStr = pv.clientId != null ? String(pv.clientId) : '_';
@@ -708,12 +709,28 @@ export const getPuntosVentaV2 = async (req, res) => {
             const mtNorm = normalizeSensorTypeForMetric(mt);
             const typeMatches = mtNorm === sensorTypeNorm || sensorTypeNorm.includes(mtNorm) || mtNorm.includes(sensorTypeNorm) || sensorType.includes(mt) || mt.includes(sensorType);
             if (!typeMatches) continue;
-            const level = evaluateLevelFromRules(val, metric.rules);
+            const { level } = evaluateLevelFromRulesWithDetail(val, metric.rules);
             if (level === 'critico') {
               metric_status = 'critico';
+              const hint = getNormalRuleHint(metric.rules);
+              metric_status_detail = {
+                metric_name: metric.metric_name || null,
+                sensor_type: metric.sensor_type || null,
+                value: val,
+                hint: hint || null
+              };
               break;
             }
-            if (level === 'preventivo' && metric_status === 'normal') metric_status = 'preventivo';
+            if (level === 'preventivo' && metric_status === 'normal') {
+              metric_status = 'preventivo';
+              const hint = getNormalRuleHint(metric.rules);
+              metric_status_detail = {
+                metric_name: metric.metric_name || null,
+                sensor_type: metric.sensor_type || null,
+                value: val,
+                hint: hint || null
+              };
+            }
           }
           if (metric_status === 'critico') break;
         }
@@ -814,6 +831,7 @@ export const getPuntosVentaV2 = async (req, res) => {
           sensors_count,
           last_reading_at: last_reading_at ? (last_reading_at instanceof Date ? last_reading_at.toISOString() : String(last_reading_at)) : null,
           metric_status,
+          metric_status_detail: metric_status_detail || undefined,
           owner: pv.owner || null,
           clientId: pv.clientId ? String(pv.clientId) : null,
           lat: pv.lat || null,
@@ -2239,9 +2257,15 @@ function getUnitForSensor(sensorName) {
 
 /** Evaluate sensor value against metric rules; returns 'normal' | 'preventivo' | 'critico' */
 function evaluateLevelFromRules(value, rules) {
-  if (value == null || Number.isNaN(Number(value))) return 'critico';
+  const out = evaluateLevelFromRulesWithDetail(value, rules);
+  return out ? out.level : 'normal';
+}
+
+/** Same as above but returns { level, matchedRule } for tooltip (metric_status_detail). */
+function evaluateLevelFromRulesWithDetail(value, rules) {
+  if (value == null || Number.isNaN(Number(value))) return { level: 'critico', matchedRule: null };
   const rulesArr = Array.isArray(rules) ? rules : [];
-  if (rulesArr.length === 0) return 'normal';
+  if (rulesArr.length === 0) return { level: 'normal', matchedRule: null };
 
   const v = Number(value);
   for (const rule of rulesArr) {
@@ -2250,26 +2274,38 @@ function evaluateLevelFromRules(value, rules) {
     const inRange = (min === null || v >= min) && (max === null || v <= max);
     if (!inRange) continue;
 
-    // Prefer explicit severity (stored in metrics, no label parsing)
+    let level = 'normal';
     const s = (rule.severity || '').toLowerCase();
-    if (s === 'critico') return 'critico';
-    if (s === 'preventivo') return 'preventivo';
-    if (s === 'normal') return 'normal';
-
-    // Fallback for legacy rules without severity: infer from label
-    const label = (rule.label || '').toLowerCase();
-    if (label.includes('critico') || label.includes('crítico') || label.includes('correctivo') || label.includes('danger') || label.includes('peligro') || label.includes('muy bajo') || label.includes('urgente')) {
-      return 'critico';
+    if (s === 'critico') level = 'critico';
+    else if (s === 'preventivo') level = 'preventivo';
+    else if (s === 'normal') level = 'normal';
+    else {
+      const label = (rule.label || '').toLowerCase();
+      if (label.includes('critico') || label.includes('crítico') || label.includes('correctivo') || label.includes('danger') || label.includes('peligro') || label.includes('muy bajo') || label.includes('urgente')) level = 'critico';
+      else if (label.includes('preventivo') || label.includes('warning') || label.includes('advertencia') || label.includes('precaucion') || label.includes('bajo') || label.includes('nivel bajo')) level = 'preventivo';
+      else if (label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo') || label.includes('buen') || label.includes('buen estado')) level = 'normal';
+      else level = 'preventivo';
     }
-    if (label.includes('preventivo') || label.includes('warning') || label.includes('advertencia') || label.includes('precaucion') || label.includes('bajo') || label.includes('nivel bajo')) {
-      return 'preventivo';
-    }
-    if (label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo') || label.includes('buen') || label.includes('buen estado')) {
-      return 'normal';
-    }
-    return 'preventivo';
+    return { level, matchedRule: rule };
   }
-  return 'normal'; // Value outside all rules: default normal
+  return { level: 'normal', matchedRule: null };
+}
+
+/** Build a short hint from metric rules for "to be back in normal" (e.g. "value should be ≥ 70"). */
+function getNormalRuleHint(rules) {
+  const rulesArr = Array.isArray(rules) ? rules : [];
+  for (const rule of rulesArr) {
+    const s = (rule.severity || '').toLowerCase();
+    const label = (rule.label || '').toLowerCase();
+    const isNormal = s === 'normal' || label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo') || label.includes('buen');
+    if (!isNormal) continue;
+    const min = rule.min != null ? Number(rule.min) : null;
+    const max = rule.max != null ? Number(rule.max) : null;
+    if (min != null && max != null) return `Debe estar entre ${min} y ${max}`;
+    if (min != null) return `Debe ser ≥ ${min} para estar en normal`;
+    if (max != null) return `Debe ser ≤ ${max} para estar en normal`;
+  }
+  return null;
 }
 
 /** Check if metric applies to nivel purificada (water level, not flow). Do not match flujo_produccion so we use level rules, not production rules. */
