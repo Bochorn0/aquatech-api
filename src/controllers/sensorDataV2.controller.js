@@ -864,10 +864,11 @@ export const getPuntoVentaHistoricoV2 = async (req, res) => {
 };
 
 export const getPuntoVentaDetalleV2 = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const light = req.query.light === '1' || req.query.light === 'true';
+  const { id } = req.params;
+  const light = req.query.light === '1' || req.query.light === 'true';
+  console.log('[SensorDataV2] getPuntoVentaDetalleV2 start', { id, light });
 
+  try {
     // Import PostgreSQL PuntoVenta model first (v2.0 uses PostgreSQL)
     const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
     
@@ -881,12 +882,11 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       // Try to find by PostgreSQL numeric ID first
       puntoFromPG = await PuntoVentaModel.findById(parseInt(id, 10));
     }
-    
-    // If not found by ID, try by codigo_tienda
     if (!puntoFromPG) {
       puntoFromPG = await PuntoVentaModel.findByCode(id);
     }
-    
+    console.log('[SensorDataV2] getPuntoVentaDetalleV2 punto fetched', { id, found: !!puntoFromPG, light });
+
     if (puntoFromPG) {
       codigoTienda = (puntoFromPG.code || puntoFromPG.codigo_tienda || id).toUpperCase();
     } else {
@@ -1031,32 +1031,39 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
 
     // When light=true: use sensor_latest only to avoid blocking on the busy sensores table (MQTT writes)
     let lightLatestRows = [];
+    // TEST: skip sensor_latest fetch to verify if detalle hang is related to this table. If detalle loads fast with this commented, the block is here. Uncomment when done testing.
     if (light) {
-      try {
-        lightLatestRows = await SensorLatestModel.getLatestByCodigoTiendaNormalized(codigoTiendaNorm);
-        if (lightLatestRows.length === 0) {
-          lightLatestRows = await SensorLatestModel.getLatestByCodigoTienda(codigoTiendaNorm) || [];
-        }
-      } catch (err) {
-        console.warn('[SensorDataV2] sensor_latest read failed (light path), falling back to sensores:', err.message);
-      }
+      // try {
+      //   lightLatestRows = await SensorLatestModel.getLatestByCodigoTiendaNormalized(codigoTiendaNorm);
+      //   if (lightLatestRows.length === 0) {
+      //     lightLatestRows = await SensorLatestModel.getLatestByCodigoTienda(codigoTiendaNorm) || [];
+      //   }
+      // } catch (err) {
+      //   console.warn('[SensorDataV2] sensor_latest read failed (light path), falling back to sensores:', err.message);
+      // }
+      lightLatestRows = []; // force empty so we never touch sensores in light path below
+      console.log('[SensorDataV2] getPuntoVentaDetalleV2 sensor_latest fetch SKIPPED (test mode) – returning detalle without sensor data');
     }
 
     let systemRows = [];
-    if (light && lightLatestRows.length > 0) {
-      const systemKeys = new Set();
-      for (const r of lightLatestRows) {
-        const rtype = (r.resourceType || '').toString().toLowerCase();
-        if (rtype !== 'osmosis' && rtype !== 'tiwater') continue;
-        const rid = (r.resourceId || '').toString().trim() || 'tiwater-system';
-        const key = `${rid}|${rtype}`;
-        if (!systemKeys.has(key)) {
-          systemKeys.add(key);
-          systemRows.push({ resourceid: rid, resourcetype: rtype });
+    if (light) {
+      if (lightLatestRows.length > 0) {
+        const systemKeys = new Set();
+        for (const r of lightLatestRows) {
+          const rtype = (r.resourceType || '').toString().toLowerCase();
+          if (rtype !== 'osmosis' && rtype !== 'tiwater') continue;
+          const rid = (r.resourceId || '').toString().trim() || 'tiwater-system';
+          const key = `${rid}|${rtype}`;
+          if (!systemKeys.has(key)) {
+            systemKeys.add(key);
+            systemRows.push({ resourceid: rid, resourcetype: rtype });
+          }
         }
-      }
-      if (systemRows.length === 0 && lightLatestRows.some((r) => (r.resourceType || '').toString().toLowerCase() === 'tiwater')) {
-        systemRows.push({ resourceid: 'tiwater-system', resourcetype: 'tiwater' });
+        if (systemRows.length === 0 && lightLatestRows.some((r) => (r.resourceType || '').toString().toLowerCase() === 'tiwater')) {
+          systemRows.push({ resourceid: 'tiwater-system', resourcetype: 'tiwater' });
+        }
+      } else {
+        systemRows = []; // test mode: no sensor_latest data, do not query sensores
       }
     } else {
       // Query sensores for distinct systems (can block under heavy write load)
@@ -1588,26 +1595,29 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     // Get nivel products (from sensor_latest when light, else sensores)
     const nivelProducts = [];
     let nivelResourceIds = [];
-    if (light && lightLatestRows.length > 0) {
-      const nivelRows = lightLatestRows.filter((r) => (r.resourceType || '').toString().toLowerCase() === 'nivel');
-      const byRes = new Map();
-      for (const r of nivelRows) {
-        const rid = (r.resourceId || '').toString().trim();
-        if (!rid) continue;
-        if (!byRes.has(rid)) byRes.set(rid, r);
+    if (light) {
+      if (lightLatestRows.length > 0) {
+        const nivelRows = lightLatestRows.filter((r) => (r.resourceType || '').toString().toLowerCase() === 'nivel');
+        const byRes = new Map();
+        for (const r of nivelRows) {
+          const rid = (r.resourceId || '').toString().trim();
+          if (!rid) continue;
+          if (!byRes.has(rid)) byRes.set(rid, r);
+        }
+        for (const [resourceId, r] of byRes) {
+          nivelProducts.push({
+            _id: `nivel-${resourceId}`,
+            id: resourceId,
+            name: `Nivel ${resourceId}`,
+            product_type: 'Nivel',
+            status: [{ code: 'liquid_level_percent', value: parseFloat(r.value) || 0, label: 'Nivel', unit: '%', timestamp: r.timestamp }],
+            online: true,
+            historico: null,
+            historico_diario: null
+          });
+        }
       }
-      for (const [resourceId, r] of byRes) {
-        nivelProducts.push({
-          _id: `nivel-${resourceId}`,
-          id: resourceId,
-          name: `Nivel ${resourceId}`,
-          product_type: 'Nivel',
-          status: [{ code: 'liquid_level_percent', value: parseFloat(r.value) || 0, label: 'Nivel', unit: '%', timestamp: r.timestamp }],
-          online: true,
-          historico: null,
-          historico_diario: null
-        });
-      }
+      // else: test mode, nivelProducts stay empty, do not query sensores
     } else {
       const distinctNivelesQuery = `
       SELECT DISTINCT resourceid
@@ -1687,24 +1697,27 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
 
     // Get metricas (from sensor_latest when light, else sensores)
     const metricaProducts = [];
-    if (light && lightLatestRows.length > 0) {
-      const metricaRows = lightLatestRows.filter((r) => (r.resourceType || '').toString().toLowerCase() === 'metrica');
-      const byRes = new Map();
-      for (const r of metricaRows) {
-        const rid = (r.resourceId || '').toString().trim();
-        if (!rid) continue;
-        if (!byRes.has(rid)) byRes.set(rid, r);
+    if (light) {
+      if (lightLatestRows.length > 0) {
+        const metricaRows = lightLatestRows.filter((r) => (r.resourceType || '').toString().toLowerCase() === 'metrica');
+        const byRes = new Map();
+        for (const r of metricaRows) {
+          const rid = (r.resourceId || '').toString().trim();
+          if (!rid) continue;
+          if (!byRes.has(rid)) byRes.set(rid, r);
+        }
+        for (const [resourceId, r] of byRes) {
+          metricaProducts.push({
+            _id: `metrica-${resourceId}`,
+            id: resourceId,
+            name: r.name || `Métrica ${resourceId}`,
+            product_type: 'Metrica',
+            status: [{ code: 'liquid_level_percent', value: parseFloat(r.value) || 0, label: r.name || 'Nivel', unit: '%', timestamp: r.timestamp }],
+            online: true
+          });
+        }
       }
-      for (const [resourceId, r] of byRes) {
-        metricaProducts.push({
-          _id: `metrica-${resourceId}`,
-          id: resourceId,
-          name: r.name || `Métrica ${resourceId}`,
-          product_type: 'Metrica',
-          status: [{ code: 'liquid_level_percent', value: parseFloat(r.value) || 0, label: r.name || 'Nivel', unit: '%', timestamp: r.timestamp }],
-          online: true
-        });
-      }
+      // else: test mode, metricaProducts stay empty, do not query sensores
     } else {
       const distinctMetricasQuery = `
       SELECT DISTINCT resourceid
@@ -1762,14 +1775,17 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     let latestSensorTimestamp = null;
     
     try {
-      if (light && lightLatestRows.length > 0) {
-        const tsList = lightLatestRows.map((r) => r.timestamp).filter(Boolean);
-        if (tsList.length > 0) {
-          latestSensorTimestamp = tsList.reduce((a, b) => (new Date(a) > new Date(b) ? a : b));
-          const timestampMs = new Date(latestSensorTimestamp).getTime();
-          const timeSinceLastData = now - timestampMs;
-          isOnline = timeSinceLastData <= ONLINE_THRESHOLD_MS;
+      if (light) {
+        if (lightLatestRows.length > 0) {
+          const tsList = lightLatestRows.map((r) => r.timestamp).filter(Boolean);
+          if (tsList.length > 0) {
+            latestSensorTimestamp = tsList.reduce((a, b) => (new Date(a) > new Date(b) ? a : b));
+            const timestampMs = new Date(latestSensorTimestamp).getTime();
+            const timeSinceLastData = now - timestampMs;
+            isOnline = timeSinceLastData <= ONLINE_THRESHOLD_MS;
+          }
         }
+        // else: test mode, no sensores query for online status
       } else {
         const latestSensorQuery = `
         SELECT MAX(timestamp) as latest_timestamp

@@ -49,6 +49,9 @@ export const requirePermission = (...allowedPaths) => {
   const normalizedAllowed = allowedPaths.map(normalizePath).filter(Boolean);
   return async (req, res, next) => {
     try {
+      if (req.path?.includes('puntoVentas') && req.method === 'GET') {
+        console.log('[Auth] requirePermission start', { path: req.path, method: req.method });
+      }
       const role = await RoleModel.findById(req.user.role);
       if (!role) {
         return res.status(403).json({ message: 'Forbidden: Role not found' });
