@@ -20,7 +20,7 @@ const pool = new Pool({
   database: db,
   user: process.env.POSTGRES_USER || os.userInfo().username,
   password: process.env.POSTGRES_PASSWORD,
-  max: parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '20'), // Maximum number of clients in the pool
+  max: parseInt(process.env.POSTGRES_MAX_CONNECTIONS || '20'), // Under MQTT load, increase (e.g. 40) so detalle/role reads get a connection; server max_connections must allow it
   idleTimeoutMillis: parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000'), // Close idle clients after 30 seconds
   connectionTimeoutMillis: parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '10000'), // 10s default (Azure cold start); use 2000 for local
   ssl: process.env.POSTGRES_SSL === 'true' ? {

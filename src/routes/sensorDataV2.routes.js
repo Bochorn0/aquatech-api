@@ -15,6 +15,23 @@ import {
 
 const router = express.Router();
 
+// Request timeout for detalle so we return 503 instead of gateway 502 when DB pool is congested
+const DETALLE_TIMEOUT_MS = parseInt(process.env.PUNTO_VENTA_DETALLE_TIMEOUT_MS || '25000', 10);
+const detalleTimeoutMiddleware = (req, res, next) => {
+  const timer = setTimeout(() => {
+    if (!res.headersSent) {
+      console.warn('[SensorDataV2] getPuntoVentaDetalleV2 request timeout – returning 503', { id: req.params.id });
+      res.set('Retry-After', '10');
+      res.status(503).json({
+        success: false,
+        message: 'Servicio temporalmente ocupado. Reintente en unos segundos.'
+      });
+    }
+  }, DETALLE_TIMEOUT_MS);
+  res.once('finish', () => clearTimeout(timer));
+  next();
+};
+
 /**
  * @route   GET /api/v2.0/dashboard/global-metrics
  * @desc    Global summary for Main Dashboard V2 (production sum, rechazo sum, eficiencia avg, nivel by level)
@@ -50,8 +67,9 @@ router.get('/puntoVentas/:id/historico', getPuntoVentaHistoricoV2);
  * @access  Private
  * @param   id - Can be numeric ID or codigo_tienda
  * NOTE: Using regex to prevent matching /puntoVentas/:id/sensors (sensors routes are in customizationV2Routes)
+ * Timeout: 25s by default (PUNTO_VENTA_DETALLE_TIMEOUT_MS) to avoid gateway 502 when DB pool is congested.
  */
-router.get('/puntoVentas/:id([^/]+)$', getPuntoVentaDetalleV2);
+router.get('/puntoVentas/:id([^/]+)$', detalleTimeoutMiddleware, getPuntoVentaDetalleV2);
 
 /**
  * @route   GET /api/v2.0/sensors/timeseries
