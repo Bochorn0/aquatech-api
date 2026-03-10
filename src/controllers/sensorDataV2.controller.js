@@ -652,6 +652,20 @@ export const getPuntosVentaV2 = async (req, res) => {
       });
     } catch (_) {}
 
+    // Region metrics by regionId (higher hierarchy: use when punto has no punto-specific metrics)
+    const RegionMetricModel = (await import('../models/postgres/regionMetric.model.js')).default;
+    let regionMetricsByRegionId = {};
+    try {
+      const allRegionMetrics = await RegionMetricModel.find({}, { limit: 500 });
+      allRegionMetrics.forEach((rm) => {
+        if (rm.enabled === false) return;
+        const rid = rm.regionId != null ? String(rm.regionId) : '';
+        if (!rid) return;
+        if (!regionMetricsByRegionId[rid]) regionMetricsByRegionId[rid] = [];
+        regionMetricsByRegionId[rid].push(rm);
+      });
+    } catch (_) {}
+
     // Build response: use online set + counts + last_reading_at + metric_status, fetch client/region/city per punto
     const puntosConEstado = await Promise.all(
       puntosPG.map(async (pv) => {
@@ -660,20 +674,39 @@ export const getPuntosVentaV2 = async (req, res) => {
         const sensors_count = countsByPuntoId[String(pv.id)] ?? 0;
         const last_reading_at = codigoTienda ? (lastUpdatedByCode[codigoTienda] || null) : null;
 
-        // Metric status: only use metrics defined for THIS punto (punto_venta_id = pv.id). Do not use other puntos' metrics.
+        // Region (needed for metric_status fallback and for response)
+        let regionData = null;
+        try {
+          const RegionPuntoVentaModel = (await import('../models/postgres/regionPuntoVenta.model.js')).default;
+          regionData = await RegionPuntoVentaModel.getRegionForPuntoVenta(pv.id);
+        } catch (error) {
+          console.warn(`[getPuntosVentaV2] Error fetching region for ${pv.id}:`, error.message);
+        }
+
+        // Metric status: use punto-specific metrics first; fallback to region metrics (higher hierarchy than client-only)
         let metric_status = 'normal';
         const sensors = sensorLatestByCode[codigoTienda] || [];
         const pvIdStr = String(pv.id);
         const clientIdStr = pv.clientId != null ? String(pv.clientId) : '_';
         const metricsForClient = metricsByClientId[clientIdStr] || [];
         const metricsForPunto = metricsForClient.filter((m) => m.punto_venta_id != null && String(m.punto_venta_id) === pvIdStr);
+        const metricsToUse = metricsForPunto.length > 0
+          ? metricsForPunto
+          : (regionData && regionMetricsByRegionId[String(regionData.id)] ? regionMetricsByRegionId[String(regionData.id)] : []);
+        // Normalize sensor type for matching (electronivel_cruda -> nivel_cruda, level_cruda -> nivel_cruda)
+        const normalizeSensorTypeForMetric = (t) => {
+          const lower = (t || '').toLowerCase().trim();
+          return lower.replace(/^electronivel_/, 'nivel_').replace(/^level_/, 'nivel_');
+        };
         for (const s of sensors) {
           const val = s.value;
           const sensorType = (s.type || '').toLowerCase();
-          for (const metric of metricsForPunto) {
+          const sensorTypeNorm = normalizeSensorTypeForMetric(sensorType);
+          for (const metric of metricsToUse) {
             const mt = (metric.sensor_type || '').toLowerCase();
             if (!mt) continue;
-            const typeMatches = mt === sensorType || sensorType.includes(mt) || mt.includes(sensorType);
+            const mtNorm = normalizeSensorTypeForMetric(mt);
+            const typeMatches = mtNorm === sensorTypeNorm || sensorTypeNorm.includes(mtNorm) || mtNorm.includes(sensorTypeNorm) || sensorType.includes(mt) || mt.includes(sensorType);
             if (!typeMatches) continue;
             const level = evaluateLevelFromRules(val, metric.rules);
             if (level === 'critico') {
@@ -722,16 +755,15 @@ export const getPuntosVentaV2 = async (req, res) => {
           }
         }
 
-        // Region and ciudad (MQTT topic hierarchy)
-        let regionData = null;
+        // Ciudad (region already fetched above for metric_status)
         let ciudadData = null;
         try {
-          const RegionPuntoVentaModel = (await import('../models/postgres/regionPuntoVenta.model.js')).default;
-          const CiudadModel = (await import('../models/postgres/ciudad.model.js')).default;
-          regionData = await RegionPuntoVentaModel.getRegionForPuntoVenta(pv.id);
-          if (pv.ciudadId) ciudadData = await CiudadModel.findById(pv.ciudadId);
+          if (pv.ciudadId) {
+            const CiudadModel = (await import('../models/postgres/ciudad.model.js')).default;
+            ciudadData = await CiudadModel.findById(pv.ciudadId);
+          }
         } catch (error) {
-          console.warn(`[getPuntosVentaV2] Error fetching region/ciudad for ${pv.id}:`, error.message);
+          console.warn(`[getPuntosVentaV2] Error fetching ciudad for ${pv.id}:`, error.message);
         }
 
         // Transform PostgreSQL format to MongoDB-compatible format
