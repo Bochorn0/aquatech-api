@@ -809,6 +809,60 @@ export const getPuntosVentaV2 = async (req, res) => {
   }
 };
 
+/**
+ * Lazy-load historico for nivel charts (purificada, cruda, recuperada).
+ * Separate endpoint to avoid heavy queries on main punto detalle.
+ * @route GET /api/v2.0/puntoVentas/:id/historico
+ * @query type=purificada|cruda|recuperada, resourceId=tiwater-system (default)
+ */
+export const getPuntoVentaHistoricoV2 = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const type = (req.query.type || 'purificada').toLowerCase();
+    const resourceId = req.query.resourceId || 'tiwater-system';
+
+    const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
+    let puntoFromPG = null;
+    if (/^\d+$/.test(id)) {
+      puntoFromPG = await PuntoVentaModel.findById(parseInt(id, 10));
+    }
+    if (!puntoFromPG) {
+      puntoFromPG = await PuntoVentaModel.findByCode(id);
+    }
+    if (!puntoFromPG) {
+      return res.status(404).json({ success: false, message: 'Punto de venta no encontrado' });
+    }
+
+    const codigoTienda = (puntoFromPG.code || puntoFromPG.codigo_tienda || id).toString().trim().toUpperCase();
+    const sensorMap = {
+      purificada: 'Nivel Purificada',
+      cruda: 'Nivel Cruda (%)',
+      recuperada: 'Nivel Recuperada',
+    };
+    const sensorName = sensorMap[type] || sensorMap.purificada;
+
+    const [historicoHora, historicoDiario] = await Promise.all([
+      generateNivelHistoricoV2(codigoTienda, resourceId, sensorName, null, 'tiwater'),
+      generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName, 30, 'tiwater'),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        historico: historicoHora || null,
+        historico_diario: historicoDiario || null,
+      },
+    });
+  } catch (error) {
+    console.error('[getPuntoVentaHistoricoV2] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching historico',
+      error: error.message,
+    });
+  }
+};
+
 export const getPuntoVentaDetalleV2 = async (req, res) => {
   try {
     const { id } = req.params;

@@ -6,6 +6,7 @@ import {
   getMainDashboardV2Metrics,
   getOsmosisSystemByPuntoVenta,
   getPuntoVentaDetalleV2,
+  getPuntoVentaHistoricoV2,
   getPuntosVentaV2,
   getSensorLatest,
   getSensorTimeSeries,
@@ -35,6 +36,13 @@ router.get('/osmosis', getOsmosisSystemByPuntoVenta);
  * @access  Private
  */
 router.get('/puntoVentas/all', getPuntosVentaV2);
+
+/**
+ * @route   GET /api/v2.0/puntoVentas/:id/historico
+ * @desc    Lazy-load nivel historico (purificada, cruda, recuperada) for charts
+ * @query   type=purificada|cruda|recuperada, resourceId=tiwater-system
+ */
+router.get('/puntoVentas/:id/historico', getPuntoVentaHistoricoV2);
 
 /**
  * @route   GET /api/v2.0/puntoVentas/:id

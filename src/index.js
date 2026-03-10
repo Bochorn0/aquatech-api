@@ -30,6 +30,7 @@ import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoute
 import regionRoutes from './routes/region.routes.js';
 import ciudadRoutes from './routes/ciudad.routes.js';
 import adminEventsRoutes from './routes/adminEvents.routes.js';
+import rateLimit from 'express-rate-limit';
 import { authenticate, requirePermission } from './middlewares/auth.middleware.js';
 import mqttService from './services/mqtt.service.js';  // Import MQTT service
 import emailHelper from './utils/email.helper.js';  // Import email helper for test endpoint
@@ -44,6 +45,21 @@ app.use(helmet());
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Rate limiting: prevent connection pool exhaustion from bursts
+// Env: API_RATE_LIMIT_MAX (default 100), API_RATE_LIMIT_WINDOW_MS (default 60000 = 1 min)
+const rateLimitMax = parseInt(process.env.API_RATE_LIMIT_MAX || '100', 10);
+const rateLimitWindowMs = parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10);
+const apiLimiter = rateLimit({
+  windowMs: rateLimitWindowMs,
+  max: rateLimitMax,
+  message: { success: false, message: 'Demasiadas solicitudes. Intente de nuevo más tarde.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api', apiLimiter);
+app.use('/api/v1.0', apiLimiter);
+app.use('/api/v2.0', apiLimiter);
 
 // Routes
 app.get('/health', (req, res) => {
