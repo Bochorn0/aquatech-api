@@ -72,7 +72,9 @@ export const getMetricsV2 = async (req, res) => {
           message: 'Invalid punto_venta_id parameter'
         });
       }
-      filters.puntoVentaId = await resolvePuntoVentaIdForMetrics(rawPvId);
+      const resolved = await resolvePuntoVentaIdForMetrics(rawPvId);
+      // Use resolved V1 id when present; otherwise filter by raw id so we don't return other puntos' metrics
+      filters.puntoVentaId = resolved != null ? resolved : rawPvId;
     }
     
     console.log(`[getMetricsV2] Fetching Metrics from PostgreSQL (v2.0) with filters:`, filters);
