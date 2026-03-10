@@ -823,7 +823,7 @@ export const getPuntosVentaV2 = async (req, res) => {
           createdAt: pv.createdAt || null,
           updatedAt: pv.updatedAt || null,
           dev_mode: pv.dev_mode === true,
-          region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name } : null,
+          region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name, color: regionData.color || null } : null,
           ciudad: ciudadData ? { id: String(ciudadData.id), name: ciudadData.name, regionId: ciudadData.regionId } : null
         };
       })
@@ -1044,7 +1044,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       updatedAt: puntoFromPG.updatedAt,
       meta: puntoFromPG.meta,
       dev_mode: puntoFromPG.dev_mode === true,
-      region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name } : null,
+      region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name, color: regionData.color || null } : null,
       ciudad: ciudadData ? { id: String(ciudadData.id), name: ciudadData.name, regionId: ciudadData.regionId } : null,
       toObject: function() {
         return {
