@@ -841,10 +841,29 @@ export const getPuntoVentaHistoricoV2 = async (req, res) => {
     };
     const sensorName = sensorMap[type] || sensorMap.purificada;
 
-    const [historicoHora, historicoDiario] = await Promise.all([
-      generateNivelHistoricoV2(codigoTienda, resourceId, sensorName, null, 'tiwater'),
-      generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName, 30, 'tiwater'),
-    ]);
+    let historicoHora = null;
+    let historicoDiario = null;
+
+    // For cruda: try multiple sensor names (DB may store as "Nivel Cruda (%)" or "electronivel_cruda")
+    const crudaNames = ['Nivel Cruda (%)', 'Nivel Cruda', 'electronivel_cruda', 'level_cruda'];
+    if (type === 'cruda') {
+      for (const name of crudaNames) {
+        const [h, d] = await Promise.all([
+          generateNivelHistoricoV2(codigoTienda, resourceId, name, null, 'tiwater'),
+          generateNivelHistoricoDiarioV2(codigoTienda, resourceId, name, 30, 'tiwater'),
+        ]);
+        if (h && h.hours_with_data && h.hours_with_data.length > 0) {
+          historicoHora = h;
+          historicoDiario = d;
+          break;
+        }
+      }
+    } else {
+      [historicoHora, historicoDiario] = await Promise.all([
+        generateNivelHistoricoV2(codigoTienda, resourceId, sensorName, null, 'tiwater'),
+        generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName, 30, 'tiwater'),
+      ]);
+    }
 
     return res.json({
       success: true,
