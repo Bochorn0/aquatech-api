@@ -713,22 +713,28 @@ export const getPuntosVentaV2 = async (req, res) => {
             if (level === 'critico') {
               metric_status = 'critico';
               const hint = getNormalRuleHint(metric.rules);
+              const { min: normal_min, max: normal_max } = getNormalRuleMinMax(metric.rules);
               metric_status_detail = {
                 metric_name: metric.metric_name || null,
                 sensor_type: metric.sensor_type || null,
                 value: val,
-                hint: hint || null
+                hint: hint || null,
+                normal_min: normal_min != null ? normal_min : null,
+                normal_max: normal_max != null ? normal_max : null
               };
               break;
             }
             if (level === 'preventivo' && metric_status === 'normal') {
               metric_status = 'preventivo';
               const hint = getNormalRuleHint(metric.rules);
+              const { min: normal_min, max: normal_max } = getNormalRuleMinMax(metric.rules);
               metric_status_detail = {
                 metric_name: metric.metric_name || null,
                 sensor_type: metric.sensor_type || null,
                 value: val,
-                hint: hint || null
+                hint: hint || null,
+                normal_min: normal_min != null ? normal_min : null,
+                normal_max: normal_max != null ? normal_max : null
               };
             }
           }
@@ -2289,6 +2295,21 @@ function evaluateLevelFromRulesWithDetail(value, rules) {
     return { level, matchedRule: rule };
   }
   return { level: 'normal', matchedRule: null };
+}
+
+/** Get the normal rule's min/max from metric rules (punto or region metrics). Returns { min, max } for tooltip compare value. */
+function getNormalRuleMinMax(rules) {
+  const rulesArr = Array.isArray(rules) ? rules : [];
+  for (const rule of rulesArr) {
+    const s = (rule.severity || '').toLowerCase();
+    const label = (rule.label || '').toLowerCase();
+    const isNormal = s === 'normal' || label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo') || label.includes('buen');
+    if (!isNormal) continue;
+    const min = rule.min != null ? Number(rule.min) : null;
+    const max = rule.max != null ? Number(rule.max) : null;
+    return { min, max };
+  }
+  return { min: null, max: null };
 }
 
 /** Build a short hint from metric rules for "to be back in normal" (e.g. "value should be ≥ 70"). */
