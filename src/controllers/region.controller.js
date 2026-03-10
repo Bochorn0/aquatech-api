@@ -56,6 +56,30 @@ export const getRegionPuntos = async (req, res) => {
   }
 };
 
+/**
+ * Set the list of puntos de venta linked to this region (replaces existing).
+ * Body: { punto_venta_ids: number[] }
+ */
+export const setRegionPuntos = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const region = await RegionModel.findById(id);
+    if (!region) {
+      return res.status(404).json({ message: 'Región no encontrada' });
+    }
+    const puntoVentaIds = req.body?.punto_venta_ids;
+    const ids = Array.isArray(puntoVentaIds)
+      ? puntoVentaIds.map((pv) => (typeof pv === 'number' ? pv : parseInt(String(pv), 10))).filter((n) => !isNaN(n))
+      : [];
+    await RegionPuntoVentaModel.setPuntosForRegion(id, ids);
+    const puntos = await RegionPuntoVentaModel.getPuntosForRegion(id);
+    res.json(puntos);
+  } catch (error) {
+    console.error('[RegionController] Error setting region puntos:', error);
+    res.status(500).json({ message: 'Error al actualizar puntos de la región', error: error.message });
+  }
+};
+
 export const createRegion = async (req, res) => {
   try {
     const { code, name, color } = req.body || {};

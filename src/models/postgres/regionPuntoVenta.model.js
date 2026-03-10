@@ -59,6 +59,36 @@ class RegionPuntoVentaModel {
     return (result.rowCount || 0) >= 0;
   }
 
+  /** Unlink all puntos from a region (use before setting new list) */
+  static async unlinkAllForRegion(regionId) {
+    if (!regionId) return false;
+    const result = await query(
+      'DELETE FROM region_punto_venta WHERE region_id = $1',
+      [regionId]
+    );
+    return (result.rowCount || 0) >= 0;
+  }
+
+  /**
+   * Set the full list of puntos for a region (replaces existing links).
+   * Each punto is unlinked from any other region so it belongs only to this one.
+   * @param {number|string} regionId
+   * @param {number[]|string[]} puntoVentaIds - array of puntoventa ids
+   */
+  static async setPuntosForRegion(regionId, puntoVentaIds) {
+    if (!regionId) return;
+    const id = parseInt(String(regionId), 10);
+    if (isNaN(id)) return;
+    const ids = (Array.isArray(puntoVentaIds) ? puntoVentaIds : [])
+      .map((pv) => parseInt(String(pv), 10))
+      .filter((n) => !isNaN(n));
+    await this.unlinkAllForRegion(id);
+    for (const pvId of ids) {
+      await this.unlinkAllForPunto(pvId);
+      await this.link(id, pvId);
+    }
+  }
+
   /** Get puntos linked to a region (returns punto_venta_id list with pv details) */
   static async getPuntosForRegion(regionId) {
     if (!regionId) return [];

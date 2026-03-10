@@ -714,7 +714,7 @@ export const getRegionMetricsV2 = async (req, res) => {
       client_name: m.clientId ? (clientMap.get(String(m.clientId)) || '') : '',
       region_name: m.regionId ? (regionMap.get(String(m.regionId)) || '') : ''
     }));
-    return res.json(mapped);
+    return res.json({ success: true, data: mapped });
   } catch (error) {
     console.error('Error fetching region metrics (v2.0):', error);
     return res.status(500).json({ success: false, message: 'Error fetching region metrics', error: error.message });
