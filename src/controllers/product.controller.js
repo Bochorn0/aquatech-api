@@ -496,6 +496,42 @@ export const mockedProducts = async () => {
 }
 
 /**
+ * Create a new product (for Personalización V1 - add new product).
+ * Body: name, device_id (optional; generated if missing), cliente, city, state, product_type.
+ */
+export const createProduct = async (req, res) => {
+  try {
+    const { name, device_id, cliente, city, state, product_type } = req.body;
+    const deviceId = (device_id ?? req.body.deviceId ?? '').toString().trim() || `manual-${Date.now()}`;
+    const productName = (name ?? req.body.name ?? '').toString().trim() || 'Sin nombre';
+    const productType = (product_type ?? req.body.product_type ?? 'Osmosis').toString().trim() || 'Osmosis';
+    const existing = await ProductModel.findByDeviceId(deviceId);
+    if (existing) {
+      return res.status(409).json({ message: 'Ya existe un producto con ese device_id' });
+    }
+    const productData = {
+      id: deviceId,
+      device_id: deviceId,
+      name: productName,
+      city: city ?? null,
+      state: state ?? null,
+      cliente: cliente ?? null,
+      client_id: cliente ?? null,
+      product_type: productType,
+      status: [],
+    };
+    const created = await ProductModel.create(productData);
+    if (!created) {
+      return res.status(500).json({ message: 'Error al crear producto' });
+    }
+    return res.status(201).json(created);
+  } catch (error) {
+    console.error('Error creating product:', error);
+    return res.status(500).json({ message: 'Error al crear producto', error: error.message });
+  }
+};
+
+/**
  * Update a product's cliente, city, state, and product_type (for Equipos / personalización).
  * Params id can be MongoDB _id or Tuya device id.
  */

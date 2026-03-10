@@ -138,6 +138,45 @@ async function buildPuntoResponseFromPostgresV1(pv) {
       // ignore
     }
   }
+  // V1 = Tuya products: resolve meta.product_ids so list, detail and personalización show/assign products
+  let productosList = [];
+  const metaObj = (() => {
+    const m = pv.meta;
+    if (!m) return null;
+    if (typeof m === 'object') return m;
+    if (typeof m === 'string') {
+      try { return JSON.parse(m); } catch (e) { return null; }
+    }
+    return null;
+  })();
+  const rawIds = metaObj && metaObj.product_ids != null
+    ? (Array.isArray(metaObj.product_ids) ? metaObj.product_ids : [metaObj.product_ids])
+    : [];
+  const productIds = rawIds
+    .map((pid) => (typeof pid === 'number' ? pid : parseInt(String(pid), 10)))
+    .filter((n) => !Number.isNaN(n));
+  if (productIds.length > 0) {
+    const resolved = await Promise.all(productIds.map(async (pid) => {
+      try {
+        let product = await ProductModel.findById(pid);
+        if (!product) product = await ProductModel.findByDeviceId(String(pid));
+        return product;
+      } catch (e) {
+        return null;
+      }
+    }));
+    // Return full product objects (id, _id, name, device_id, product_type, status, icon, online) for detail page
+    productosList = resolved.filter(Boolean).map((p) => ({
+      _id: p._id,
+      id: p.id ?? p._id,
+      name: p.name,
+      device_id: p.device_id,
+      product_type: p.product_type ?? 'Osmosis',
+      status: p.status ?? [],
+      icon: p.icon ?? null,
+      online: p.online ?? false,
+    }));
+  }
   return {
     _id: String(pv.id),
     id: String(pv.id),
@@ -146,7 +185,7 @@ async function buildPuntoResponseFromPostgresV1(pv) {
     cliente: clienteData ? { _id: String(clienteData.id), id: String(clienteData.id), name: clienteData.name, email: clienteData.email, phone: clienteData.phone } : null,
     city: cityData ? { _id: String(cityData.id), id: String(cityData.id), city: cityData.city, state: cityData.state, lat: cityData.lat, lon: cityData.lon } : (addressObj ? { _id: null, city: addressObj.city, state: addressObj.state, lat: pv.lat, lon: pv.long } : { _id: null, city: null, state: null, lat: pv.lat, lon: pv.long }),
     address: addressObj || null,
-    productos: [],
+    productos: productosList,
     controladores: [],
     online,
     status: pv.status || 'active',
@@ -161,7 +200,7 @@ async function buildPuntoResponseFromPostgresV1(pv) {
   };
 }
 
-/** Build MongoDB-compatible punto response from Postgres record (V2 - puntoventa) */
+/** Build MongoDB-compatible punto response from Postgres record (V2 - puntoventa). V2 = MQTT/sensors only; no Tuya productos. */
 async function buildPuntoResponseFromPostgres(pv) {
   const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
   let online = false;
@@ -212,34 +251,8 @@ async function buildPuntoResponseFromPostgres(pv) {
       // ignore
     }
   }
-  let productosList = [];
-  const metaObj = (() => {
-    const m = pv.meta;
-    if (!m) return null;
-    if (typeof m === 'object') return m;
-    if (typeof m === 'string') {
-      try { return JSON.parse(m); } catch (e) { return null; }
-    }
-    return null;
-  })();
-  const rawIds = metaObj && metaObj.product_ids != null
-    ? (Array.isArray(metaObj.product_ids) ? metaObj.product_ids : [metaObj.product_ids])
-    : [];
-  const productIds = rawIds
-    .map((pid) => (typeof pid === 'number' ? pid : parseInt(String(pid), 10)))
-    .filter((n) => !Number.isNaN(n));
-  if (productIds.length > 0) {
-    const resolved = await Promise.all(productIds.map(async (pid) => {
-      try {
-        let product = await ProductModel.findById(pid);
-        if (!product) product = await ProductModel.findByDeviceId(String(pid));
-        return product;
-      } catch (e) {
-        return null;
-      }
-    }));
-    productosList = resolved.filter(Boolean).map((p) => ({ _id: p._id, id: p.id, name: p.name, device_id: p.device_id }));
-  }
+  // V2 = MQTT/sensors only; no Tuya productos (product assignment is V1-only)
+  const productosList = [];
   // Region and ciudad (from MQTT hierarchy: tiwater/REGION/CIUDAD/CODIGO/data)
   let regionData = null;
   let ciudadData = null;

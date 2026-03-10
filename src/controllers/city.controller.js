@@ -63,15 +63,20 @@ export const addCity = async (req, res) => {
   try {
     const cityData = req.body;
     delete cityData._id;
-    const currentCity = await CityModel.findByName(cityData.name);
+    const state = cityData.state != null ? String(cityData.state).trim() : '';
+    const city = cityData.city != null ? String(cityData.city).trim() : '';
+    if (!state || !city) {
+      return res.status(400).json({ message: 'Estado y ciudad son requeridos' });
+    }
+    const currentCity = await CityModel.findByStateAndCity(state, city);
     if (currentCity) {
       return res.status(409).json({ message: 'Esta ciudad ya existe' });
     }
-    const newCity = await CityModel.create(cityData);
+    const newCity = await CityModel.create({ ...cityData, state, city, lat: cityData.lat, lon: cityData.lon });
     res.status(201).json(newCity);
   } catch (error) {
     console.error('Error adding city:', error);
-    res.status(500).json({ message: 'Error al agregar ciudad', error });
+    res.status(500).json({ message: 'Error al agregar ciudad', error: error.message });
   }
 };
 

@@ -1,6 +1,6 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, updateProduct, deleteProduct } from '../controllers/product.controller.js'; // Named imports
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, createProduct, updateProduct, deleteProduct } from '../controllers/product.controller.js'; // Named imports
 import { authenticate, requirePermission, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -42,6 +42,8 @@ router.get('/mocked', authenticate, generateAllProducts);
 // Get specific product by ID
 router.get('/:id', authenticate, getProductById);
 
+// Create product - for Personalización V1 (add new product)
+router.post('/', authenticate, createProduct);
 // Update product (cliente, city, product_type) - for Equipos / personalización (access by permission at mount)
 router.patch('/:id', authenticate, updateProduct);
 
