@@ -2297,19 +2297,28 @@ function evaluateLevelFromRulesWithDetail(value, rules) {
   return { level: 'normal', matchedRule: null };
 }
 
+/** Get numeric min/max from a rule (supports min/max or min_value/max_value). */
+function ruleMinMax(rule) {
+  const min = rule.min != null ? Number(rule.min) : (rule.min_value != null ? Number(rule.min_value) : null);
+  const max = rule.max != null ? Number(rule.max) : (rule.max_value != null ? Number(rule.max_value) : null);
+  return { min: Number.isNaN(min) ? null : min, max: Number.isNaN(max) ? null : max };
+}
+
 /** Get the normal rule's min/max from metric rules (punto or region metrics). Returns { min, max } for tooltip compare value. */
 function getNormalRuleMinMax(rules) {
   const rulesArr = Array.isArray(rules) ? rules : [];
+  let fallbackByHighestMin = null; // rule with highest min (typical "normal" lower bound for level metrics)
   for (const rule of rulesArr) {
+    const { min, max } = ruleMinMax(rule);
     const s = (rule.severity || '').toLowerCase();
     const label = (rule.label || '').toLowerCase();
-    const isNormal = s === 'normal' || label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo') || label.includes('buen');
-    if (!isNormal) continue;
-    const min = rule.min != null ? Number(rule.min) : null;
-    const max = rule.max != null ? Number(rule.max) : null;
-    return { min, max };
+    const isNormal = s === 'normal' || label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo') || label.includes('buen') || label.includes('buen estado');
+    if (isNormal) return { min, max };
+    if (min != null && (fallbackByHighestMin == null || min > fallbackByHighestMin.min)) {
+      fallbackByHighestMin = { min, max };
+    }
   }
-  return { min: null, max: null };
+  return fallbackByHighestMin || { min: null, max: null };
 }
 
 /** Build a short hint from metric rules for "to be back in normal" (e.g. "value should be ≥ 70"). */
@@ -2320,8 +2329,7 @@ function getNormalRuleHint(rules) {
     const label = (rule.label || '').toLowerCase();
     const isNormal = s === 'normal' || label.includes('normal') || label.includes('ok') || label.includes('óptimo') || label.includes('optimo') || label.includes('buen');
     if (!isNormal) continue;
-    const min = rule.min != null ? Number(rule.min) : null;
-    const max = rule.max != null ? Number(rule.max) : null;
+    const { min, max } = ruleMinMax(rule);
     if (min != null && max != null) return `Debe estar entre ${min} y ${max}`;
     if (min != null) return `Debe ser ≥ ${min} para estar en normal`;
     if (max != null) return `Debe ser ≤ ${max} para estar en normal`;
