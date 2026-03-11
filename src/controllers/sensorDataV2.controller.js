@@ -30,15 +30,14 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
     startDate.setDate(startDate.getDate() - daysBack);
     startDate.setHours(0, 0, 0, 0);
     
-    // Primero verificar si hay registros y determinar si usar timestamp o createdat como fallback
-    // Verificar si timestamp es válido (no fechas muy lejanas)
+    const rid = isTiwater ? ((resourceId || 'tiwater-system').toString().trim() || 'tiwater-system') : null;
     const checkQuery = isTiwater 
       ? `SELECT COUNT(*) as count, 
          MIN(createdat) as min_created, MAX(createdat) as max_created,
          MIN(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as min_timestamp,
          MAX(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as max_timestamp
          FROM sensores 
-         WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = 'tiwater-system') AND name = $2`
+         WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = $2) AND name = $3`
       : `SELECT COUNT(*) as count,
          MIN(createdat) as min_created, MAX(createdat) as max_created,
          MIN(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as min_timestamp,
@@ -46,7 +45,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
          FROM sensores 
          WHERE codigotienda = $1 AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
     
-    const checkParams = isTiwater ? [codigoTienda, sensorName] : [codigoTienda, resourceId, sensorName];
+    const checkParams = isTiwater ? [codigoTienda, rid, sensorName] : [codigoTienda, resourceId, sensorName];
     const checkResult = await query(checkQuery, checkParams);
     
     if (checkResult.rows.length === 0 || parseInt(checkResult.rows[0].count) === 0) {
@@ -86,10 +85,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
     let queryParams;
     
     if (isTiwater) {
-      // Para TIWater, buscar en resourcetype = 'tiwater' con resourceId NULL o 'tiwater-system'
-      // Usar timestamp si es válido, sino usar createdat como fallback
       const timestampFilter = useTimestamp ? "AND (timestamp IS NULL OR EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000)" : "";
-      // Construir consulta dinámicamente reemplazando ${dateField} con el nombre del campo
       historicoQuery = `
         WITH daily_data AS (
           SELECT 
@@ -100,10 +96,10 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
           FROM sensores
           WHERE codigotienda = $1 
             AND resourcetype = 'tiwater'
-            AND (resourceid IS NULL OR resourceid = 'tiwater-system')
-            AND name = $2
-            AND ` + dateField + ` >= $3
-            AND ` + dateField + ` <= $4
+            AND (resourceid IS NULL OR resourceid = $2)
+            AND name = $3
+            AND ` + dateField + ` >= $4
+            AND ` + dateField + ` <= $5
             ` + timestampFilter + `
         ),
         daily_stats AS (
@@ -114,11 +110,11 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
              FROM sensores 
              WHERE codigotienda = $1 
                AND resourcetype = 'tiwater'
-               AND (resourceid IS NULL OR resourceid = 'tiwater-system')
-               AND name = $2
+               AND (resourceid IS NULL OR resourceid = $2)
+               AND name = $3
                AND DATE_TRUNC('day', ` + dateField + `) = daily_data.dia
-               AND ` + dateField + ` >= $3
-               AND ` + dateField + ` <= $4
+               AND ` + dateField + ` >= $4
+               AND ` + dateField + ` <= $5
                ` + timestampFilter + `) AS total_logs
           FROM daily_data
           WHERE rn = 1
@@ -130,7 +126,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
         FROM daily_stats
         ORDER BY dia ASC
       `;
-      queryParams = [codigoTienda, sensorName, startDate, endDate];
+      queryParams = [codigoTienda, rid, sensorName, startDate, endDate];
     } else {
       // Para Nivel, buscar en resourcetype = 'nivel' con resourceId específico
       // Usar timestamp si es válido, sino usar createdat como fallback
@@ -232,20 +228,20 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     // Determinar el tipo de recurso y condiciones de búsqueda primero
     const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
     
-    // Primero verificar si hay registros y determinar si usar timestamp o createdat como fallback
+    const rid = isTiwater ? ((resourceId || 'tiwater-system').toString().trim() || 'tiwater-system') : null;
     const checkQuery = isTiwater 
       ? `SELECT COUNT(*) as count, 
          MAX(createdat) as max_created,
          MAX(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as max_timestamp
          FROM sensores 
-         WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = 'tiwater-system') AND name = $2`
+         WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = $2) AND name = $3`
       : `SELECT COUNT(*) as count,
          MAX(createdat) as max_created,
          MAX(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as max_timestamp
          FROM sensores 
          WHERE codigotienda = $1 AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
     
-    const checkParams = isTiwater ? [codigoTienda, sensorName] : [codigoTienda, resourceId, sensorName];
+    const checkParams = isTiwater ? [codigoTienda, rid, sensorName] : [codigoTienda, resourceId, sensorName];
     const checkResult = await query(checkQuery, checkParams);
     
     if (checkResult.rows.length === 0 || parseInt(checkResult.rows[0].count) === 0) {
@@ -282,10 +278,7 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     let queryParams;
     
     if (isTiwater) {
-      // Para TIWater, buscar en resourcetype = 'tiwater' con resourceId NULL o 'tiwater-system'
-      // Usar timestamp si es válido, sino usar createdat como fallback
       const timestampFilter = useTimestamp ? "AND (timestamp IS NULL OR EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000)" : "";
-      // Construir consulta dinámicamente reemplazando ${dateField} con el nombre del campo
       historicoQuery = `
         WITH hourly_data AS (
           SELECT 
@@ -296,10 +289,10 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
           FROM sensores
           WHERE codigotienda = $1 
             AND resourcetype = 'tiwater'
-            AND (resourceid IS NULL OR resourceid = 'tiwater-system')
-            AND name = $2
-            AND ` + dateField + ` >= $3
-            AND ` + dateField + ` < $4
+            AND (resourceid IS NULL OR resourceid = $2)
+            AND name = $3
+            AND ` + dateField + ` >= $4
+            AND ` + dateField + ` < $5
             ` + timestampFilter + `
         ),
         hourly_stats AS (
@@ -310,11 +303,11 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
              FROM sensores 
              WHERE codigotienda = $1 
                AND resourcetype = 'tiwater'
-               AND (resourceid IS NULL OR resourceid = 'tiwater-system')
-               AND name = $2
+               AND (resourceid IS NULL OR resourceid = $2)
+               AND name = $3
                AND DATE_TRUNC('hour', ` + dateField + `) = hourly_data.hora
-               AND ` + dateField + ` >= $3
-               AND ` + dateField + ` < $4
+               AND ` + dateField + ` >= $4
+               AND ` + dateField + ` < $5
                ` + timestampFilter + `) AS total_logs
           FROM hourly_data
           WHERE rn = 1
@@ -326,7 +319,7 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
         FROM hourly_stats
         ORDER BY hora ASC
       `;
-      queryParams = [codigoTienda, sensorName, today, tomorrow];
+      queryParams = [codigoTienda, rid, sensorName, today, tomorrow];
     } else {
       // Para Nivel, buscar en resourcetype = 'nivel' con resourceId específico
       // Usar timestamp si es válido, sino usar createdat como fallback
