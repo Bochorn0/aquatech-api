@@ -31,21 +31,22 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
     startDate.setHours(0, 0, 0, 0);
     
     const rid = isTiwater ? ((resourceId || 'tiwater-system').toString().trim() || 'tiwater-system') : null;
+    const codigoNorm = (codigoTienda || '').toString().trim().toUpperCase();
     const checkQuery = isTiwater 
       ? `SELECT COUNT(*) as count, 
          MIN(createdat) as min_created, MAX(createdat) as max_created,
          MIN(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as min_timestamp,
          MAX(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as max_timestamp
          FROM sensores 
-         WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = $2) AND name = $3`
+         WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = $2) AND name = $3`
       : `SELECT COUNT(*) as count,
          MIN(createdat) as min_created, MAX(createdat) as max_created,
          MIN(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as min_timestamp,
          MAX(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as max_timestamp
          FROM sensores 
-         WHERE codigotienda = $1 AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
+         WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
     
-    const checkParams = isTiwater ? [codigoTienda, rid, sensorName] : [codigoTienda, resourceId, sensorName];
+    const checkParams = isTiwater ? [codigoNorm, rid, sensorName] : [codigoNorm, resourceId, sensorName];
     const checkResult = await query(checkQuery, checkParams);
     
     if (checkResult.rows.length === 0 || parseInt(checkResult.rows[0].count) === 0) {
@@ -94,7 +95,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
             ` + dateField + ` as fecha,
             ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
           FROM sensores
-          WHERE codigotienda = $1 
+          WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
             AND resourcetype = 'tiwater'
             AND (resourceid IS NULL OR resourceid = $2)
             AND name = $3
@@ -108,7 +109,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
             value AS liquid_level_percent_promedio,
             (SELECT COUNT(*) 
              FROM sensores 
-             WHERE codigotienda = $1 
+             WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
                AND resourcetype = 'tiwater'
                AND (resourceid IS NULL OR resourceid = $2)
                AND name = $3
@@ -126,7 +127,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
         FROM daily_stats
         ORDER BY dia ASC
       `;
-      queryParams = [codigoTienda, rid, sensorName, startDate, endDate];
+      queryParams = [codigoNorm, rid, sensorName, startDate, endDate];
     } else {
       // Para Nivel, buscar en resourcetype = 'nivel' con resourceId específico
       // Usar timestamp si es válido, sino usar createdat como fallback
@@ -140,7 +141,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
             ` + dateField + ` as fecha,
             ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
           FROM sensores
-          WHERE codigotienda = $1 
+          WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
             AND resourcetype = 'nivel'
             AND resourceid = $2
             AND name = $3
@@ -154,7 +155,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
             value AS liquid_level_percent_promedio,
             (SELECT COUNT(*) 
              FROM sensores 
-             WHERE codigotienda = $1 
+             WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
                AND resourcetype = 'nivel'
                AND resourceid = $2
                AND name = $3
@@ -172,7 +173,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
         FROM daily_stats
         ORDER BY dia ASC
       `;
-      queryParams = [codigoTienda, resourceId, sensorName, startDate, endDate];
+      queryParams = [codigoNorm, resourceId, sensorName, startDate, endDate];
     }
 
     console.log(`[generateNivelHistoricoDiarioV2] Ejecutando consulta para ${codigoTienda}/${resourceId}/${sensorName}:`, {
@@ -229,19 +230,20 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
     
     const rid = isTiwater ? ((resourceId || 'tiwater-system').toString().trim() || 'tiwater-system') : null;
+    const codigoNorm = (codigoTienda || '').toString().trim().toUpperCase();
     const checkQuery = isTiwater 
       ? `SELECT COUNT(*) as count, 
          MAX(createdat) as max_created,
          MAX(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as max_timestamp
          FROM sensores 
-         WHERE codigotienda = $1 AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = $2) AND name = $3`
+         WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = $2) AND name = $3`
       : `SELECT COUNT(*) as count,
          MAX(createdat) as max_created,
          MAX(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as max_timestamp
          FROM sensores 
-         WHERE codigotienda = $1 AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
+         WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
     
-    const checkParams = isTiwater ? [codigoTienda, rid, sensorName] : [codigoTienda, resourceId, sensorName];
+    const checkParams = isTiwater ? [codigoNorm, rid, sensorName] : [codigoNorm, resourceId, sensorName];
     const checkResult = await query(checkQuery, checkParams);
     
     if (checkResult.rows.length === 0 || parseInt(checkResult.rows[0].count) === 0) {
@@ -287,7 +289,7 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
             ` + dateField + ` as fecha,
             ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
           FROM sensores
-          WHERE codigotienda = $1 
+          WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
             AND resourcetype = 'tiwater'
             AND (resourceid IS NULL OR resourceid = $2)
             AND name = $3
@@ -301,7 +303,7 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
             value AS liquid_level_percent_promedio,
             (SELECT COUNT(*) 
              FROM sensores 
-             WHERE codigotienda = $1 
+             WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
                AND resourcetype = 'tiwater'
                AND (resourceid IS NULL OR resourceid = $2)
                AND name = $3
@@ -319,7 +321,7 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
         FROM hourly_stats
         ORDER BY hora ASC
       `;
-      queryParams = [codigoTienda, rid, sensorName, today, tomorrow];
+      queryParams = [codigoNorm, rid, sensorName, today, tomorrow];
     } else {
       // Para Nivel, buscar en resourcetype = 'nivel' con resourceId específico
       // Usar timestamp si es válido, sino usar createdat como fallback
@@ -333,7 +335,7 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
             ` + dateField + ` as fecha,
             ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
           FROM sensores
-          WHERE codigotienda = $1 
+          WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
             AND resourcetype = 'nivel'
             AND resourceid = $2
             AND name = $3
@@ -347,7 +349,7 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
             value AS liquid_level_percent_promedio,
             (SELECT COUNT(*) 
              FROM sensores 
-             WHERE codigotienda = $1 
+             WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
                AND resourcetype = 'nivel'
                AND resourceid = $2
                AND name = $3
@@ -365,7 +367,7 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
         FROM hourly_stats
         ORDER BY hora ASC
       `;
-      queryParams = [codigoTienda, resourceId, sensorName, today, tomorrow];
+      queryParams = [codigoNorm, resourceId, sensorName, today, tomorrow];
     }
 
     console.log(`[generateNivelHistoricoV2] Ejecutando consulta para ${codigoTienda}/${resourceId}/${sensorName}:`, {
@@ -903,6 +905,10 @@ export const getPuntoVentaHistoricoV2 = async (req, res) => {
     }
 
     const codigoTienda = (puntoFromPG.code || puntoFromPG.codigo_tienda || id).toString().trim().toUpperCase();
+    const idStr = String(id).trim().toUpperCase();
+    const codigosToTry = [codigoTienda];
+    if (idStr && idStr !== codigoTienda) codigosToTry.push(idStr);
+
     const sensorMap = {
       purificada: 'Nivel Purificada',
       cruda: 'Nivel Cruda (%)',
@@ -913,25 +919,27 @@ export const getPuntoVentaHistoricoV2 = async (req, res) => {
     let historicoHora = null;
     let historicoDiario = null;
 
-    // For cruda: try multiple sensor names (DB may store as "Nivel Cruda (%)" or "electronivel_cruda")
     const crudaNames = ['Nivel Cruda (%)', 'Nivel Cruda', 'electronivel_cruda', 'level_cruda'];
-    if (type === 'cruda') {
-      for (const name of crudaNames) {
-        const [h, d] = await Promise.all([
-          generateNivelHistoricoV2(codigoTienda, resourceId, name, null, 'tiwater'),
-          generateNivelHistoricoDiarioV2(codigoTienda, resourceId, name, 30, 'tiwater'),
-        ]);
-        if (h && h.hours_with_data && h.hours_with_data.length > 0) {
-          historicoHora = h;
-          historicoDiario = d;
-          break;
+    for (const codigo of codigosToTry) {
+      if (type === 'cruda') {
+        for (const name of crudaNames) {
+          const [h, d] = await Promise.all([
+            generateNivelHistoricoV2(codigo, resourceId, name, null, 'tiwater'),
+            generateNivelHistoricoDiarioV2(codigo, resourceId, name, 30, 'tiwater'),
+          ]);
+          if (h && h.hours_with_data && h.hours_with_data.length > 0) {
+            historicoHora = h;
+            historicoDiario = d;
+            break;
+          }
         }
+      } else {
+        [historicoHora, historicoDiario] = await Promise.all([
+          generateNivelHistoricoV2(codigo, resourceId, sensorName, null, 'tiwater'),
+          generateNivelHistoricoDiarioV2(codigo, resourceId, sensorName, 30, 'tiwater'),
+        ]);
       }
-    } else {
-      [historicoHora, historicoDiario] = await Promise.all([
-        generateNivelHistoricoV2(codigoTienda, resourceId, sensorName, null, 'tiwater'),
-        generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName, 30, 'tiwater'),
-      ]);
+      if (historicoHora && historicoHora.hours_with_data && historicoHora.hours_with_data.length > 0) break;
     }
 
     return res.json({
