@@ -129,4 +129,10 @@ export async function getLatestByCodigoTiendas(codigoTiendas) {
   return byCode;
 }
 
-export default { upsertOne, upsertMany, getLatestByCodigoTienda, getLatestByCodigoTiendas };
+export default {
+  upsertOne,
+  upsertMany,
+  getLatestByCodigoTienda,
+  getLatestByCodigoTiendaNormalized,
+  getLatestByCodigoTiendas,
+};

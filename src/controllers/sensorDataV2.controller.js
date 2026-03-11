@@ -1124,13 +1124,45 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     // Normalize codigo so we match sensores regardless of stored case (same as simulate handlers)
     const codigoTiendaNorm = (codigoTienda || '').toString().trim().toUpperCase();
 
-    // When light=true: use sensor_latest only to avoid blocking on the busy sensores table (MQTT writes)
+    // When light=true: use sensor_latest first; if empty, fall back to sensores (latest message) so detalle still gets data
     let lightLatestRows = [];
     if (light) {
       try {
         lightLatestRows = await SensorLatestModel.getLatestByCodigoTiendaNormalized(codigoTiendaNorm);
         if (lightLatestRows.length === 0) {
           lightLatestRows = await SensorLatestModel.getLatestByCodigoTienda(codigoTiendaNorm) || [];
+        }
+        // Fallback: if sensor_latest has no data, read latest tiwater snapshot from sensores (feeds detalle when sensor_latest not populated)
+        if (lightLatestRows.length === 0) {
+          try {
+            const tsRes = await query(
+              `SELECT MAX(timestamp) AS latest_timestamp FROM sensores
+               WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater'`,
+              [codigoTiendaNorm]
+            );
+            const latestTs = tsRes.rows[0]?.latest_timestamp;
+            if (latestTs) {
+              const sensoresRows = await query(
+                `SELECT name, value, type, timestamp, resourceid, resourcetype FROM sensores
+                 WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater' AND timestamp = $2
+                 ORDER BY type`,
+                [codigoTiendaNorm, latestTs]
+              );
+              lightLatestRows = (sensoresRows.rows || []).map((row) => ({
+                type: row.type,
+                name: row.name,
+                value: row.value != null ? parseFloat(row.value) : null,
+                timestamp: row.timestamp,
+                resourceId: row.resourceid || 'tiwater-system',
+                resourceType: row.resourcetype || 'tiwater',
+              }));
+              if (lightLatestRows.length > 0) {
+                console.log(`[SensorDataV2] detalle: using sensores fallback for ${codigoTiendaNorm} (${lightLatestRows.length} rows)`);
+              }
+            }
+          } catch (fallbackErr) {
+            console.warn('[SensorDataV2] sensores fallback failed (table or DB may differ):', fallbackErr.message);
+          }
         }
       } catch (err) {
         console.warn('[SensorDataV2] sensor_latest read failed (light path):', err.message);
@@ -1155,7 +1187,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           systemRows.push({ resourceid: 'tiwater-system', resourcetype: 'tiwater' });
         }
       } else {
-        systemRows = []; // test mode: no sensor_latest data, do not query sensores
+        systemRows = [];
       }
     } else {
       // Query sensores for distinct systems (can block under heavy write load)
