@@ -666,6 +666,16 @@ export const getPuntosVentaV2 = async (req, res) => {
       });
     } catch (_) {}
 
+    // All regions by id (for display region from ciudad without N+1)
+    let regionsById = {};
+    try {
+      const RegionModel = (await import('../models/postgres/region.model.js')).default;
+      const allRegions = await RegionModel.findAll();
+      allRegions.forEach((r) => {
+        if (r?.id != null) regionsById[String(r.id)] = r;
+      });
+    } catch (_) {}
+
     // Build response: use online set + counts + last_reading_at + metric_status, fetch client/region/city per punto
     const puntosConEstado = await Promise.all(
       puntosPG.map(async (pv) => {
@@ -789,6 +799,16 @@ export const getPuntosVentaV2 = async (req, res) => {
           console.warn(`[getPuntosVentaV2] Error fetching ciudad for ${pv.id}:`, error.message);
         }
 
+        // Region for response (map/sidebar): prefer ciudad's region when present so map colors match geography
+        let displayRegion = regionData;
+        if (ciudadData?.regionId != null) {
+          const ciudadRegionId = String(ciudadData.regionId).trim();
+          if (ciudadRegionId && (!regionData || String(regionData.id) !== ciudadRegionId)) {
+            const regionByCiudad = regionsById[ciudadRegionId];
+            if (regionByCiudad) displayRegion = regionByCiudad;
+          }
+        }
+
         // Transform PostgreSQL format to MongoDB-compatible format
         return {
           _id: String(pv.id), // Use id as _id for compatibility (convert to string)
@@ -847,7 +867,7 @@ export const getPuntosVentaV2 = async (req, res) => {
           createdAt: pv.createdAt || null,
           updatedAt: pv.updatedAt || null,
           dev_mode: pv.dev_mode === true,
-          region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name, color: regionData.color || null } : null,
+          region: displayRegion ? { id: String(displayRegion.id), code: displayRegion.code, name: displayRegion.name, color: displayRegion.color || null } : null,
           ciudad: ciudadData ? { id: String(ciudadData.id), name: ciudadData.name, regionId: ciudadData.regionId } : null
         };
       })
