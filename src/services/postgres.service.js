@@ -227,8 +227,9 @@ class PostgresService {
           if (puntoVenta) {
             console.log(`[PostgresService] ✅ PuntoVenta ${puntoVenta.id ? 'creado' : 'encontrado'} para codigo_tienda: ${codigoTienda} (ID: ${puntoVenta.id})`);
 
-            // 5. Link Region-PuntoVenta if not exists
+            // 5. One region per punto: unlink from any other region, then link to this topic's region
             if (region && puntoVenta.id) {
+              await RegionPuntoVentaModel.unlinkAllForPunto(puntoVenta.id);
               await RegionPuntoVentaModel.link(region.id, puntoVenta.id);
             }
 
