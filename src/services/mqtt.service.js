@@ -36,6 +36,10 @@ const MQTT_CLIENT_KEY_B64 = process.env.MQTT_CLIENT_KEY_B64 || null;
 const MQTT_CA_CERT = process.env.MQTT_CA_CERT || null;
 const MQTT_CA_CERT_PATH = process.env.MQTT_CA_CERT_PATH || null;
 
+// Tiwater save queue: limit concurrent DB writes to avoid OOM under MQTT bursts
+const MQTT_TIWATER_SAVE_CONCURRENCY = Math.max(1, parseInt(process.env.MQTT_TIWATER_SAVE_CONCURRENCY, 10) || 10);
+const MQTT_TIWATER_QUEUE_MAX = Math.max(10, parseInt(process.env.MQTT_TIWATER_QUEUE_MAX, 10) || 200);
+
 // Certificado CA embebido (solo como fallback si no se configura en .env)
 const MQTT_CA_CERT_EMBEDDED = `-----BEGIN CERTIFICATE-----
 MIIECTCCAvGgAwIBAgIUaeT7mWBE0krpOQdDiG/akjnNe9MwDQYJKoZIhvcNAQEL
@@ -85,6 +89,40 @@ class MQTTService {
     this.isConnected = false;
     this.messageHandlers = new Map();
     this.lastError = null;  // For debugging (status endpoint)
+    // Tiwater save queue: limit concurrent saves to avoid OOM on MQTT bursts
+    this._tiwaterQueue = [];
+    this._tiwaterRunning = 0;
+    this._tiwaterDropped = 0;
+  }
+
+  /** Enqueue a tiwater save job; runs up to MQTT_TIWATER_SAVE_CONCURRENCY at a time. */
+  _enqueueTiwaterSave(sensorDataPayload) {
+    if (this._tiwaterQueue.length >= MQTT_TIWATER_QUEUE_MAX) {
+      this._tiwaterQueue.shift();
+      this._tiwaterDropped += 1;
+      if (this._tiwaterDropped === 1 || this._tiwaterDropped % 50 === 0) {
+        console.warn(`[MQTT] Tiwater queue full (max ${MQTT_TIWATER_QUEUE_MAX}), dropped ${this._tiwaterDropped} jobs so far`);
+      }
+    }
+    this._tiwaterQueue.push({
+      run: () => this.saveSensorData(sensorDataPayload),
+    });
+    this._drainTiwaterQueue();
+  }
+
+  _drainTiwaterQueue() {
+    while (this._tiwaterRunning < MQTT_TIWATER_SAVE_CONCURRENCY && this._tiwaterQueue.length > 0) {
+      const job = this._tiwaterQueue.shift();
+      this._tiwaterRunning += 1;
+      job.run()
+        .catch((err) => {
+          console.error('[MQTT] Tiwater save error:', err?.message || err);
+        })
+        .finally(() => {
+          this._tiwaterRunning -= 1;
+          this._drainTiwaterQueue();
+        });
+    }
   }
 
   /** Diagnostic info for MQTT status endpoint (no secrets) */
@@ -105,6 +143,13 @@ class MQTTService {
       certSource: hasCertB64 ? 'env (base64)' : hasCertFiles ? 'files' : 'none',
       isConnected: this.isConnected,
       lastError: this.lastError ? String(this.lastError) : null,
+      tiwaterQueue: {
+        queued: this._tiwaterQueue.length,
+        running: this._tiwaterRunning,
+        concurrency: MQTT_TIWATER_SAVE_CONCURRENCY,
+        maxQueue: MQTT_TIWATER_QUEUE_MAX,
+        dropped: this._tiwaterDropped,
+      },
     };
   }
 
@@ -524,7 +569,7 @@ class MQTTService {
         });
       }
       
-      await this.saveSensorData(sensorDataPayload);
+      this._enqueueTiwaterSave(sensorDataPayload);
       
     } catch (error) {
       console.error(`[MQTT] ❌ Error al procesar datos de tiwater/${codigo_tienda}:`, error);
@@ -625,9 +670,8 @@ class MQTTService {
         metadata: data.metadata || {}
       };
       
-      // Guardar datos
-      await this.saveSensorData(sensorDataPayload);
-      console.log(`[MQTT] ✅ Datos guardados para ${codigo_tienda || 'N/A'}/${equipo_id || 'N/A'}`);
+      // Guardar datos (queued; concurrency limited)
+      this._enqueueTiwaterSave(sensorDataPayload);
       
     } catch (error) {
       console.error(`[MQTT] ❌ Error al procesar datos de ${codigo_tienda}/${equipo_id}:`, error);
