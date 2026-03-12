@@ -113,6 +113,24 @@ class PuntoVentaModel {
   }
 
   /**
+   * Find first puntoventa (V2) by name and clientId. Used to resolve V1 → V2 display name when puntoventa_id/codigo_tienda are not linked.
+   * @param {String} name - Punto name
+   * @param {String|Number} clientId - Client ID
+   * @returns {Promise<Object|null>} PuntoVenta record or null
+   */
+  static async findByNameAndClientId(name, clientId) {
+    if (!name || clientId == null) return null;
+    const result = await query(
+      'SELECT * FROM puntoventa WHERE TRIM(name) = TRIM($1) AND clientid = $2 LIMIT 1',
+      [String(name).trim(), clientId]
+    );
+    if (result.rows && result.rows.length > 0) {
+      return this.parseRow(result.rows[0]);
+    }
+    return null;
+  }
+
+  /**
    * Find puntoVenta by ID
    * @param {Number} id - PuntoVenta ID
    * @returns {Promise<Object|null>} PuntoVenta record or null

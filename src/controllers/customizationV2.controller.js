@@ -153,6 +153,16 @@ export const getMetricsV2 = async (req, res) => {
           } catch (_) { return null; }
         }));
         const v2ByCodigoMap = new Map(v2ByCodigoResults.filter(Boolean));
+        // Fallback: resolve V2 by name + clientId so we show puntoventa (V2) name when no link/codigo match (e.g. row "Oxxo Arcos Zapopan GDL").
+        const nameClientKeys = [...new Set(puntosV1.filter(pv => pv && pv.name && pv.clientId != null).map(pv => `${String(pv.name).trim()}\n${pv.clientId}`))];
+        const v2ByNameClientResults = await Promise.all(nameClientKeys.map(async (key) => {
+          const [name, clientId] = key.split('\n');
+          try {
+            const pv2 = await PuntoVentaModel.findByNameAndClientId(name, clientId);
+            return pv2 ? [key, pv2.name] : null;
+          } catch (_) { return null; }
+        }));
+        const v2ByNameClientMap = new Map(v2ByNameClientResults.filter(Boolean));
         puntoVentaMap = new Map(
           puntosV1.filter(pv => pv !== null).map(pv => {
             let name = pv.puntoventaId ? v2ByIdMap.get(String(pv.puntoventaId)) : null;
@@ -160,8 +170,11 @@ export const getMetricsV2 = async (req, res) => {
               const key = (pv.codigo_tienda || pv.code).toString().trim().toUpperCase();
               name = v2ByCodigoMap.get(key) || null;
             }
-            if (!name) name = pv.name;
-            return [String(pv.id), name];
+            if (!name && pv.name && pv.clientId != null) {
+              name = v2ByNameClientMap.get(`${String(pv.name).trim()}\n${pv.clientId}`) || null;
+            }
+            // No fallback to puntoventa_v1.name: metrics list shows only V2 (puntoventa) names; if no V2 match, leave empty so it's clear the punto isn't linked to V2.
+            return [String(pv.id), name || ''];
           })
         );
         console.log(`[getMetricsV2] Successfully fetched ${puntoVentaMap.size} puntos de venta (V2 name when resolvable)`);
