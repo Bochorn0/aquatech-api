@@ -128,7 +128,7 @@ export const getMetricsV2 = async (req, res) => {
       console.warn(`[getMetricsV2] Too many client IDs (${clientIds.length}), skipping client name population`);
     }
     
-    // Fetch punto names: metrics.punto_venta_id is FK to puntoventa_v1; prefer V2 name (puntoventa) when linked so list matches V2 sensores/puntos.
+    // Metrics are for punto venta V2 (puntoventa); show puntoventa.name. metrics.punto_venta_id is FK to puntoventa_v1, so resolve V1 → V2: by puntoventa_id first, then by codigo_tienda so we always show V2 name when a V2 punto exists.
     if (puntoVentaIds.length > 0 && puntoVentaIds.length <= 100) {
       try {
         const puntoVentaPromises = puntoVentaIds.map(id =>
@@ -139,19 +139,32 @@ export const getMetricsV2 = async (req, res) => {
         );
         const puntosV1 = await Promise.all(puntoVentaPromises);
         const v2Ids = [...new Set(puntosV1.filter(pv => pv?.puntoventaId).map(pv => pv.puntoventaId))];
-        let v2Map = new Map();
+        let v2ByIdMap = new Map();
         if (v2Ids.length > 0) {
           const v2Promises = v2Ids.map(v2Id => PuntoVentaModel.findById(parseInt(v2Id, 10)).catch(() => null));
           const v2Puntos = await Promise.all(v2Promises);
-          v2Map = new Map(v2Puntos.filter(p => p !== null).map(p => [String(p.id), p.name]));
+          v2ByIdMap = new Map(v2Puntos.filter(p => p !== null).map(p => [String(p.id), p.name]));
         }
+        const codigoKeys = [...new Set(puntosV1.filter(pv => pv && (pv.codigo_tienda || pv.code)).map(pv => (pv.codigo_tienda || pv.code).toString().trim()))];
+        const v2ByCodigoResults = await Promise.all(codigoKeys.filter(c => c).map(async (codigo) => {
+          try {
+            const pv2 = await PuntoVentaModel.findByCode(codigo);
+            return pv2 ? [codigo.toUpperCase(), pv2.name] : null;
+          } catch (_) { return null; }
+        }));
+        const v2ByCodigoMap = new Map(v2ByCodigoResults.filter(Boolean));
         puntoVentaMap = new Map(
           puntosV1.filter(pv => pv !== null).map(pv => {
-            const name = pv.puntoventaId && v2Map.get(String(pv.puntoventaId)) ? v2Map.get(String(pv.puntoventaId)) : pv.name;
+            let name = pv.puntoventaId ? v2ByIdMap.get(String(pv.puntoventaId)) : null;
+            if (!name && (pv.codigo_tienda || pv.code)) {
+              const key = (pv.codigo_tienda || pv.code).toString().trim().toUpperCase();
+              name = v2ByCodigoMap.get(key) || null;
+            }
+            if (!name) name = pv.name;
             return [String(pv.id), name];
           })
         );
-        console.log(`[getMetricsV2] Successfully fetched ${puntoVentaMap.size} puntos de venta (V2 name when linked)`);
+        console.log(`[getMetricsV2] Successfully fetched ${puntoVentaMap.size} puntos de venta (V2 name when resolvable)`);
       } catch (err) {
         console.error('[getMetricsV2] ❌ Error fetching puntos de venta:', err);
         // Continue without punto venta names if there's an error
