@@ -734,7 +734,9 @@ export const reporteMensual = async (req, res) => {
       console.log('📊 [reporteMensual] totalLogsInRange:', totalInRange);
     }
 
-    // Incluir logs que tengan al menos un campo de reporte presente (aunque sea 0)
+    // Incluir logs que tengan al menos un campo de reporte presente (aunque sea 0).
+    // Cap at 100k rows to avoid timeout/memory and 502 on Azure.
+    const REPORT_MENSUAL_MAX_LOGS = 100000;
     const logs = await ProductLogModel.find({
       product_id: { $in: productIds },
       date: { $gte: startDate, $lte: endDate },
@@ -746,9 +748,13 @@ export const reporteMensual = async (req, res) => {
         { flujo_rechazo: { $exists: true } },
       ],
       _sort: { date: 1 },
+      _limit: REPORT_MENSUAL_MAX_LOGS,
     });
 
     console.log('📊 [reporteMensual] totalLogsCount (con datos de reporte):', logs.length);
+    if (totalInRange > REPORT_MENSUAL_MAX_LOGS) {
+      console.warn(`📊 [reporteMensual] Result capped at ${REPORT_MENSUAL_MAX_LOGS} rows; total in range was ${totalInRange}. Consider narrowing date range.`);
+    }
 
     if (logs.length === 0) {
       return res.json({

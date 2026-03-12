@@ -128,20 +128,30 @@ export const getMetricsV2 = async (req, res) => {
       console.warn(`[getMetricsV2] Too many client IDs (${clientIds.length}), skipping client name population`);
     }
     
-    // Fetch puntos de venta in parallel (limit to prevent too many concurrent queries)
+    // Fetch punto names: metrics.punto_venta_id is FK to puntoventa_v1; prefer V2 name (puntoventa) when linked so list matches V2 sensores/puntos.
     if (puntoVentaIds.length > 0 && puntoVentaIds.length <= 100) {
       try {
-        const puntoVentaPromises = puntoVentaIds.map(id => 
+        const puntoVentaPromises = puntoVentaIds.map(id =>
           PuntoVentaV1Model.findById(id).catch(err => {
             console.warn(`[getMetricsV2] Error fetching punto venta v1 ${id}:`, err.message);
             return null;
           })
         );
-        const puntosVenta = await Promise.all(puntoVentaPromises);
+        const puntosV1 = await Promise.all(puntoVentaPromises);
+        const v2Ids = [...new Set(puntosV1.filter(pv => pv?.puntoventaId).map(pv => pv.puntoventaId))];
+        let v2Map = new Map();
+        if (v2Ids.length > 0) {
+          const v2Promises = v2Ids.map(v2Id => PuntoVentaModel.findById(parseInt(v2Id, 10)).catch(() => null));
+          const v2Puntos = await Promise.all(v2Promises);
+          v2Map = new Map(v2Puntos.filter(p => p !== null).map(p => [String(p.id), p.name]));
+        }
         puntoVentaMap = new Map(
-          puntosVenta.filter(pv => pv !== null).map(pv => [String(pv.id), pv.name])
+          puntosV1.filter(pv => pv !== null).map(pv => {
+            const name = pv.puntoventaId && v2Map.get(String(pv.puntoventaId)) ? v2Map.get(String(pv.puntoventaId)) : pv.name;
+            return [String(pv.id), name];
+          })
         );
-        console.log(`[getMetricsV2] Successfully fetched ${puntoVentaMap.size} puntos de venta`);
+        console.log(`[getMetricsV2] Successfully fetched ${puntoVentaMap.size} puntos de venta (V2 name when linked)`);
       } catch (err) {
         console.error('[getMetricsV2] ❌ Error fetching puntos de venta:', err);
         // Continue without punto venta names if there's an error

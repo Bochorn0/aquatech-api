@@ -209,7 +209,7 @@ class ProductLogModel {
       id: row.id,
       _id: String(row.id),
       producto: row.product_id,
-      product_id: row.product_device_id,
+      product_id: row.product_id != null ? row.product_id : row.product_device_id,
       product_device_id: row.product_device_id,
       tds: row.tds,
       production_volume: row.production_volume,

@@ -163,7 +163,7 @@ async function buildPuntoResponseFromPostgresV1(pv) {
       icon: p.icon ?? null,
       online: p.online ?? false,
     }));
-    // V1 online flag: punto is online if at least one assigned product is online
+    // V1 online: only from producto status (at least one assigned product is online)
     online = productosList.some((p) => p && p.online === true);
   }
   return {
