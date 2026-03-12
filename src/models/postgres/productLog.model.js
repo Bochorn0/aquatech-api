@@ -38,10 +38,16 @@ class ProductLogModel {
     const where = [];
     const values = [];
     let i = 1;
-    if (filters.product_id) {
-      where.push(`(product_device_id = $${i} OR product_id = $${i})`);
-      values.push(filters.product_id);
-      i++;
+    if (filters.product_id != null) {
+      if (typeof filters.product_id === 'object' && Array.isArray(filters.product_id.$in) && filters.product_id.$in.length > 0) {
+        where.push(`product_id = ANY($${i}::bigint[])`);
+        values.push(filters.product_id.$in);
+        i++;
+      } else {
+        where.push(`(product_device_id = $${i} OR product_id = $${i})`);
+        values.push(filters.product_id);
+        i++;
+      }
     }
     if (filters.date != null) {
       const d = filters.date;
@@ -95,10 +101,16 @@ class ProductLogModel {
     const where = [];
     const values = [];
     let i = 1;
-    if (filters.product_id) {
-      where.push(`(product_id = $${i} OR product_device_id = $${i})`);
-      values.push(filters.product_id);
-      i++;
+    if (filters.product_id != null) {
+      if (typeof filters.product_id === 'object' && Array.isArray(filters.product_id.$in) && filters.product_id.$in.length > 0) {
+        where.push(`product_id = ANY($${i}::bigint[])`);
+        values.push(filters.product_id.$in);
+        i++;
+      } else {
+        where.push(`(product_id = $${i} OR product_device_id = $${i})`);
+        values.push(filters.product_id);
+        i++;
+      }
     }
     if (filters.product_device_id) {
       where.push(`product_device_id = $${i}`);
@@ -123,8 +135,24 @@ class ProductLogModel {
         i++;
       }
     }
+    if (filters.$or && Array.isArray(filters.$or)) {
+      const orParts = [];
+      for (const cond of filters.$or) {
+        if (cond && typeof cond === 'object') {
+          for (const [col, pred] of Object.entries(cond)) {
+            if (pred && typeof pred === 'object' && pred.$exists === true) {
+              orParts.push(`${col} IS NOT NULL`);
+            }
+          }
+        }
+      }
+      if (orParts.length > 0) {
+        where.push(`(${orParts.join(' OR ')})`);
+      }
+    }
     const whereClause = where.length ? where.join(' AND ') : '1=1';
-    let sql = `SELECT * FROM product_logs WHERE ${whereClause} ORDER BY date DESC`;
+    const orderDir = filters._sort && filters._sort.date === 1 ? 'ASC' : 'DESC';
+    let sql = `SELECT * FROM product_logs WHERE ${whereClause} ORDER BY date ${orderDir}`;
     if (filters._limit) {
       sql += ` LIMIT ${parseInt(filters._limit, 10) || 100}`;
     }
@@ -136,10 +164,16 @@ class ProductLogModel {
     const where = [];
     const values = [];
     let i = 1;
-    if (filters.product_id) {
-      where.push(`(product_id = $${i} OR product_device_id = $${i})`);
-      values.push(filters.product_id);
-      i++;
+    if (filters.product_id != null) {
+      if (typeof filters.product_id === 'object' && Array.isArray(filters.product_id.$in) && filters.product_id.$in.length > 0) {
+        where.push(`product_id = ANY($${i}::bigint[])`);
+        values.push(filters.product_id.$in);
+        i++;
+      } else {
+        where.push(`(product_id = $${i} OR product_device_id = $${i})`);
+        values.push(filters.product_id);
+        i++;
+      }
     }
     if (filters.date) {
       const d = filters.date;
