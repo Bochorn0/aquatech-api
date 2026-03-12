@@ -51,7 +51,8 @@ class SensoresModel {
   }
 
   /**
-   * Create multiple sensor readings in a single transaction
+   * Create multiple sensor readings in a single batch INSERT.
+   * Uses one round-trip to reduce lock duration and avoid blocking SELECTs (MQTT insert load).
    * @param {Array} dataArray - Array of sensor data objects
    * @returns {Promise<Array>} Created sensor records
    */
@@ -60,51 +61,47 @@ class SensoresModel {
       return [];
     }
 
-    const client = await getClient();
+    const values = [];
+    const placeholders = [];
+    let paramIndex = 1;
+    for (const data of dataArray) {
+      placeholders.push(
+        `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5}, $${paramIndex + 6}, $${paramIndex + 7}, $${paramIndex + 8}, $${paramIndex + 9}, $${paramIndex + 10}, $${paramIndex + 11}, $${paramIndex + 12}, $${paramIndex + 13})`
+      );
+      values.push(
+        data.name || null,
+        data.value !== undefined ? parseFloat(data.value) : null,
+        data.type || null,
+        data.timestamp ? new Date(data.timestamp) : null,
+        data.meta ? JSON.stringify(data.meta) : null,
+        data.resourceId || null,
+        data.resourceType || null,
+        data.ownerId || null,
+        data.clientId || null,
+        data.status || null,
+        data.label || null,
+        data.lat !== undefined ? parseFloat(data.lat) : null,
+        data.long !== undefined ? parseFloat(data.long) : null,
+        data.codigoTienda || null
+      );
+      paramIndex += 14;
+    }
+
+    const insertQuery = `
+      INSERT INTO sensores (
+        name, value, type, timestamp, meta,
+        resourceId, resourceType, ownerId, clientId,
+        status, label, lat, long, codigoTienda
+      ) VALUES ${placeholders.join(', ')}
+      RETURNING *
+    `;
+
     try {
-      await client.query('BEGIN');
-
-      const insertQuery = `
-        INSERT INTO sensores (
-          name, value, type, timestamp, meta,
-          resourceId, resourceType, ownerId, clientId,
-          status, label, lat, long, codigoTienda
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-        ) RETURNING *
-      `;
-
-      const results = [];
-      for (const data of dataArray) {
-        const values = [
-          data.name || null,
-          data.value !== undefined ? parseFloat(data.value) : null,
-          data.type || null,
-          data.timestamp ? new Date(data.timestamp) : null,
-          data.meta ? JSON.stringify(data.meta) : null,
-          data.resourceId || null,
-          data.resourceType || null,
-          data.ownerId || null,
-          data.clientId || null,
-          data.status || null,
-          data.label || null,
-          data.lat !== undefined ? parseFloat(data.lat) : null,
-          data.long !== undefined ? parseFloat(data.long) : null,
-          data.codigoTienda || null
-        ];
-
-        const result = await client.query(insertQuery, values);
-        results.push(this.parseRow(result.rows[0]));
-      }
-
-      await client.query('COMMIT');
-      return results;
+      const result = await query(insertQuery, values);
+      return (result.rows || []).map((row) => this.parseRow(row));
     } catch (error) {
-      await client.query('ROLLBACK');
       console.error('[SensoresModel] Error creating multiple sensor readings:', error);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
