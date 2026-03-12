@@ -606,7 +606,7 @@ export const reporteMensual = async (req, res) => {
       });
     }
 
-    // Cargar punto de venta y sus productos
+    // Cargar punto de venta (V2 puntoventa; products come from meta.product_ids, same as puntoVenta detail)
     const punto = await PuntoVentaModel.findById(parseInt(puntoVentaId, 10)) ?? await PuntoVentaModel.findByCode(puntoVentaId);
     if (!punto) {
       return res.status(404).json({
@@ -615,9 +615,38 @@ export const reporteMensual = async (req, res) => {
       });
     }
 
-    const productos = punto.productos || [];
-    const productIds = productos.map((p) => p && p.id).filter(Boolean);
-    const productIdToName = new Map(productos.filter((p) => p && p.id).map((p) => [p.id, p.name || p.id]));
+    // Resolve product IDs from meta.product_ids (Mongo export may have stored ids here; model does not attach productos)
+    const metaObj = punto.meta && typeof punto.meta === 'object' ? punto.meta : (typeof punto.meta === 'string' ? (() => { try { return JSON.parse(punto.meta); } catch (e) { return null; } })() : null);
+    const rawIds = metaObj && metaObj.product_ids != null
+      ? (Array.isArray(metaObj.product_ids) ? metaObj.product_ids : [metaObj.product_ids])
+      : [];
+    const resolvedProducts = [];
+    for (const rawId of rawIds) {
+      const pid = typeof rawId === 'number' ? rawId : parseInt(String(rawId), 10);
+      if (!Number.isNaN(pid)) {
+        let p = await ProductModel.findById(pid);
+        if (!p) p = await ProductModel.findByDeviceId(String(rawId));
+        if (p) resolvedProducts.push(p);
+      } else {
+        // e.g. Mongo ObjectId string: try by device_id
+        const p = await ProductModel.findByDeviceId(String(rawId));
+        if (p) resolvedProducts.push(p);
+      }
+    }
+    // Fallback: if no products from meta, use products by client (same client as punto) so migrated data without product_ids still shows report
+    if (resolvedProducts.length === 0 && punto.clientId) {
+      const clientId = typeof punto.clientId === 'string' ? parseInt(punto.clientId, 10) : punto.clientId;
+      if (!Number.isNaN(clientId)) {
+        const byClient = await ProductModel.find({ client_id: clientId });
+        resolvedProducts.push(...(byClient || []));
+      }
+    }
+    // Postgres product_logs.product_id is BIGINT; Product.parseRow exposes table id as _id (string)
+    const productIds = resolvedProducts.map((p) => (p && p._id != null ? parseInt(String(p._id), 10) : NaN)).filter((n) => !Number.isNaN(n));
+    const productIdToName = new Map(resolvedProducts.map((p) => {
+      const id = p._id != null ? String(p._id) : (p.id != null ? String(p.id) : null);
+      return id ? [id, p.name || id] : [null, null];
+    }).filter(([k]) => k != null));
 
     if (productIds.length === 0) {
       return res.json({
@@ -716,9 +745,8 @@ export const reporteMensual = async (req, res) => {
         { flujo_produccion: { $exists: true } },
         { flujo_rechazo: { $exists: true } },
       ],
-    })
-      .sort({ date: 1 })
-      .lean();
+      _sort: { date: 1 },
+    });
 
     console.log('📊 [reporteMensual] totalLogsCount (con datos de reporte):', logs.length);
 

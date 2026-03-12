@@ -96,23 +96,9 @@ async function getLatestTiwaterPayloadForPublish(codigoTienda) {
   }
 }
 
-/** Build MongoDB-compatible punto response from Postgres puntoventa_v1 record (V1) */
+/** Build MongoDB-compatible punto response from Postgres puntoventa_v1 record (V1). Online = any assigned product is online. */
 async function buildPuntoResponseFromPostgresV1(pv) {
-  const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
   let online = false;
-  if (pv.codigo_tienda || pv.code) {
-    const codigoTienda = (pv.codigo_tienda || pv.code).toUpperCase();
-    const thresholdTime = new Date(Date.now() - ONLINE_THRESHOLD_MS);
-    try {
-      const onlineResult = await query(
-        `SELECT COUNT(*) as count FROM sensores WHERE codigotienda = $1 AND createdat >= $2 LIMIT 1`,
-        [codigoTienda, thresholdTime]
-      );
-      online = onlineResult.rows?.length > 0 && parseInt(onlineResult.rows[0].count, 10) > 0;
-    } catch (e) {
-      // ignore
-    }
-  }
   let clienteData = null;
   if (pv.clientId) {
     try {
@@ -176,6 +162,8 @@ async function buildPuntoResponseFromPostgresV1(pv) {
       icon: p.icon ?? null,
       online: p.online ?? false,
     }));
+    // V1 online flag: punto is online if at least one assigned product is online
+    online = productosList.some((p) => p && p.online === true);
   }
   return {
     _id: String(pv.id),
