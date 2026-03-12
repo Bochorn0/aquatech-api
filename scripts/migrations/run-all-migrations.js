@@ -112,6 +112,10 @@ async function runAllMigrations() {
       const fullPath = join(MIGRATIONS_DIR, filename);
       try {
         const sql = readFileSync(fullPath, 'utf8');
+        const isIndexMigration = /CREATE\s+INDEX/i.test(sql) && (sql.includes('sensores') || sql.includes('product_logs'));
+        if (isIndexMigration) {
+          console.log(`[migrate] Running ${filename} (index build on large table may take 5–20 min)...`);
+        }
         await client.query('BEGIN');
         await client.query(sql);
         await client.query('INSERT INTO migrations (name) VALUES ($1)', [filename]);
