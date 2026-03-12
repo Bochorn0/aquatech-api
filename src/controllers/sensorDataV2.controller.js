@@ -34,17 +34,17 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
     const codigoNorm = (codigoTienda || '').toString().trim().toUpperCase();
     const checkQuery = isTiwater 
       ? `SELECT COUNT(*) as count, 
-         MIN(createdat) as min_created, MAX(createdat) as max_created,
-         MIN(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as min_timestamp,
-         MAX(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as max_timestamp
-         FROM sensores 
-         WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = $2) AND name = $3`
+         MIN(m.createdat) as min_created, MAX(m.createdat) as max_created,
+         MIN(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as min_timestamp,
+         MAX(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as max_timestamp
+         FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+         WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1)) AND m.resourcetype = 'tiwater' AND (m.resourceid IS NULL OR m.resourceid = $2) AND s.name = $3`
       : `SELECT COUNT(*) as count,
-         MIN(createdat) as min_created, MAX(createdat) as max_created,
-         MIN(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as min_timestamp,
-         MAX(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as max_timestamp
-         FROM sensores 
-         WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
+         MIN(m.createdat) as min_created, MAX(m.createdat) as max_created,
+         MIN(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as min_timestamp,
+         MAX(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as max_timestamp
+         FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+         WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1)) AND m.resourcetype = 'nivel' AND m.resourceid = $2 AND s.name = $3`;
     
     const checkParams = isTiwater ? [codigoNorm, rid, sensorName] : [codigoNorm, resourceId, sensorName];
     const checkResult = await query(checkQuery, checkParams);
@@ -61,7 +61,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
     
     // Determinar si usar timestamp o createdat como fallback
     const useTimestamp = maxTimestamp && maxTimestamp.getFullYear() >= 2000 && maxTimestamp.getFullYear() <= 3000;
-    const dateField = useTimestamp ? 'timestamp' : 'createdat';
+    const dateField = useTimestamp ? 'm.timestamp' : 'm.createdat';
     const maxDate = useTimestamp ? maxTimestamp : maxCreated;
     
     console.log(`[generateNivelHistoricoDiarioV2] Datos disponibles: ${checkResult.rows[0].count} registros`);
@@ -86,19 +86,19 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
     let queryParams;
     
     if (isTiwater) {
-      const timestampFilter = useTimestamp ? "AND (timestamp IS NULL OR EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000)" : "";
+      const timestampFilter = useTimestamp ? "AND (m.timestamp IS NULL OR EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000)" : "";
       historicoQuery = `
         WITH daily_data AS (
           SELECT 
             DATE_TRUNC('day', ` + dateField + `) AS dia,
-            value,
+            s.value,
             ` + dateField + ` as fecha,
             ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
-          FROM sensores
-          WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-            AND resourcetype = 'tiwater'
-            AND (resourceid IS NULL OR resourceid = $2)
-            AND name = $3
+          FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+          WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+            AND m.resourcetype = 'tiwater'
+            AND (m.resourceid IS NULL OR m.resourceid = $2)
+            AND s.name = $3
             AND ` + dateField + ` >= $4
             AND ` + dateField + ` <= $5
             ` + timestampFilter + `
@@ -108,15 +108,15 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
             dia,
             value AS liquid_level_percent_promedio,
             (SELECT COUNT(*) 
-             FROM sensores 
-             WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-               AND resourcetype = 'tiwater'
-               AND (resourceid IS NULL OR resourceid = $2)
-               AND name = $3
-               AND DATE_TRUNC('day', ` + dateField + `) = daily_data.dia
-               AND ` + dateField + ` >= $4
-               AND ` + dateField + ` <= $5
-               ` + timestampFilter + `) AS total_logs
+             FROM sensores s2 INNER JOIN sensores_message m2 ON s2.sensores_message_id = m2.id
+             WHERE UPPER(TRIM(m2.codigotienda)) = UPPER(TRIM($1))
+               AND m2.resourcetype = 'tiwater'
+               AND (m2.resourceid IS NULL OR m2.resourceid = $2)
+               AND s2.name = $3
+               AND DATE_TRUNC('day', ` + dateField.replace('m.', 'm2.') + `) = daily_data.dia
+               AND ` + dateField.replace('m.', 'm2.') + ` >= $4
+               AND ` + dateField.replace('m.', 'm2.') + ` <= $5
+               ` + timestampFilter.replace(/m\./g, 'm2.') + `) AS total_logs
           FROM daily_data
           WHERE rn = 1
         )
@@ -130,21 +130,19 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
       queryParams = [codigoNorm, rid, sensorName, startDate, endDate];
     } else {
       // Para Nivel, buscar en resourcetype = 'nivel' con resourceId específico
-      // Usar timestamp si es válido, sino usar createdat como fallback
-      const timestampFilter = useTimestamp ? "AND (timestamp IS NULL OR EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000)" : "";
-      // Construir consulta dinámicamente reemplazando ${dateField} con el nombre del campo
+      const timestampFilter = useTimestamp ? "AND (m.timestamp IS NULL OR EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000)" : "";
       historicoQuery = `
         WITH daily_data AS (
           SELECT 
             DATE_TRUNC('day', ` + dateField + `) AS dia,
-            value,
+            s.value,
             ` + dateField + ` as fecha,
             ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
-          FROM sensores
-          WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-            AND resourcetype = 'nivel'
-            AND resourceid = $2
-            AND name = $3
+          FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+          WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+            AND m.resourcetype = 'nivel'
+            AND m.resourceid = $2
+            AND s.name = $3
             AND ` + dateField + ` >= $4
             AND ` + dateField + ` <= $5
             ` + timestampFilter + `
@@ -154,15 +152,15 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
             dia,
             value AS liquid_level_percent_promedio,
             (SELECT COUNT(*) 
-             FROM sensores 
-             WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-               AND resourcetype = 'nivel'
-               AND resourceid = $2
-               AND name = $3
-               AND DATE_TRUNC('day', ` + dateField + `) = daily_data.dia
-               AND ` + dateField + ` >= $4
-               AND ` + dateField + ` <= $5
-               ` + timestampFilter + `) AS total_logs
+             FROM sensores s2 INNER JOIN sensores_message m2 ON s2.sensores_message_id = m2.id
+             WHERE UPPER(TRIM(m2.codigotienda)) = UPPER(TRIM($1))
+               AND m2.resourcetype = 'nivel'
+               AND m2.resourceid = $2
+               AND s2.name = $3
+               AND DATE_TRUNC('day', ` + dateField.replace('m.', 'm2.') + `) = daily_data.dia
+               AND ` + dateField.replace('m.', 'm2.') + ` >= $4
+               AND ` + dateField.replace('m.', 'm2.') + ` <= $5
+               ` + timestampFilter.replace(/m\./g, 'm2.') + `) AS total_logs
           FROM daily_data
           WHERE rn = 1
         )
@@ -233,15 +231,15 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     const codigoNorm = (codigoTienda || '').toString().trim().toUpperCase();
     const checkQuery = isTiwater 
       ? `SELECT COUNT(*) as count, 
-         MAX(createdat) as max_created,
-         MAX(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as max_timestamp
-         FROM sensores 
-         WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater' AND (resourceid IS NULL OR resourceid = $2) AND name = $3`
+         MAX(m.createdat) as max_created,
+         MAX(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as max_timestamp
+         FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+         WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1)) AND m.resourcetype = 'tiwater' AND (m.resourceid IS NULL OR m.resourceid = $2) AND s.name = $3`
       : `SELECT COUNT(*) as count,
-         MAX(createdat) as max_created,
-         MAX(CASE WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 THEN timestamp ELSE NULL END) as max_timestamp
-         FROM sensores 
-         WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'nivel' AND resourceid = $2 AND name = $3`;
+         MAX(m.createdat) as max_created,
+         MAX(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as max_timestamp
+         FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+         WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1)) AND m.resourcetype = 'nivel' AND m.resourceid = $2 AND s.name = $3`;
     
     const checkParams = isTiwater ? [codigoNorm, rid, sensorName] : [codigoNorm, resourceId, sensorName];
     const checkResult = await query(checkQuery, checkParams);
@@ -256,7 +254,7 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     
     // Determinar si usar timestamp o createdat como fallback
     const useTimestamp = maxTimestamp && maxTimestamp.getFullYear() >= 2000 && maxTimestamp.getFullYear() <= 3000;
-    const dateField = useTimestamp ? 'timestamp' : 'createdat';
+    const dateField = useTimestamp ? 'm.timestamp' : 'm.createdat';
     const maxDate = useTimestamp ? maxTimestamp : maxCreated;
     
     // Usar la fecha del último registro como referencia
@@ -280,19 +278,19 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     let queryParams;
     
     if (isTiwater) {
-      const timestampFilter = useTimestamp ? "AND (timestamp IS NULL OR EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000)" : "";
+      const timestampFilter = useTimestamp ? "AND (m.timestamp IS NULL OR EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000)" : "";
       historicoQuery = `
         WITH hourly_data AS (
           SELECT 
             DATE_TRUNC('hour', ` + dateField + `) AS hora,
-            value,
+            s.value,
             ` + dateField + ` as fecha,
             ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
-          FROM sensores
-          WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-            AND resourcetype = 'tiwater'
-            AND (resourceid IS NULL OR resourceid = $2)
-            AND name = $3
+          FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+          WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+            AND m.resourcetype = 'tiwater'
+            AND (m.resourceid IS NULL OR m.resourceid = $2)
+            AND s.name = $3
             AND ` + dateField + ` >= $4
             AND ` + dateField + ` < $5
             ` + timestampFilter + `
@@ -302,15 +300,15 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
             hora,
             value AS liquid_level_percent_promedio,
             (SELECT COUNT(*) 
-             FROM sensores 
-             WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-               AND resourcetype = 'tiwater'
-               AND (resourceid IS NULL OR resourceid = $2)
-               AND name = $3
-               AND DATE_TRUNC('hour', ` + dateField + `) = hourly_data.hora
-               AND ` + dateField + ` >= $4
-               AND ` + dateField + ` < $5
-               ` + timestampFilter + `) AS total_logs
+             FROM sensores s2 INNER JOIN sensores_message m2 ON s2.sensores_message_id = m2.id
+             WHERE UPPER(TRIM(m2.codigotienda)) = UPPER(TRIM($1))
+               AND m2.resourcetype = 'tiwater'
+               AND (m2.resourceid IS NULL OR m2.resourceid = $2)
+               AND s2.name = $3
+               AND DATE_TRUNC('hour', ` + dateField.replace('m.', 'm2.') + `) = hourly_data.hora
+               AND ` + dateField.replace('m.', 'm2.') + ` >= $4
+               AND ` + dateField.replace('m.', 'm2.') + ` < $5
+               ` + timestampFilter.replace(/m\./g, 'm2.') + `) AS total_logs
           FROM hourly_data
           WHERE rn = 1
         )
@@ -323,22 +321,19 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
       `;
       queryParams = [codigoNorm, rid, sensorName, today, tomorrow];
     } else {
-      // Para Nivel, buscar en resourcetype = 'nivel' con resourceId específico
-      // Usar timestamp si es válido, sino usar createdat como fallback
-      const timestampFilter = useTimestamp ? "AND (timestamp IS NULL OR EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000)" : "";
-      // Construir consulta dinámicamente reemplazando ${dateField} con el nombre del campo
+      const timestampFilter = useTimestamp ? "AND (m.timestamp IS NULL OR EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000)" : "";
       historicoQuery = `
         WITH hourly_data AS (
           SELECT 
             DATE_TRUNC('hour', ` + dateField + `) AS hora,
-            value,
+            s.value,
             ` + dateField + ` as fecha,
             ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
-          FROM sensores
-          WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-            AND resourcetype = 'nivel'
-            AND resourceid = $2
-            AND name = $3
+          FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+          WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+            AND m.resourcetype = 'nivel'
+            AND m.resourceid = $2
+            AND s.name = $3
             AND ` + dateField + ` >= $4
             AND ` + dateField + ` < $5
             ` + timestampFilter + `
@@ -348,15 +343,15 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
             hora,
             value AS liquid_level_percent_promedio,
             (SELECT COUNT(*) 
-             FROM sensores 
-             WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-               AND resourcetype = 'nivel'
-               AND resourceid = $2
-               AND name = $3
-               AND DATE_TRUNC('hour', ` + dateField + `) = hourly_data.hora
-               AND ` + dateField + ` >= $4
-               AND ` + dateField + ` < $5
-               ` + timestampFilter + `) AS total_logs
+             FROM sensores s2 INNER JOIN sensores_message m2 ON s2.sensores_message_id = m2.id
+             WHERE UPPER(TRIM(m2.codigotienda)) = UPPER(TRIM($1))
+               AND m2.resourcetype = 'nivel'
+               AND m2.resourceid = $2
+               AND s2.name = $3
+               AND DATE_TRUNC('hour', ` + dateField.replace('m.', 'm2.') + `) = hourly_data.hora
+               AND ` + dateField.replace('m.', 'm2.') + ` >= $4
+               AND ` + dateField.replace('m.', 'm2.') + ` < $5
+               ` + timestampFilter.replace(/m\./g, 'm2.') + `) AS total_logs
           FROM hourly_data
           WHERE rn = 1
         )
@@ -435,15 +430,16 @@ export const getOsmosisSystemByPuntoVenta = async (req, res) => {
     // Get latest sensor readings grouped by sensor name
     const sensorNames = ['flujo_produccion', 'flujo_rechazo', 'tds', 'electronivel_purificada', 'electronivel_recuperada', 'presion_in', 'presion_out'];
     
-    // Query to get latest value for each sensor type
+    // Query to get latest value for each sensor type (join sensores_message for message-level columns)
     const latestSensorsQuery = `
-      SELECT DISTINCT ON (type) 
-        name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda
-      FROM sensores
-      WHERE codigotienda = $1 
-        AND resourcetype = $2
-        ${resourceId ? 'AND resourceid = $3' : ''}
-      ORDER BY type, timestamp DESC
+      SELECT DISTINCT ON (s.type) 
+        s.name, s.value, s.type, m.timestamp, m.meta, m.resourceid, m.resourcetype, m.codigotienda
+      FROM sensores s
+      INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+      WHERE m.codigotienda = $1 
+        AND m.resourcetype = $2
+        ${resourceId ? 'AND m.resourceid = $3' : ''}
+      ORDER BY s.type, m.timestamp DESC
     `;
 
     const params = resourceId 
@@ -587,7 +583,7 @@ export const getPuntosVentaV2 = async (req, res) => {
       // If sensor_latest table missing, fall back to sensores table
       try {
         const fallback = await query(
-          'SELECT DISTINCT codigotienda FROM sensores WHERE createdat >= $1',
+          'SELECT DISTINCT m.codigotienda FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id WHERE m.createdat >= $1',
           [thresholdTime]
         );
         fallback.rows.forEach((row) => onlineCodigoTiendas.add((row.codigotienda || '').toString().trim().toUpperCase()));
@@ -1137,16 +1133,16 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         if (lightLatestRows.length === 0) {
           try {
             const tsRes = await query(
-              `SELECT MAX(timestamp) AS latest_timestamp FROM sensores
-               WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater'`,
+              `SELECT MAX(m.timestamp) AS latest_timestamp FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+               WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1)) AND m.resourcetype = 'tiwater'`,
               [codigoTiendaNorm]
             );
             const latestTs = tsRes.rows[0]?.latest_timestamp;
             if (latestTs) {
               const sensoresRows = await query(
-                `SELECT name, value, type, timestamp, resourceid, resourcetype FROM sensores
-                 WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater' AND timestamp = $2
-                 ORDER BY type`,
+                `SELECT s.name, s.value, s.type, m.timestamp, m.resourceid, m.resourcetype FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+                 WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1)) AND m.resourcetype = 'tiwater' AND m.timestamp = $2
+                 ORDER BY s.type`,
                 [codigoTiendaNorm, latestTs]
               );
               lightLatestRows = (sensoresRows.rows || []).map((row) => ({
@@ -1194,18 +1190,18 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       // Query sensores for distinct systems (can block under heavy write load)
       const distinctSystemsQuery = `
       SELECT DISTINCT 
-        COALESCE(resourceid, 'tiwater-system') as resourceid,
-        resourcetype
-      FROM sensores
-      WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-        AND (resourcetype = 'osmosis' OR resourcetype = 'tiwater')
-      ORDER BY resourcetype, resourceid
+        COALESCE(m.resourceid, 'tiwater-system') AS resourceid,
+        m.resourcetype
+      FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+      WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+        AND (m.resourcetype = 'osmosis' OR m.resourcetype = 'tiwater')
+      ORDER BY m.resourcetype, m.resourceid
     `;
       const systemsResult = await query(distinctSystemsQuery, [codigoTiendaNorm]);
       systemRows = systemsResult.rows || [];
       if (systemRows.length === 0) {
         const hasTiwaterData = await query(
-          `SELECT COUNT(*) as count FROM sensores WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1)) AND resourcetype = 'tiwater'`,
+          `SELECT COUNT(*) AS count FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1)) AND m.resourcetype = 'tiwater'`,
           [codigoTiendaNorm]
         );
         if (hasTiwaterData.rows[0]?.count > 0) {
@@ -1248,24 +1244,24 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           let queryParams;
           if (resourceId === 'tiwater-system' && resourceType === 'tiwater') {
             latestSensorsQuery = `
-            SELECT DISTINCT ON (type) 
-              name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
-            FROM sensores
-            WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-              AND resourcetype = $2
-              AND (resourceid IS NULL OR resourceid = 'tiwater-system')
-            ORDER BY type, timestamp DESC
+            SELECT DISTINCT ON (s.type) 
+              s.name, s.value, s.type, m.timestamp, m.meta, m.resourceid, m.resourcetype, m.codigotienda
+            FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+            WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+              AND m.resourcetype = $2
+              AND (m.resourceid IS NULL OR m.resourceid = 'tiwater-system')
+            ORDER BY s.type, m.timestamp DESC
           `;
             queryParams = [filters.codigoTienda, filters.resourceType];
           } else {
             latestSensorsQuery = `
-            SELECT DISTINCT ON (type) 
-              name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
-            FROM sensores
-            WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-              AND resourcetype = $2
-              AND resourceid = $3
-            ORDER BY type, timestamp DESC
+            SELECT DISTINCT ON (s.type) 
+              s.name, s.value, s.type, m.timestamp, m.meta, m.resourceid, m.resourcetype, m.codigotienda
+            FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+            WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+              AND m.resourcetype = $2
+              AND m.resourceid = $3
+            ORDER BY s.type, m.timestamp DESC
           `;
             queryParams = [filters.codigoTienda, filters.resourceType, resourceId];
           }
@@ -1745,12 +1741,12 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       // else: test mode, nivelProducts stay empty, do not query sensores
     } else {
       const distinctNivelesQuery = `
-      SELECT DISTINCT resourceid
-      FROM sensores
-      WHERE codigotienda = $1 
-        AND resourcetype = 'nivel'
-        AND resourceid IS NOT NULL
-      ORDER BY resourceid
+      SELECT DISTINCT m.resourceid
+      FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+      WHERE m.codigotienda = $1 
+        AND m.resourcetype = 'nivel'
+        AND m.resourceid IS NOT NULL
+      ORDER BY m.resourceid
     `;
       const nivelesResult = await query(distinctNivelesQuery, [codigoTienda]);
       nivelResourceIds = nivelesResult.rows.map((row) => row.resourceid);
@@ -1761,14 +1757,14 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       try {
         // Get latest sensor reading
         const latestNivelQuery = `
-          SELECT DISTINCT ON (name) 
-            name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda
-          FROM sensores
-          WHERE codigotienda = $1 
-            AND resourcetype = 'nivel'
-            AND resourceid = $2
-            AND name = 'liquid_level_percent'
-          ORDER BY name, timestamp DESC
+          SELECT DISTINCT ON (s.name) 
+            s.name, s.value, s.type, m.timestamp, m.meta, m.resourceid, m.resourcetype, m.codigotienda
+          FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+          WHERE m.codigotienda = $1 
+            AND m.resourcetype = 'nivel'
+            AND m.resourceid = $2
+            AND s.name = 'liquid_level_percent'
+          ORDER BY s.name, m.timestamp DESC
           LIMIT 1
         `;
 
@@ -1845,26 +1841,26 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       // else: test mode, metricaProducts stay empty, do not query sensores
     } else {
       const distinctMetricasQuery = `
-      SELECT DISTINCT resourceid
-      FROM sensores
-      WHERE codigotienda = $1 
-        AND resourcetype = 'metrica'
-        AND resourceid IS NOT NULL
-      ORDER BY resourceid
+      SELECT DISTINCT m.resourceid
+      FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+      WHERE m.codigotienda = $1 
+        AND m.resourcetype = 'metrica'
+        AND m.resourceid IS NOT NULL
+      ORDER BY m.resourceid
     `;
       const metricasResult = await query(distinctMetricasQuery, [codigoTienda]);
       const metricaResourceIds = metricasResult.rows.map((row) => row.resourceid);
       for (const resourceId of metricaResourceIds) {
         try {
           const latestMetricaQuery = `
-          SELECT DISTINCT ON (name) 
-            name, value, type, timestamp, meta, resourceid, resourcetype, codigotienda, label
-          FROM sensores
-          WHERE codigotienda = $1 
-            AND resourcetype = 'metrica'
-            AND resourceid = $2
-            AND name = 'liquid_level_percent'
-          ORDER BY name, timestamp DESC
+          SELECT DISTINCT ON (s.name) 
+            s.name, s.value, s.type, m.timestamp, m.meta, m.resourceid, m.resourcetype, m.codigotienda
+          FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+          WHERE m.codigotienda = $1 
+            AND m.resourcetype = 'metrica'
+            AND m.resourceid = $2
+            AND s.name = 'liquid_level_percent'
+          ORDER BY s.name, m.timestamp DESC
           LIMIT 1
         `;
           const latestResult = await query(latestMetricaQuery, [codigoTienda, resourceId]);
@@ -1873,9 +1869,9 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           metricaProducts.push({
             _id: `metrica-${resourceId}`,
             id: resourceId,
-            name: latestSensor.label || `Métrica ${resourceId}`,
+            name: latestSensor.name || `Métrica ${resourceId}`,
             product_type: 'Metrica',
-            status: [{ code: 'liquid_level_percent', value: parseFloat(latestSensor.value) || 0, label: latestSensor.label || 'Nivel', unit: '%', timestamp: latestSensor.timestamp }],
+            status: [{ code: 'liquid_level_percent', value: parseFloat(latestSensor.value) || 0, label: latestSensor.name || 'Nivel', unit: '%', timestamp: latestSensor.timestamp }],
             online: true
           });
         } catch (error) {
@@ -1935,9 +1931,9 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           }
         } else {
           const latestSensorQuery = `
-            SELECT MAX(timestamp) as latest_timestamp FROM sensores
-            WHERE UPPER(TRIM(codigotienda)) = UPPER(TRIM($1))
-              AND timestamp IS NOT NULL AND timestamp > NOW() - INTERVAL '1 day'
+            SELECT MAX(m.timestamp) AS latest_timestamp FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+            WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+              AND m.timestamp IS NOT NULL AND m.timestamp > NOW() - INTERVAL '1 day'
           `;
           const latestResult = await query(latestSensorQuery, [codigoTiendaNorm]);
           if (latestResult.rows?.[0]?.latest_timestamp) {
@@ -1994,34 +1990,34 @@ export const getSensorTimeSeries = async (req, res) => {
     // Build query for time series aggregation (TimescaleDB)
     let timeSeriesQuery = `
       SELECT 
-        time_bucket($1::interval, timestamp) AS time_bucket,
-        AVG(value) AS avg_value,
-        MIN(value) AS min_value,
-        MAX(value) AS max_value,
+        time_bucket($1::interval, m.timestamp) AS time_bucket,
+        AVG(s.value) AS avg_value,
+        MIN(s.value) AS min_value,
+        MAX(s.value) AS max_value,
         COUNT(*) AS count
-      FROM sensores
-      WHERE codigotienda = $2
-        AND name = $3
-        AND resourcetype = 'osmosis'
+      FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+      WHERE m.codigotienda = $2
+        AND s.name = $3
+        AND m.resourcetype = 'osmosis'
     `;
 
     const params = [interval, codigoTienda.toUpperCase(), sensorName];
     let paramIndex = 4;
 
     if (resourceId) {
-      timeSeriesQuery += ` AND resourceid = $${paramIndex}`;
+      timeSeriesQuery += ` AND m.resourceid = $${paramIndex}`;
       params.push(resourceId);
       paramIndex++;
     }
 
     if (startDate) {
-      timeSeriesQuery += ` AND timestamp >= $${paramIndex}`;
+      timeSeriesQuery += ` AND m.timestamp >= $${paramIndex}`;
       params.push(new Date(startDate));
       paramIndex++;
     }
 
     if (endDate) {
-      timeSeriesQuery += ` AND timestamp <= $${paramIndex}`;
+      timeSeriesQuery += ` AND m.timestamp <= $${paramIndex}`;
       params.push(new Date(endDate));
       paramIndex++;
     }
@@ -2067,10 +2063,10 @@ export const getTiwaterSensorData = async (req, res) => {
 
     // Get latest timestamp for this codigo_tienda
     const latestTimestampQuery = `
-      SELECT MAX(timestamp) as latest_timestamp
-      FROM sensores
-      WHERE codigotienda = $1
-        AND resourcetype = 'tiwater'
+      SELECT MAX(m.timestamp) AS latest_timestamp
+      FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+      WHERE m.codigotienda = $1
+        AND m.resourcetype = 'tiwater'
     `;
 
     const timestampResult = await query(latestTimestampQuery, [codigoTienda.toUpperCase()]);
@@ -2087,12 +2083,12 @@ export const getTiwaterSensorData = async (req, res) => {
     // Get all sensor readings from the latest timestamp
     const sensorsQuery = `
       SELECT 
-        name, value, type, timestamp, meta, label
-      FROM sensores
-      WHERE codigotienda = $1
-        AND resourcetype = 'tiwater'
-        AND timestamp = $2
-      ORDER BY name
+        s.name, s.value, s.type, m.timestamp, m.meta
+      FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+      WHERE m.codigotienda = $1
+        AND m.resourcetype = 'tiwater'
+        AND m.timestamp = $2
+      ORDER BY s.name
     `;
 
     const sensorsResult = await query(sensorsQuery, [codigoTienda.toUpperCase(), latestTimestamp]);
@@ -2442,26 +2438,26 @@ export const getMainDashboardV2Metrics = async (req, res) => {
 
     // 1b. Get latest sensor data per codigotienda
     const latestSensorsQuery = `
-      SELECT DISTINCT ON (UPPER(TRIM(codigotienda)), COALESCE(NULLIF(TRIM(type), ''), name))
-        UPPER(TRIM(codigotienda)) AS codigotienda,
-        type,
-        name,
-        value
-      FROM sensores
+      SELECT DISTINCT ON (UPPER(TRIM(m.codigotienda)), COALESCE(NULLIF(TRIM(s.type), ''), s.name))
+        UPPER(TRIM(m.codigotienda)) AS codigotienda,
+        s.type,
+        s.name,
+        s.value
+      FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
       WHERE (
-        type IN (
+        s.type IN (
           'flujo_produccion', 'flujo_rechazo', 'eficiencia',
           'electronivel_purificada', 'electronivel_cruda', 'electronivel_recuperada',
           'level_purificada', 'level_cruda',
           'nivel_purificada', 'nivel_cruda',
           'liquid_level_percent', 'water_level'
         )
-        OR name IN ('Nivel Purificada', 'Nivel Cruda (%)', 'Nivel Purificada (absoluto)', 'Nivel Cruda (absoluto)', 'Nivel Recuperada')
+        OR s.name IN ('Nivel Purificada', 'Nivel Cruda (%)', 'Nivel Purificada (absoluto)', 'Nivel Cruda (absoluto)', 'Nivel Recuperada')
       )
-        AND codigotienda IS NOT NULL
-        AND TRIM(codigotienda) != ''
-      ORDER BY UPPER(TRIM(codigotienda)), COALESCE(NULLIF(TRIM(type), ''), name),
-        COALESCE(timestamp, createdat) DESC NULLS LAST
+        AND m.codigotienda IS NOT NULL
+        AND TRIM(m.codigotienda) != ''
+      ORDER BY UPPER(TRIM(m.codigotienda)), COALESCE(NULLIF(TRIM(s.type), ''), s.name),
+        COALESCE(m.timestamp, m.createdat) DESC NULLS LAST
     `;
     const { rows: latestRows } = await query(latestSensorsQuery);
     console.log(`[getMainDashboardV2Metrics] Sensores raw rows: ${latestRows?.length ?? 0}`);

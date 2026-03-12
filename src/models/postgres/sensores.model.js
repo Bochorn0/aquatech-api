@@ -1,321 +1,136 @@
-// src/models/postgres/sensores.model.js
-// PostgreSQL model for sensores table using raw SQL queries
+// sensores = detail table (id, sensores_message_id, name, type, value). Join sensores_message for timestamp, codigotienda, etc.
 
-import { query, getClient } from '../../config/postgres.config.js';
+import { query } from '../../config/postgres.config.js';
 
-/**
- * Sensores Model
- * Handles all database operations for the sensores table
- */
+const JOIN_MSG = `FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id`;
+
+function buildWhere(filters, values, paramIndex) {
+  let where = '1=1';
+  if (filters.codigoTienda) {
+    where += ` AND m.codigotienda = $${paramIndex}`;
+    values.push(filters.codigoTienda);
+    paramIndex++;
+  }
+  if (filters.resourceId) {
+    where += ` AND m.resourceid = $${paramIndex}`;
+    values.push(filters.resourceId);
+    paramIndex++;
+  }
+  if (filters.resourceType) {
+    where += ` AND m.resourcetype = $${paramIndex}`;
+    values.push(filters.resourceType);
+    paramIndex++;
+  }
+  if (filters.clientId) {
+    where += ` AND m.clientid = $${paramIndex}`;
+    values.push(filters.clientId);
+    paramIndex++;
+  }
+  if (filters.type) {
+    where += ` AND s.type = $${paramIndex}`;
+    values.push(filters.type);
+    paramIndex++;
+  }
+  if (filters.status) {
+    where += ` AND m.meta->>'status' = $${paramIndex}`;
+    values.push(filters.status);
+    paramIndex++;
+  }
+  if (filters.startDate) {
+    where += ` AND m.timestamp >= $${paramIndex}`;
+    values.push(new Date(filters.startDate));
+    paramIndex++;
+  }
+  if (filters.endDate) {
+    where += ` AND m.timestamp <= $${paramIndex}`;
+    values.push(new Date(filters.endDate));
+    paramIndex++;
+  }
+  return { where, paramIndex };
+}
+
+function parseRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    value: row.value !== null ? parseFloat(row.value) : null,
+    type: row.type,
+    timestamp: row.timestamp,
+    createdAt: row.createdat,
+    updatedAt: row.updatedat,
+    resourceId: row.resourceid,
+    resourceType: row.resourcetype,
+    clientId: row.clientid,
+    status: row.status ?? null,
+    label: row.label ?? null,
+    lat: row.lat != null ? parseFloat(row.lat) : null,
+    long: row.long != null ? parseFloat(row.long) : null,
+    codigoTienda: row.codigotienda,
+    meta: row.meta ? (typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta) : null,
+  };
+}
+
 class SensoresModel {
-  /**
-   * Create a new sensor reading
-   * @param {Object} data - Sensor data object
-   * @returns {Promise<Object>} Created sensor record
-   */
   static async create(data) {
-    const insertQuery = `
-      INSERT INTO sensores (
-        name, value, type, timestamp, meta,
-        resourceId, resourceType, ownerId, clientId,
-        status, label, lat, long, codigoTienda
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-      ) RETURNING *
-    `;
-
-    const values = [
-      data.name || null,
-      data.value !== undefined ? parseFloat(data.value) : null,
-      data.type || null,
-      data.timestamp ? new Date(data.timestamp) : null,
-      data.meta ? JSON.stringify(data.meta) : null,
-      data.resourceId || null,
-      data.resourceType || null,
-      data.ownerId || null,
-      data.clientId || null,
-      data.status || null,
-      data.label || null,
-      data.lat !== undefined ? parseFloat(data.lat) : null,
-      data.long !== undefined ? parseFloat(data.long) : null,
-      data.codigoTienda || null
-    ];
-
-    try {
-      const result = await query(insertQuery, values);
-      return this.parseRow(result.rows[0]);
-    } catch (error) {
-      console.error('[SensoresModel] Error creating sensor reading:', error);
-      throw error;
-    }
+    throw new Error('SensoresModel.create: use SensoresMessageModel.createMessage + createDetails for new schema');
   }
 
-  /**
-   * Create multiple sensor readings in a single batch INSERT.
-   * Uses one round-trip to reduce lock duration and avoid blocking SELECTs (MQTT insert load).
-   * @param {Array} dataArray - Array of sensor data objects
-   * @returns {Promise<Array>} Created sensor records
-   */
   static async createMany(dataArray) {
-    if (!dataArray || dataArray.length === 0) {
-      return [];
-    }
-
-    const values = [];
-    const placeholders = [];
-    let paramIndex = 1;
-    for (const data of dataArray) {
-      placeholders.push(
-        `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5}, $${paramIndex + 6}, $${paramIndex + 7}, $${paramIndex + 8}, $${paramIndex + 9}, $${paramIndex + 10}, $${paramIndex + 11}, $${paramIndex + 12}, $${paramIndex + 13})`
-      );
-      values.push(
-        data.name || null,
-        data.value !== undefined ? parseFloat(data.value) : null,
-        data.type || null,
-        data.timestamp ? new Date(data.timestamp) : null,
-        data.meta ? JSON.stringify(data.meta) : null,
-        data.resourceId || null,
-        data.resourceType || null,
-        data.ownerId || null,
-        data.clientId || null,
-        data.status || null,
-        data.label || null,
-        data.lat !== undefined ? parseFloat(data.lat) : null,
-        data.long !== undefined ? parseFloat(data.long) : null,
-        data.codigoTienda || null
-      );
-      paramIndex += 14;
-    }
-
-    const insertQuery = `
-      INSERT INTO sensores (
-        name, value, type, timestamp, meta,
-        resourceId, resourceType, ownerId, clientId,
-        status, label, lat, long, codigoTienda
-      ) VALUES ${placeholders.join(', ')}
-      RETURNING *
-    `;
-
-    try {
-      const result = await query(insertQuery, values);
-      return (result.rows || []).map((row) => this.parseRow(row));
-    } catch (error) {
-      console.error('[SensoresModel] Error creating multiple sensor readings:', error);
-      throw error;
-    }
+    throw new Error('SensoresModel.createMany: use SensoresMessageModel.createMessage + createDetails for new schema');
   }
 
-  /**
-   * Find sensor readings with filters
-   * @param {Object} filters - Filter criteria
-   * @param {Object} options - Query options (limit, offset, orderBy)
-   * @returns {Promise<Array>} Array of sensor records
-   */
   static async find(filters = {}, options = {}) {
-    const {
-      limit = 100,
-      offset = 0,
-      orderBy = 'timestamp DESC'
-    } = options;
-
-    let whereClause = '1=1';
+    const { limit = 100, offset = 0, orderBy = 'm.timestamp DESC' } = options;
     const values = [];
     let paramIndex = 1;
-
-    // Build WHERE clause dynamically
-    if (filters.codigoTienda) {
-      whereClause += ` AND codigoTienda = $${paramIndex}`;
-      values.push(filters.codigoTienda);
-      paramIndex++;
-    }
-
-    if (filters.resourceId) {
-      whereClause += ` AND resourceId = $${paramIndex}`;
-      values.push(filters.resourceId);
-      paramIndex++;
-    }
-
-    if (filters.resourceType) {
-      whereClause += ` AND resourceType = $${paramIndex}`;
-      values.push(filters.resourceType);
-      paramIndex++;
-    }
-
-    if (filters.clientId) {
-      whereClause += ` AND clientId = $${paramIndex}`;
-      values.push(filters.clientId);
-      paramIndex++;
-    }
-
-    if (filters.type) {
-      whereClause += ` AND type = $${paramIndex}`;
-      values.push(filters.type);
-      paramIndex++;
-    }
-
-    if (filters.status) {
-      whereClause += ` AND status = $${paramIndex}`;
-      values.push(filters.status);
-      paramIndex++;
-    }
-
-    if (filters.startDate) {
-      whereClause += ` AND timestamp >= $${paramIndex}`;
-      values.push(new Date(filters.startDate));
-      paramIndex++;
-    }
-
-    if (filters.endDate) {
-      whereClause += ` AND timestamp <= $${paramIndex}`;
-      values.push(new Date(filters.endDate));
-      paramIndex++;
-    }
-
-    const selectQuery = `
-      SELECT * FROM sensores
-      WHERE ${whereClause}
+    const { where, paramIndex: next } = buildWhere(filters, values, paramIndex);
+    paramIndex = next;
+    const sql = `
+      SELECT s.id, s.name, s.type, s.value, s.sensores_message_id,
+             m.timestamp, m.createdat, m.updatedat, m.codigotienda, m.clientid,
+             m.resourceid, m.resourcetype, m.lat, m.long, m.meta
+      ${JOIN_MSG}
+      WHERE ${where}
       ORDER BY ${orderBy}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
-
     values.push(limit, offset);
-
-    try {
-      const result = await query(selectQuery, values);
-      return result.rows.map(row => this.parseRow(row));
-    } catch (error) {
-      console.error('[SensoresModel] Error finding sensor readings:', error);
-      throw error;
-    }
+    const result = await query(sql, values);
+    return result.rows.map((row) => parseRow(row));
   }
 
-  /**
-   * Find a single sensor reading by ID
-   * @param {Number} id - Sensor record ID
-   * @returns {Promise<Object|null>} Sensor record or null
-   */
   static async findById(id) {
-    const selectQuery = 'SELECT * FROM sensores WHERE id = $1';
-    
-    try {
-      const result = await query(selectQuery, [id]);
-      return result.rows.length > 0 ? this.parseRow(result.rows[0]) : null;
-    } catch (error) {
-      console.error('[SensoresModel] Error finding sensor by ID:', error);
-      throw error;
-    }
+    const result = await query(
+      `SELECT s.id, s.name, s.type, s.value, s.sensores_message_id,
+              m.timestamp, m.createdat, m.updatedat, m.codigotienda, m.clientid,
+              m.resourceid, m.resourcetype, m.lat, m.long, m.meta
+       ${JOIN_MSG}
+       WHERE s.id = $1`,
+      [id]
+    );
+    return result.rows.length > 0 ? parseRow(result.rows[0]) : null;
   }
 
-  /**
-   * Get latest sensor reading
-   * @param {Object} filters - Filter criteria
-   * @returns {Promise<Object|null>} Latest sensor record or null
-   */
   static async findLatest(filters = {}) {
-    const options = { ...filters, limit: 1, orderBy: 'timestamp DESC' };
-    const results = await this.find(filters, options);
+    const results = await this.find(filters, { limit: 1, orderBy: 'm.timestamp DESC' });
     return results.length > 0 ? results[0] : null;
   }
 
-  /**
-   * Count sensor readings with filters
-   * @param {Object} filters - Filter criteria
-   * @returns {Promise<Number>} Count of records
-   */
   static async count(filters = {}) {
-    let whereClause = '1=1';
     const values = [];
     let paramIndex = 1;
-
-    // Build WHERE clause (same logic as find)
-    if (filters.codigoTienda) {
-      whereClause += ` AND codigoTienda = $${paramIndex}`;
-      values.push(filters.codigoTienda);
-      paramIndex++;
-    }
-
-    if (filters.resourceId) {
-      whereClause += ` AND resourceId = $${paramIndex}`;
-      values.push(filters.resourceId);
-      paramIndex++;
-    }
-
-    if (filters.resourceType) {
-      whereClause += ` AND resourceType = $${paramIndex}`;
-      values.push(filters.resourceType);
-      paramIndex++;
-    }
-
-    if (filters.clientId) {
-      whereClause += ` AND clientId = $${paramIndex}`;
-      values.push(filters.clientId);
-      paramIndex++;
-    }
-
-    if (filters.type) {
-      whereClause += ` AND type = $${paramIndex}`;
-      values.push(filters.type);
-      paramIndex++;
-    }
-
-    if (filters.status) {
-      whereClause += ` AND status = $${paramIndex}`;
-      values.push(filters.status);
-      paramIndex++;
-    }
-
-    if (filters.startDate) {
-      whereClause += ` AND timestamp >= $${paramIndex}`;
-      values.push(new Date(filters.startDate));
-      paramIndex++;
-    }
-
-    if (filters.endDate) {
-      whereClause += ` AND timestamp <= $${paramIndex}`;
-      values.push(new Date(filters.endDate));
-      paramIndex++;
-    }
-
-    const countQuery = `SELECT COUNT(*) as count FROM sensores WHERE ${whereClause}`;
-
-    try {
-      const result = await query(countQuery, values);
-      return parseInt(result.rows[0].count);
-    } catch (error) {
-      console.error('[SensoresModel] Error counting sensor readings:', error);
-      throw error;
-    }
+    const { where } = buildWhere(filters, values, paramIndex);
+    const result = await query(
+      `SELECT COUNT(*) AS count ${JOIN_MSG} WHERE ${where}`,
+      values
+    );
+    return parseInt(result.rows[0].count, 10);
   }
 
-  /**
-   * Parse database row to clean object
-   * @param {Object} row - Database row
-   * @returns {Object} Parsed sensor object
-   */
   static parseRow(row) {
-    if (!row) return null;
-
-    return {
-      id: row.id,
-      name: row.name,
-      value: row.value !== null ? parseFloat(row.value) : null,
-      type: row.type,
-      timestamp: row.timestamp,
-      createdAt: row.createdat,
-      updatedAt: row.updatedat,
-      meta: typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta,
-      resourceId: row.resourceid,
-      resourceType: row.resourcetype,
-      ownerId: row.ownerid,
-      clientId: row.clientid,
-      status: row.status,
-      label: row.label,
-      lat: row.lat !== null ? parseFloat(row.lat) : null,
-      long: row.long !== null ? parseFloat(row.long) : null,
-      codigoTienda: row.codigotienda
-    };
+    return parseRow(row);
   }
 }
 
 export default SensoresModel;
-

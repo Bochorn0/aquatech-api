@@ -4,7 +4,7 @@
 
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
-import SensoresModel from '../models/postgres/sensores.model.js';
+import * as SensoresMessageModel from '../models/postgres/sensoresMessage.model.js';
 import SensorLatestModel from '../models/postgres/sensorLatest.model.js';
 import { buildTiwaterTopic } from '../utils/mqttTopic.js';
 
@@ -253,13 +253,25 @@ export async function generateRandomDataForDevModePuntos() {
       });
 
       try {
-        const saved = await SensoresModel.createMany(sensorRecords);
+        const first = sensorRecords[0];
+        const { id: messageId } = await SensoresMessageModel.createMessage({
+          timestamp,
+          clientid: clientId,
+          lat: null,
+          long: null,
+          codigotienda: codigoTienda,
+          resourceid: first?.resourceId ?? null,
+          resourcetype: first?.resourceType ?? null,
+          meta: { source: 'dev_mode_generator', punto_venta_id: puntoId, generated_at: timestamp.toISOString() }
+        });
+        const detailRows = sensorRecords.map((r) => ({ name: r.name, type: r.type, value: r.value }));
+        await SensoresMessageModel.createDetails(messageId, detailRows);
         try {
           await SensorLatestModel.upsertMany(sensorRecords);
         } catch (latestErr) {
           // ignore if sensor_latest table not yet created
         }
-        result.readingsCreated += saved.length;
+        result.readingsCreated += detailRows.length;
         result.puntosProcessed += 1;
       } catch (err) {
         result.errors.push(`Punto ${puntoId} (${codigoTienda}): failed to save readings: ${err.message}`);

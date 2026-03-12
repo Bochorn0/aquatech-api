@@ -3,6 +3,7 @@
 
 import SensoresModel from '../models/postgres/sensores.model.js';
 import SensorLatestModel from '../models/postgres/sensorLatest.model.js';
+import * as SensoresMessageModel from '../models/postgres/sensoresMessage.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
 import RegionModel from '../models/postgres/region.model.js';
@@ -107,27 +108,34 @@ class PostgresService {
         lat: mqttData.lat || context.lat || null,
         long: mqttData.long || context.long || mqttData.lon || null,
         
-        // Metadata - store all additional fields here
-        meta: {
-          ...mqttData,
-          source: mqttData.source || context.source || 'MQTT',
-          gateway_ip: mqttData.gateway_ip || mqttData.ip || null,
-          rssi: mqttData.rssi || null,
-          // Store all sensor values in meta for flexibility
-          flujo_produccion: mqttData.flujo_produccion || null,
-          flujo_rechazo: mqttData.flujo_rechazo || null,
-          tds: mqttData.tds || null,
-          electronivel_purificada: mqttData.electronivel_purificada || null,
-          electronivel_recuperada: mqttData.electronivel_recuperada || null,
-          presion_in: mqttData.presion_in || mqttData.pressure_in || null,
-          presion_out: mqttData.presion_out || mqttData.pressure_out || null,
-          water_level: mqttData.water_level || null,
-          ...context.metadata
-        }
+        // Metadata - slim to avoid bloat at scale (set SENSORES_META_STORE_ORIGINAL_PAYLOAD=true to include full payload)
+        meta: (() => {
+          const base = {
+            source: mqttData.source || context.source || 'MQTT',
+            gateway_ip: mqttData.gateway_ip || mqttData.ip || null,
+            rssi: mqttData.rssi || null,
+            ...context.metadata
+          };
+          if (process.env.SENSORES_META_STORE_ORIGINAL_PAYLOAD === 'true') {
+            return { ...base, ...mqttData };
+          }
+          return base;
+        })()
       };
 
-      // Save to PostgreSQL
-      const savedSensor = await SensoresModel.create(sensorData);
+      // Save to PostgreSQL (message + detail schema: one row in sensores_message, one in sensores)
+      const timestamp = sensorData.timestamp;
+      const { id: messageId } = await SensoresMessageModel.createMessage({
+        timestamp,
+        clientid: sensorData.clientId ?? null,
+        lat: sensorData.lat ?? null,
+        long: sensorData.long ?? null,
+        codigotienda: sensorData.codigoTienda ?? null,
+        resourceid: sensorData.resourceId ?? null,
+        resourcetype: sensorData.resourceType ?? null,
+        meta: sensorData.meta != null ? (typeof sensorData.meta === 'object' ? sensorData.meta : JSON.parse(sensorData.meta)) : null
+      });
+      await SensoresMessageModel.createDetails(messageId, [{ name: sensorData.name, type: sensorData.type, value: sensorData.value }]);
 
       try {
         await SensorLatestModel.upsertOne(sensorData);
@@ -135,10 +143,10 @@ class PostgresService {
         console.warn('[PostgresService] ⚠️  sensor_latest upsert failed:', latestErr.message);
       }
 
-      console.log(`[PostgresService] ✅ Sensor data saved to PostgreSQL: ID ${savedSensor.id}`);
+      const savedSensor = { id: messageId, ...sensorData };
+      console.log(`[PostgresService] ✅ Sensor data saved to PostgreSQL: message ID ${messageId}`);
       
       // Evaluate saved sensor against metric alerts and create notifications
-      // Run in background to avoid blocking sensor save
       setImmediate(() => {
         MetricNotificationService.evaluateAndNotify(savedSensor).catch(error => {
           console.error('[PostgresService] Error evaluating metrics for notifications:', error);
@@ -381,6 +389,8 @@ class PostgresService {
             }
           }
 
+          // Slim meta: avoid storing full MQTT payload in every row (~20x per message) to reduce storage at 200k msg/day
+          const storeOriginalPayload = process.env.SENSORES_META_STORE_ORIGINAL_PAYLOAD === 'true';
           const sensorData = {
             name: mapping.name,
             type: mapping.type,
@@ -399,7 +409,7 @@ class PostgresService {
               source: mqttData.source || context.source || 'MQTT',
               gateway_ip: mqttData.gateway_ip || mqttData.ip || null,
               rssi: mqttData.rssi || null,
-              original_payload: mqttData
+              ...(storeOriginalPayload ? { original_payload: mqttData } : {})
             }
           };
           
@@ -412,9 +422,27 @@ class PostgresService {
         return [];
       }
 
-      // Save all sensors in a single transaction
-      const savedSensors = await SensoresModel.createMany(sensors);
-      
+      // Message + detail: one row in sensores_message (meta once), N rows in sensores (name, type, value only)
+      const resourceId = context.equipo_id || mqttData.equipo_id || mqttData.gateway_id || null;
+      const resourceType = context.resource_type || this.detectResourceType(context);
+      const messageMeta = process.env.SENSORES_META_STORE_ORIGINAL_PAYLOAD === 'true'
+        ? { source: mqttData.source || context.source || 'MQTT', gateway_ip: mqttData.gateway_ip || mqttData.ip || null, rssi: mqttData.rssi || null, original_payload: mqttData }
+        : { source: mqttData.source || context.source || 'MQTT', gateway_ip: mqttData.gateway_ip || mqttData.ip || null, rssi: mqttData.rssi || null };
+      const { id: messageId } = await SensoresMessageModel.createMessage({
+        timestamp,
+        clientid: clientId,
+        lat: mqttData.lat || context.lat || null,
+        long: mqttData.long || context.long || mqttData.lon || null,
+        codigotienda: context.codigo_tienda || mqttData.codigo_tienda || null,
+        resourceid: resourceId,
+        resourcetype: resourceType,
+        meta: messageMeta
+      });
+      const detailRows = sensors.map((s) => ({ name: s.name, type: s.type, value: s.value }));
+      await SensoresMessageModel.createDetails(messageId, detailRows);
+      // For metric notifications: same shape (type, value, codigoTienda, clientId, timestamp)
+      const savedSensors = sensors.map((s) => ({ ...s, id: null }));
+
       // Update sensor_latest (one row per sensor type per store) for efficient "current value" reads
       try {
         await SensorLatestModel.upsertMany(sensors);

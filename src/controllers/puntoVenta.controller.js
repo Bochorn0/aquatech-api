@@ -41,12 +41,13 @@ function getDefaultTiwaterPayload() {
  */
 async function getLatestTiwaterPayloadForPublish(codigoTienda) {
   const latestSensorsQuery = `
-    SELECT DISTINCT ON (name) name, value, type
-    FROM sensores
-    WHERE codigotienda = $1
-      AND resourcetype = 'tiwater'
-      AND (resourceid IS NULL OR resourceid = 'tiwater-system')
-    ORDER BY name, timestamp DESC
+    SELECT DISTINCT ON (s.name) s.name, s.value, s.type
+    FROM sensores s
+    INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+    WHERE m.codigotienda = $1
+      AND m.resourcetype = 'tiwater'
+      AND (m.resourceid IS NULL OR m.resourceid = 'tiwater-system')
+    ORDER BY s.name, m.timestamp DESC
   `;
   try {
     const result = await query(latestSensorsQuery, [codigoTienda.toUpperCase()]);
@@ -197,7 +198,7 @@ async function buildPuntoResponseFromPostgres(pv) {
     const thresholdTime = new Date(Date.now() - ONLINE_THRESHOLD_MS);
     try {
       const onlineResult = await query(
-        `SELECT COUNT(*) as count FROM sensores WHERE codigotienda = $1 AND createdat >= $2 LIMIT 1`,
+        `SELECT COUNT(*) AS count FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id WHERE m.codigotienda = $1 AND m.createdat >= $2 LIMIT 1`,
         [codigoTienda, thresholdTime]
       );
       online = onlineResult.rows?.length > 0 && parseInt(onlineResult.rows[0].count, 10) > 0;

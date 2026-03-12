@@ -1506,45 +1506,49 @@ export const getPuntoVentaSensorsV2 = async (req, res) => {
           
           if (sensor.resourceId && sensor.resourceType) {
             latestReadingQuery = `
-              SELECT * FROM sensores
-              WHERE codigoTienda = $1
-                AND type = $2
-                AND resourceId = $3
-                AND resourceType = $4
-              ORDER BY timestamp DESC
+              SELECT s.id, s.name, s.value, s.type, m.timestamp, m.createdat, m.updatedat, m.meta, m.resourceid, m.resourcetype, m.codigotienda
+              FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+              WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+                AND s.type = $2
+                AND m.resourceid = $3
+                AND m.resourcetype = $4
+              ORDER BY m.timestamp DESC
               LIMIT 1
             `;
             params = [codigoTienda, sensor.sensorType, sensor.resourceId, sensor.resourceType];
           } else if (sensor.resourceId) {
             latestReadingQuery = `
-              SELECT * FROM sensores
-              WHERE codigoTienda = $1
-                AND type = $2
-                AND resourceId = $3
-                AND (resourceType IS NULL OR resourceType = $4)
-              ORDER BY timestamp DESC
+              SELECT s.id, s.name, s.value, s.type, m.timestamp, m.createdat, m.updatedat, m.meta, m.resourceid, m.resourcetype, m.codigotienda
+              FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+              WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+                AND s.type = $2
+                AND m.resourceid = $3
+                AND (m.resourcetype IS NULL OR m.resourcetype = $4)
+              ORDER BY m.timestamp DESC
               LIMIT 1
             `;
             params = [codigoTienda, sensor.sensorType, sensor.resourceId, sensor.resourceType || null];
           } else if (sensor.resourceType) {
             latestReadingQuery = `
-              SELECT * FROM sensores
-              WHERE codigoTienda = $1
-                AND type = $2
-                AND (resourceId IS NULL OR resourceId = $3)
-                AND resourceType = $4
-              ORDER BY timestamp DESC
+              SELECT s.id, s.name, s.value, s.type, m.timestamp, m.createdat, m.updatedat, m.meta, m.resourceid, m.resourcetype, m.codigotienda
+              FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+              WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+                AND s.type = $2
+                AND (m.resourceid IS NULL OR m.resourceid = $3)
+                AND m.resourcetype = $4
+              ORDER BY m.timestamp DESC
               LIMIT 1
             `;
             params = [codigoTienda, sensor.sensorType, sensor.resourceId || null, sensor.resourceType];
           } else {
             latestReadingQuery = `
-              SELECT * FROM sensores
-              WHERE codigoTienda = $1
-                AND type = $2
-                AND (resourceId IS NULL)
-                AND (resourceType IS NULL)
-              ORDER BY timestamp DESC
+              SELECT s.id, s.name, s.value, s.type, m.timestamp, m.createdat, m.updatedat, m.meta, m.resourceid, m.resourcetype, m.codigotienda
+              FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+              WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+                AND s.type = $2
+                AND (m.resourceid IS NULL)
+                AND (m.resourcetype IS NULL)
+              ORDER BY m.timestamp DESC
               LIMIT 1
             `;
             params = [codigoTienda, sensor.sensorType];
@@ -1697,21 +1701,22 @@ export const getPuntoVentaSensorsReadingsV2 = async (req, res) => {
           
           if (sensor.resourceId && sensor.resourceType) {
             readingsQuery = `
-              SELECT * FROM sensores
-              WHERE codigoTienda = $1
-                AND resourceType = $2
-                AND resourceId = $3
-                AND name = $4
+              SELECT s.id, s.name, s.value, s.type, m.timestamp, m.createdat, m.meta, m.resourceid, m.resourcetype, m.codigotienda
+              FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+              WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+                AND m.resourcetype = $2
+                AND m.resourceid = $3
+                AND s.name = $4
                 AND (
-                  (timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 AND timestamp >= $5)
-                  OR (timestamp IS NULL AND createdat >= $5)
-                  OR (timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) NOT BETWEEN 2000 AND 3000 AND createdat >= $5)
+                  (m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 AND m.timestamp >= $5)
+                  OR (m.timestamp IS NULL AND m.createdat >= $5)
+                  OR (m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) NOT BETWEEN 2000 AND 3000 AND m.createdat >= $5)
                 )
               ORDER BY 
                 CASE 
-                  WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 
-                  THEN timestamp 
-                  ELSE createdat 
+                  WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 
+                  THEN m.timestamp 
+                  ELSE m.createdat 
                 END DESC
               LIMIT 1000
             `;
@@ -1724,19 +1729,20 @@ export const getPuntoVentaSensorsReadingsV2 = async (req, res) => {
             ];
           } else {
             readingsQuery = `
-              SELECT * FROM sensores
-              WHERE codigoTienda = $1
-                AND type = $2
+              SELECT s.id, s.name, s.value, s.type, m.timestamp, m.createdat, m.meta, m.resourceid, m.resourcetype, m.codigotienda
+              FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+              WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
+                AND s.type = $2
                 AND (
-                  (timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 AND timestamp >= $3)
-                  OR (timestamp IS NULL AND createdat >= $3)
-                  OR (timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) NOT BETWEEN 2000 AND 3000 AND createdat >= $3)
+                  (m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 AND m.timestamp >= $3)
+                  OR (m.timestamp IS NULL AND m.createdat >= $3)
+                  OR (m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) NOT BETWEEN 2000 AND 3000 AND m.createdat >= $3)
                 )
               ORDER BY 
                 CASE 
-                  WHEN timestamp IS NOT NULL AND EXTRACT(YEAR FROM timestamp) BETWEEN 2000 AND 3000 
-                  THEN timestamp 
-                  ELSE createdat 
+                  WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 
+                  THEN m.timestamp 
+                  ELSE m.createdat 
                 END DESC
               LIMIT 1000
             `;

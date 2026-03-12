@@ -54,6 +54,7 @@ jobs:
           node-version: '24.x'
 
       - name: Run database migrations
+        timeout-minutes: 30
         env:
           POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
           POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}

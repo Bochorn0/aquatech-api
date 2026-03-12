@@ -18,10 +18,11 @@ export const getLatestSensorData = async (req, res) => {
     const codigoNorm = codigo_tienda.toString().trim().toUpperCase();
 
     const result = await query(
-      `SELECT timestamp, codigotienda as codigo_tienda
-       FROM sensores
-       WHERE UPPER(TRIM(codigotienda)) = $1
-       ORDER BY timestamp DESC
+      `SELECT m.timestamp, m.codigotienda AS codigo_tienda
+       FROM sensores s
+       INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+       WHERE UPPER(TRIM(m.codigotienda)) = $1
+       ORDER BY m.timestamp DESC
        LIMIT 1`,
       [codigoNorm]
     );
@@ -68,35 +69,35 @@ export const getSensorData = async (req, res) => {
     let paramIndex = 1;
 
     if (codigo_tienda) {
-      whereClause += ` AND UPPER(TRIM(codigotienda)) = $${paramIndex}`;
+      whereClause += ` AND UPPER(TRIM(m.codigotienda)) = $${paramIndex}`;
       values.push(codigo_tienda.toUpperCase());
       paramIndex++;
     }
 
     if (startDate) {
-      whereClause += ` AND timestamp >= $${paramIndex}`;
+      whereClause += ` AND m.timestamp >= $${paramIndex}`;
       values.push(new Date(startDate));
       paramIndex++;
     }
 
     if (endDate) {
-      whereClause += ` AND timestamp <= $${paramIndex}`;
+      whereClause += ` AND m.timestamp <= $${paramIndex}`;
       values.push(new Date(endDate));
       paramIndex++;
     }
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
+    const joinWhere = `FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id WHERE ${whereClause}`;
 
     const dataResult = await query(
-      `SELECT * FROM sensores
-       WHERE ${whereClause}
-       ORDER BY timestamp DESC
+      `SELECT s.id, s.name, s.value, s.type, m.timestamp, m.codigotienda, m.resourcetype, m.resourceid ${joinWhere}
+       ORDER BY m.timestamp DESC
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
       [...values, parseInt(limit), offset]
     );
 
     const countResult = await query(
-      `SELECT COUNT(*) as count FROM sensores WHERE ${whereClause}`,
+      `SELECT COUNT(*) AS count ${joinWhere}`,
       values
     );
 
@@ -141,34 +142,35 @@ export const getSensorStatistics = async (req, res) => {
     let paramIndex = 1;
 
     if (codigo_tienda) {
-      whereClause += ` AND UPPER(TRIM(codigotienda)) = $${paramIndex}`;
+      whereClause += ` AND UPPER(TRIM(m.codigotienda)) = $${paramIndex}`;
       values.push(codigo_tienda.toUpperCase());
       paramIndex++;
     }
 
     if (startDate) {
-      whereClause += ` AND timestamp >= $${paramIndex}`;
+      whereClause += ` AND m.timestamp >= $${paramIndex}`;
       values.push(new Date(startDate));
       paramIndex++;
     }
 
     if (endDate) {
-      whereClause += ` AND timestamp <= $${paramIndex}`;
+      whereClause += ` AND m.timestamp <= $${paramIndex}`;
       values.push(new Date(endDate));
       paramIndex++;
     }
 
     const result = await query(
       `SELECT
-         AVG(CASE WHEN type = 'flujo_produccion' THEN value::float END) as avg_flujo_produccion,
-         AVG(CASE WHEN type = 'flujo_rechazo' THEN value::float END) as avg_flujo_rechazo,
-         AVG(CASE WHEN type = 'tds' THEN value::float END) as avg_tds,
-         AVG(CASE WHEN type IN ('electronivel_purificada','nivel_purificada') THEN value::float END) as avg_electronivel_purificada,
-         AVG(CASE WHEN type IN ('electronivel_recuperada','nivel_recuperada') THEN value::float END) as avg_electronivel_recuperada,
-         AVG(CASE WHEN type = 'presion_in' THEN value::float END) as avg_presion_in,
-         AVG(CASE WHEN type = 'presion_out' THEN value::float END) as avg_presion_out,
+         AVG(CASE WHEN s.type = 'flujo_produccion' THEN s.value::float END) as avg_flujo_produccion,
+         AVG(CASE WHEN s.type = 'flujo_rechazo' THEN s.value::float END) as avg_flujo_rechazo,
+         AVG(CASE WHEN s.type = 'tds' THEN s.value::float END) as avg_tds,
+         AVG(CASE WHEN s.type IN ('electronivel_purificada','nivel_purificada') THEN s.value::float END) as avg_electronivel_purificada,
+         AVG(CASE WHEN s.type IN ('electronivel_recuperada','nivel_recuperada') THEN s.value::float END) as avg_electronivel_recuperada,
+         AVG(CASE WHEN s.type = 'presion_in' THEN s.value::float END) as avg_presion_in,
+         AVG(CASE WHEN s.type = 'presion_out' THEN s.value::float END) as avg_presion_out,
          COUNT(*) as count
-       FROM sensores
+       FROM sensores s
+       INNER JOIN sensores_message m ON s.sensores_message_id = m.id
        WHERE ${whereClause}`,
       values
     );
@@ -203,31 +205,33 @@ export const getSensorDataByTiendaEquipo = async (req, res) => {
     const { codigo_tienda, equipo_id } = req.params;
     const { limit = 100, startDate, endDate } = req.query;
 
-    let whereClause = 'UPPER(TRIM(codigotienda)) = $1';
+    let whereClause = 'UPPER(TRIM(m.codigotienda)) = $1';
     const values = [codigo_tienda.toUpperCase()];
     let paramIndex = 2;
 
     if (equipo_id) {
-      whereClause += ` AND (resourceid = $${paramIndex} OR resourceid IS NULL)`;
+      whereClause += ` AND (m.resourceid = $${paramIndex} OR m.resourceid IS NULL)`;
       values.push(equipo_id);
       paramIndex++;
     }
 
     if (startDate) {
-      whereClause += ` AND timestamp >= $${paramIndex}`;
+      whereClause += ` AND m.timestamp >= $${paramIndex}`;
       values.push(new Date(startDate));
       paramIndex++;
     }
 
     if (endDate) {
-      whereClause += ` AND timestamp <= $${paramIndex}`;
+      whereClause += ` AND m.timestamp <= $${paramIndex}`;
       values.push(new Date(endDate));
       paramIndex++;
     }
 
     const result = await query(
-      `SELECT * FROM sensores WHERE ${whereClause}
-       ORDER BY timestamp DESC LIMIT $${paramIndex}`,
+      `SELECT s.id, s.name, s.value, s.type, m.timestamp, m.codigotienda, m.resourcetype, m.resourceid
+       FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+       WHERE ${whereClause}
+       ORDER BY m.timestamp DESC LIMIT $${paramIndex}`,
       [...values, parseInt(limit)]
     );
 
@@ -252,25 +256,27 @@ export const getSensorDataByTienda = async (req, res) => {
     const { codigo_tienda } = req.params;
     const { limit = 100, startDate, endDate } = req.query;
 
-    let whereClause = 'UPPER(TRIM(codigotienda)) = $1';
+    let whereClause = 'UPPER(TRIM(m.codigotienda)) = $1';
     const values = [codigo_tienda.toUpperCase()];
     let paramIndex = 2;
 
     if (startDate) {
-      whereClause += ` AND timestamp >= $${paramIndex}`;
+      whereClause += ` AND m.timestamp >= $${paramIndex}`;
       values.push(new Date(startDate));
       paramIndex++;
     }
 
     if (endDate) {
-      whereClause += ` AND timestamp <= $${paramIndex}`;
+      whereClause += ` AND m.timestamp <= $${paramIndex}`;
       values.push(new Date(endDate));
       paramIndex++;
     }
 
     const result = await query(
-      `SELECT * FROM sensores WHERE ${whereClause}
-       ORDER BY timestamp DESC LIMIT $${paramIndex}`,
+      `SELECT s.id, s.name, s.value, s.type, m.timestamp, m.codigotienda, m.resourcetype, m.resourceid
+       FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+       WHERE ${whereClause}
+       ORDER BY m.timestamp DESC LIMIT $${paramIndex}`,
       [...values, parseInt(limit)]
     );
 
@@ -299,28 +305,30 @@ export const getSensorDataByGateway = async (req, res) => {
     const values = [];
     let paramIndex = 1;
 
-    // gateway_id may map to resourceId in sensores
+    // gateway_id may map to resourceId in sensores_message
     if (gateway_id) {
-      whereClause += ` AND resourceid = $${paramIndex}`;
+      whereClause += ` AND m.resourceid = $${paramIndex}`;
       values.push(gateway_id);
       paramIndex++;
     }
 
     if (startDate) {
-      whereClause += ` AND timestamp >= $${paramIndex}`;
+      whereClause += ` AND m.timestamp >= $${paramIndex}`;
       values.push(new Date(startDate));
       paramIndex++;
     }
 
     if (endDate) {
-      whereClause += ` AND timestamp <= $${paramIndex}`;
+      whereClause += ` AND m.timestamp <= $${paramIndex}`;
       values.push(new Date(endDate));
       paramIndex++;
     }
 
     const result = await query(
-      `SELECT * FROM sensores WHERE ${whereClause}
-       ORDER BY timestamp DESC LIMIT $${paramIndex}`,
+      `SELECT s.id, s.name, s.value, s.type, m.timestamp, m.codigotienda, m.resourcetype, m.resourceid
+       FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+       WHERE ${whereClause}
+       ORDER BY m.timestamp DESC LIMIT $${paramIndex}`,
       [...values, parseInt(limit)]
     );
 
