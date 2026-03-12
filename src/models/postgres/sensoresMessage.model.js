@@ -4,14 +4,16 @@ import { query } from '../../config/postgres.config.js';
 
 /**
  * Insert one message row; returns id for linking sensor_details.
- * @param {Object} data - { timestamp, clientid, lat, long, codigotienda, resourceid, resourcetype, meta }
+ * Topic hierarchy: CLIENTE/REGION/CIUDAD/CODIGO_TIENDA/data → cliente_identifier, region, ciudad, codigotienda.
+ * @param {Object} data - { timestamp, clientid, lat, long, codigotienda, resourceid, resourcetype, meta, region, ciudad, cliente_identifier }
  * @returns {Promise<{ id: number }>}
  */
 export async function createMessage(data) {
   const result = await query(
     `INSERT INTO sensores_message (
-      "timestamp", clientid, lat, long, codigotienda, resourceid, resourcetype, meta
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      "timestamp", clientid, lat, long, codigotienda, resourceid, resourcetype, meta,
+      region, ciudad, cliente_identifier
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     RETURNING id`,
     [
       data.timestamp || new Date(),
@@ -21,7 +23,10 @@ export async function createMessage(data) {
       data.codigotienda ?? null,
       data.resourceid ?? null,
       data.resourcetype ?? null,
-      data.meta != null ? (typeof data.meta === 'string' ? data.meta : JSON.stringify(data.meta)) : null
+      data.meta != null ? (typeof data.meta === 'string' ? data.meta : JSON.stringify(data.meta)) : null,
+      data.region ?? null,
+      data.ciudad ?? null,
+      data.cliente_identifier ?? null
     ]
   );
   return { id: result.rows[0].id };

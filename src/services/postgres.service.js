@@ -125,6 +125,9 @@ class PostgresService {
 
       // Save to PostgreSQL (message + detail schema: one row in sensores_message, one in sensores)
       const timestamp = sensorData.timestamp;
+      const codigoRegion = (context.codigo_region || mqttData.codigo_region || '').trim() || null;
+      const ciudadName = (context.ciudad || mqttData.ciudad || '').trim() || null;
+      const clienteIdentifier = (context.cliente_identifier || mqttData.cliente_identifier || '').trim() || null;
       const { id: messageId } = await SensoresMessageModel.createMessage({
         timestamp,
         clientid: sensorData.clientId ?? null,
@@ -133,7 +136,10 @@ class PostgresService {
         codigotienda: sensorData.codigoTienda ?? null,
         resourceid: sensorData.resourceId ?? null,
         resourcetype: sensorData.resourceType ?? null,
-        meta: sensorData.meta != null ? (typeof sensorData.meta === 'object' ? sensorData.meta : JSON.parse(sensorData.meta)) : null
+        meta: sensorData.meta != null ? (typeof sensorData.meta === 'object' ? sensorData.meta : JSON.parse(sensorData.meta)) : null,
+        region: codigoRegion || null,
+        ciudad: ciudadName || null,
+        cliente_identifier: clienteIdentifier || null
       });
       await SensoresMessageModel.createDetails(messageId, [{ name: sensorData.name, type: sensorData.type, value: sensorData.value }]);
 
@@ -436,7 +442,10 @@ class PostgresService {
         codigotienda: context.codigo_tienda || mqttData.codigo_tienda || null,
         resourceid: resourceId,
         resourcetype: resourceType,
-        meta: messageMeta
+        meta: messageMeta,
+        region: codigoRegion !== 'NoRegion' ? codigoRegion : null,
+        ciudad: ciudadName || null,
+        cliente_identifier: clienteIdentifier !== 'tiwater' ? clienteIdentifier : null
       });
       const detailRows = sensors.map((s) => ({ name: s.name, type: s.type, value: s.value }));
       await SensoresMessageModel.createDetails(messageId, detailRows);
