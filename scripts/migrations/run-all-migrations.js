@@ -4,6 +4,10 @@
  * Tracks executed migrations in a `migrations` table; runs only missing ones.
  * Usage: node scripts/migrations/run-all-migrations.js
  * Env: POSTGRES_HOST, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_SSL
+ *
+ * Azure: If you see "remaining connection slots are reserved for azure replication users",
+ * the DB is at max connections (API holds most). This script retries connect with backoff.
+ * For reliable deploys: run migrations before starting the new API, or during low traffic.
  */
 
 import 'dotenv/config';
@@ -16,6 +20,18 @@ const { Client } = pkg;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const API_DIR = join(__dirname, '../..');
 const MIGRATIONS_DIR = join(API_DIR, 'scripts/migrations');
+
+const CONNECT_RETRIES = parseInt(process.env.MIGRATE_CONNECT_RETRIES || '5', 10);
+const CONNECT_RETRY_DELAY_MS = parseInt(process.env.MIGRATE_CONNECT_RETRY_DELAY_MS || '8000', 10);
+
+function isConnectionSlotError(err) {
+  const msg = (err && err.message || '').toLowerCase();
+  return msg.includes('remaining connection slots') || msg.includes('too many clients') || msg.includes('connection refused');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 const CREATE_MIGRATIONS_TABLE = `
 CREATE TABLE IF NOT EXISTS migrations (
@@ -38,6 +54,25 @@ function listMigrationFiles() {
   return files;
 }
 
+async function connectWithRetry(client) {
+  let lastErr;
+  for (let attempt = 1; attempt <= CONNECT_RETRIES; attempt++) {
+    try {
+      await client.connect();
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < CONNECT_RETRIES && isConnectionSlotError(err)) {
+        console.warn(`[migrate] Connection attempt ${attempt}/${CONNECT_RETRIES} failed (${err.message}). Retrying in ${CONNECT_RETRY_DELAY_MS / 1000}s...`);
+        await sleep(CONNECT_RETRY_DELAY_MS);
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw lastErr;
+}
+
 async function runAllMigrations() {
   const client = new Client({
     host: process.env.POSTGRES_HOST || 'localhost',
@@ -46,10 +81,11 @@ async function runAllMigrations() {
     user: process.env.POSTGRES_USER,
     password: process.env.POSTGRES_PASSWORD,
     ssl: process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: false } : false,
+    connectionTimeoutMillis: 15000,
   });
 
   try {
-    await client.connect();
+    await connectWithRetry(client);
     console.log(`[migrate] Connected to ${process.env.POSTGRES_DB || 'tiwater_timeseries'} @ ${process.env.POSTGRES_HOST || 'localhost'}`);
 
     // Ensure migrations table exists

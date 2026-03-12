@@ -62,6 +62,9 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_SSL: ${{ secrets.POSTGRES_SSL }}
           POSTGRES_EXCLUDE_MIGRATIONS: 001_create_sensores_table.sql
+          # Retry connect when Azure returns "remaining connection slots reserved for replication"
+          MIGRATE_CONNECT_RETRIES: "6"
+          MIGRATE_CONNECT_RETRY_DELAY_MS: "10000"
         run: |
           if [ -d Aquatech_api ]; then cd Aquatech_api; fi
           npm run migrate:deploy
