@@ -3,6 +3,7 @@ import ReportModel from '../models/postgres/report.model.js';
 import ProductLogModel from '../models/postgres/productLog.model.js';
 import ProductModel from '../models/postgres/product.model.js';
 import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
+import PuntoVentaV1Model from '../models/postgres/puntoVentaV1.model.js';
 import moment from 'moment';
 
 export const getReports = async (req, res) => {
@@ -606,8 +607,12 @@ export const reporteMensual = async (req, res) => {
       });
     }
 
-    // Cargar punto de venta (V2 puntoventa; products come from meta.product_ids, same as puntoVenta detail)
-    const punto = await PuntoVentaModel.findById(parseInt(puntoVentaId, 10)) ?? await PuntoVentaModel.findByCode(puntoVentaId);
+    // Reporte mensual is V1: scope by punto's assigned products only. Load puntoventa_v1 (V1 detalle sends puntoventa_v1.id).
+    const idNum = parseInt(String(puntoVentaId).trim(), 10);
+    let punto = !Number.isNaN(idNum) ? await PuntoVentaV1Model.findById(idNum) : null;
+    if (!punto) {
+      punto = await PuntoVentaModel.findById(parseInt(puntoVentaId, 10)) ?? await PuntoVentaModel.findByCode(puntoVentaId);
+    }
     if (!punto) {
       return res.status(404).json({
         success: false,
@@ -615,7 +620,7 @@ export const reporteMensual = async (req, res) => {
       });
     }
 
-    // Resolve product IDs from meta.product_ids (Mongo export may have stored ids here; model does not attach productos)
+    // Product IDs only from meta.product_ids (assigned to this punto). No fallback to all client products.
     const metaObj = punto.meta && typeof punto.meta === 'object' ? punto.meta : (typeof punto.meta === 'string' ? (() => { try { return JSON.parse(punto.meta); } catch (e) { return null; } })() : null);
     const rawIds = metaObj && metaObj.product_ids != null
       ? (Array.isArray(metaObj.product_ids) ? metaObj.product_ids : [metaObj.product_ids])
@@ -628,17 +633,8 @@ export const reporteMensual = async (req, res) => {
         if (!p) p = await ProductModel.findByDeviceId(String(rawId));
         if (p) resolvedProducts.push(p);
       } else {
-        // e.g. Mongo ObjectId string: try by device_id
         const p = await ProductModel.findByDeviceId(String(rawId));
         if (p) resolvedProducts.push(p);
-      }
-    }
-    // Fallback: if no products from meta, use products by client (same client as punto) so migrated data without product_ids still shows report
-    if (resolvedProducts.length === 0 && punto.clientId) {
-      const clientId = typeof punto.clientId === 'string' ? parseInt(punto.clientId, 10) : punto.clientId;
-      if (!Number.isNaN(clientId)) {
-        const byClient = await ProductModel.find({ client_id: clientId });
-        resolvedProducts.push(...(byClient || []));
       }
     }
     // Postgres product_logs.product_id is BIGINT; Product.parseRow exposes table id as _id (string)
