@@ -1278,8 +1278,22 @@ export const addPuntoVentaV2 = async (req, res) => {
         puntoVentaData.clientId = clientId;
       }
     }
+
+    const longInCreate = puntoVentaData.long !== undefined ? puntoVentaData.long : puntoVentaData.lon;
+    const explicitLatC = puntoVentaData.lat !== undefined && puntoVentaData.lat !== null && String(puntoVentaData.lat).trim() !== '';
+    const explicitLongC = longInCreate !== undefined && longInCreate !== null && String(longInCreate).trim() !== '';
+    if (explicitLongC && puntoVentaData.long === undefined) {
+      puntoVentaData.long = longInCreate;
+    }
+    if (explicitLatC) {
+      const n = parseFloat(puntoVentaData.lat);
+      if (!Number.isNaN(n)) puntoVentaData.lat = n;
+    }
+    if (explicitLongC) {
+      const n = parseFloat(longInCreate);
+      if (!Number.isNaN(n)) puntoVentaData.long = n;
+    }
     
-    // Handle city - fetch city data and update lat/long/address
     if (puntoVentaData.city) {
       try {
         const cityId = typeof puntoVentaData.city === 'string' 
@@ -1288,11 +1302,12 @@ export const addPuntoVentaV2 = async (req, res) => {
         if (!isNaN(cityId)) {
           const cityData = await CityModel.findById(cityId);
           if (cityData) {
-            // Update lat and long from city data
-            puntoVentaData.lat = cityData.lat || puntoVentaData.lat;
-            puntoVentaData.long = cityData.lon || puntoVentaData.long;
-            
-            // Update address with city information
+            if (!explicitLatC) {
+              puntoVentaData.lat = cityData.lat ?? puntoVentaData.lat;
+            }
+            if (!explicitLongC) {
+              puntoVentaData.long = cityData.lon ?? puntoVentaData.long;
+            }
             let addressObj = {};
             if (puntoVentaData.address) {
               try {
@@ -1305,8 +1320,13 @@ export const addPuntoVentaV2 = async (req, res) => {
             }
             addressObj.city = cityData.city || addressObj.city;
             addressObj.state = cityData.state || addressObj.state;
-            addressObj.lat = cityData.lat || addressObj.lat;
-            addressObj.lon = cityData.lon || addressObj.lon;
+            if (explicitLatC && explicitLongC) {
+              addressObj.lat = puntoVentaData.lat;
+              addressObj.lon = puntoVentaData.long;
+            } else {
+              addressObj.lat = cityData.lat ?? addressObj.lat;
+              addressObj.lon = cityData.lon ?? addressObj.lon;
+            }
             puntoVentaData.address = addressObj;
           }
         }
@@ -1362,8 +1382,23 @@ export const updatePuntoVentaV2 = async (req, res) => {
         puntoVentaData.clientId = clientId;
       }
     }
+
+    const longIn = puntoVentaData.long !== undefined ? puntoVentaData.long : puntoVentaData.lon;
+    const explicitLat = puntoVentaData.lat !== undefined && puntoVentaData.lat !== null && String(puntoVentaData.lat).trim() !== '';
+    const explicitLong = longIn !== undefined && longIn !== null && String(longIn).trim() !== '';
+    if (explicitLong && puntoVentaData.long === undefined) {
+      puntoVentaData.long = longIn;
+    }
+    if (explicitLat) {
+      const n = parseFloat(puntoVentaData.lat);
+      if (!Number.isNaN(n)) puntoVentaData.lat = n;
+    }
+    if (explicitLong) {
+      const n = parseFloat(longIn);
+      if (!Number.isNaN(n)) puntoVentaData.long = n;
+    }
     
-    // Handle city - fetch city data and update lat/long/address
+    // Handle city - fetch city data; only copy lat/long from city when not explicitly sent
     if (puntoVentaData.city) {
       try {
         const cityId = typeof puntoVentaData.city === 'string' 
@@ -1372,11 +1407,13 @@ export const updatePuntoVentaV2 = async (req, res) => {
         if (!isNaN(cityId)) {
           const cityData = await CityModel.findById(cityId);
           if (cityData) {
-            // Update lat and long from city data
-            puntoVentaData.lat = cityData.lat || puntoVentaData.lat;
-            puntoVentaData.long = cityData.lon || puntoVentaData.long;
+            if (!explicitLat) {
+              puntoVentaData.lat = cityData.lat ?? puntoVentaData.lat;
+            }
+            if (!explicitLong) {
+              puntoVentaData.long = cityData.lon ?? puntoVentaData.long;
+            }
             
-            // Update address with city information
             let addressObj = {};
             if (puntoVentaData.address) {
               try {
@@ -1389,8 +1426,13 @@ export const updatePuntoVentaV2 = async (req, res) => {
             }
             addressObj.city = cityData.city || addressObj.city;
             addressObj.state = cityData.state || addressObj.state;
-            addressObj.lat = cityData.lat || addressObj.lat;
-            addressObj.lon = cityData.lon || addressObj.lon;
+            if (explicitLat && explicitLong) {
+              addressObj.lat = puntoVentaData.lat;
+              addressObj.lon = puntoVentaData.long;
+            } else {
+              addressObj.lat = cityData.lat ?? addressObj.lat;
+              addressObj.lon = cityData.lon ?? addressObj.lon;
+            }
             puntoVentaData.address = addressObj;
           }
         }
