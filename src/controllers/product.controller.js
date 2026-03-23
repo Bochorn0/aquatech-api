@@ -223,7 +223,7 @@ export const getAllProducts = async (req, res) => {
 
     // When Tuya not configured, use DB products only; otherwise combine Tuya + DB
     const products = tuyaNotConfigured
-      ? dbProducts
+      ? dbProducts.filter((p) => p && p.id && !supersededDeviceIds.has(String(p.id)))
       : await Promise.all(tuyaDevicesVisible.map(async (realProduct) => {
       const dbProduct = dbProductsMap.get(realProduct.id);
       if (dbProduct) {
