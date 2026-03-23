@@ -6,6 +6,30 @@ import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaV1Model from '../models/postgres/puntoVentaV1.model.js';
 import moment from 'moment';
 
+async function getMergedProductLogsWithFallback(product, startOfDay, endOfDay) {
+  const queryByDate = { date: { $gte: startOfDay, $lte: endOfDay }, _sort: { date: 1 }, _limit: 100000 };
+  const canonicalLogs = await ProductLogModel.find({ ...queryByDate, product_id: product.id });
+  const mergedIds = Array.isArray(product?.merged_from_device_ids) ? product.merged_from_device_ids : [];
+  if (!mergedIds.length) return canonicalLogs;
+
+  const mergedLogsArrays = await Promise.all(
+    mergedIds.map((deviceId) => ProductLogModel.find({ ...queryByDate, product_id: String(deviceId) }))
+  );
+  const mergedLogs = mergedLogsArrays.flat();
+
+  // Fallback semantics: old-device log is used only when canonical device doesn't have that timestamp.
+  const byTimestamp = new Map();
+  for (const log of mergedLogs) {
+    const ts = new Date(log.date).getTime();
+    if (!Number.isNaN(ts) && !byTimestamp.has(ts)) byTimestamp.set(ts, log);
+  }
+  for (const log of canonicalLogs) {
+    const ts = new Date(log.date).getTime();
+    if (!Number.isNaN(ts)) byTimestamp.set(ts, log);
+  }
+  return Array.from(byTimestamp.values()).sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
 export const getReports = async (req, res) => {
   try {
     console.log('Fetching reports...');
@@ -121,13 +145,12 @@ export async function generateProductLogsReport(product_id, date, product = null
 
     const useRangeMode = !!(startDate && endDate);
 
+    const mergedLogs = await getMergedProductLogsWithFallback(product, startOfDay, endOfDay);
+
     // ====== NIVEL + RANGO (V1): agregar por hora (Postgres) ======
     const REPORT_TZ = 'America/Hermosillo';
     if (productType === 'Nivel' && useLastValue && useRangeMode) {
-      const logs = await ProductLogModel.find({
-        product_id: product_id,
-        date: { $gte: startOfDay, $lte: endOfDay },
-      });
+      const logs = mergedLogs;
       const bucketsMap = {};
       logs.sort((a, b) => new Date(a.date) - new Date(b.date));
       for (const log of logs) {
@@ -164,16 +187,10 @@ export async function generateProductLogsReport(product_id, date, product = null
     // ====== OSMOSIS (V1): agregar por hora en Postgres cuando hay muchos logs ======
     const USE_AGGREGATION_THRESHOLD = 2000;
     if (productType !== 'Nivel') {
-      const count = await ProductLogModel.count({
-        product_id,
-        date: { $gte: startOfDay, $lte: endOfDay },
-      });
+      const count = mergedLogs.length;
       if (count >= USE_AGGREGATION_THRESHOLD) {
         const isSpecial = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'].includes(product_id);
-        const osmLogs = await ProductLogModel.find({
-          product_id,
-          date: { $gte: startOfDay, $lte: endOfDay },
-        });
+        const osmLogs = mergedLogs;
         const osmBucketsMap = {};
         for (const log of osmLogs) {
           const d = moment(log.date).tz('America/Hermosillo');
@@ -237,10 +254,7 @@ export async function generateProductLogsReport(product_id, date, product = null
     }
 
     // ====== OBTENER LOGS DEL DÍA (Osmosis o un solo día) ======
-    const logs = await ProductLogModel.find({
-      product_id: product_id,
-      date: { $gte: startOfDay, $lte: endOfDay },
-    });
+    const logs = mergedLogs;
 
     console.log(`📊 [generateProductLogsReport] ${logs.length} logs encontrados`);
 

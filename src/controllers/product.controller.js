@@ -17,35 +17,47 @@ const productos_nivel = [
 
 const drives = ["Humalla", "Piaxtla", "Tierra Blanca", "Estadio", "Sarzana", "Buena vista", "Valle marquez", "Aeropuerto", "Navarrete", "Planta2", "Pinos", "Perisur"];
 
-/** Sum Tuya raw flowrate_total_* (0.1 L units) across canonical + merged devices; list transform divides by 10 once. */
-function mergeOsmosisTotalRawStatusFromDevices(canonicalTuya, mergedFromDeviceIds, allTuyaData, historicalLiters = null) {
+function getRawStatusValue(status, code) {
+  return Number((status || []).find((s) => s.code === code)?.value) || 0;
+}
+
+function upsertRawStatusValue(status, code, value) {
+  const out = Array.isArray(status) ? JSON.parse(JSON.stringify(status)) : [];
+  const idx = out.findIndex((s) => s.code === code);
+  if (idx >= 0) out[idx] = { ...out[idx], value };
+  else out.push({ code, value });
+  return out;
+}
+
+/** Add legacy baseline from merged rows stored in products table (raw 0.1L). */
+async function mergeOsmosisTotalsWithProductTableBaseline(canonicalStatus, mergedFromDeviceIds) {
   if (!Array.isArray(mergedFromDeviceIds) || mergedFromDeviceIds.length === 0) {
-    return canonicalTuya.status;
+    return canonicalStatus;
   }
-  const devices = [canonicalTuya];
-  for (const mid of mergedFromDeviceIds) {
-    const p = (allTuyaData || []).find((t) => t && String(t.id) === String(mid));
-    if (p) devices.push(p);
-  }
-  const base = Array.isArray(canonicalTuya.status)
-    ? JSON.parse(JSON.stringify(canonicalTuya.status))
-    : [];
-  const sumRaw = (code) => devices.reduce((acc, d) => {
-    const st = (d.status || []).find((s) => s.code === code);
-    return acc + (Number(st?.value) || 0);
-  }, 0);
-  for (const code of ['flowrate_total_1', 'flowrate_total_2']) {
-    const rawSum = sumRaw(code);
-    const historicalRawOffset =
-      code === 'flowrate_total_1'
-        ? (Number(historicalLiters?.production_volume) || 0) * 10
-        : (Number(historicalLiters?.rejected_volume) || 0) * 10;
-    const mergedRaw = rawSum + historicalRawOffset;
-    const i = base.findIndex((s) => s.code === code);
-    if (i >= 0) base[i] = { ...base[i], value: mergedRaw };
-    else base.push({ code, value: mergedRaw });
-  }
-  return base;
+  const mergedRows = await ProductModel.findManyByExactDeviceIds(mergedFromDeviceIds);
+  if (!mergedRows.length) return canonicalStatus;
+
+  const baselineRawProd = mergedRows.reduce(
+    (acc, p) => acc + getRawStatusValue(p.status, 'flowrate_total_1'),
+    0
+  );
+  const baselineRawRej = mergedRows.reduce(
+    (acc, p) => acc + getRawStatusValue(p.status, 'flowrate_total_2'),
+    0
+  );
+
+  let mergedStatus = canonicalStatus;
+  mergedStatus = upsertRawStatusValue(
+    mergedStatus,
+    'flowrate_total_1',
+    getRawStatusValue(canonicalStatus, 'flowrate_total_1') + baselineRawProd
+  );
+  mergedStatus = upsertRawStatusValue(
+    mergedStatus,
+    'flowrate_total_2',
+    getRawStatusValue(canonicalStatus, 'flowrate_total_2') + baselineRawRej
+  );
+  return mergedStatus;
 }
 
 function anyMergedDeviceOnline(canonicalTuya, mergedFromDeviceIds, allTuyaData) {
@@ -55,18 +67,6 @@ function anyMergedDeviceOnline(canonicalTuya, mergedFromDeviceIds, allTuyaData) 
     if (p?.online) return true;
   }
   return false;
-}
-
-// Historical volumes in product_logs may come as liters or 0.1L units depending on source path.
-// Normalize to liters before adding baseline to Tuya totals.
-function normalizeHistoricalVolumeLiters(value, currentTuyaLiters = 0) {
-  const n = Number(value) || 0;
-  if (n <= 0) return 0;
-  // If historical value is disproportionately larger than live liters, treat it as 0.1L units.
-  if (currentTuyaLiters > 0 && n > currentTuyaLiters * 20) return n / 10;
-  // Fallback guard for obviously oversized values.
-  if (n > 10000) return n / 10;
-  return n;
 }
 
 export const getAllProducts = async (req, res) => {
@@ -197,25 +197,10 @@ export const getAllProducts = async (req, res) => {
       dbProductsMap.set(p.id, p);
     });
 
-    // If merged device ids are no longer returned by Tuya, keep cumulative totals by adding
-    // historical maxima from product_logs as a baseline offset.
-    const tuyaDeviceIdSet = new Set((realProducts.data || []).map((p) => String(p.id)));
-    const needsHistoricalBaseline = [];
-    for (const p of dbProducts) {
-      const merged = Array.isArray(p.merged_from_device_ids) ? p.merged_from_device_ids : [];
-      if (!merged.length) continue;
-      const hasAnyMergedInTuya = merged.some((mid) => tuyaDeviceIdSet.has(String(mid)));
-      if (!hasAnyMergedInTuya) needsHistoricalBaseline.push(...merged.map(String));
-    }
-    const historicalByMergedDeviceId = await ProductLogModel.getMaxVolumesByDeviceIds(needsHistoricalBaseline);
-    const historicalByCanonicalProductId = await ProductLogModel.getMaxVolumesByProductIds(
-      dbProducts.map((p) => Number(p._id))
-    );
-
     // When Tuya not configured, use DB products only; otherwise combine Tuya + DB
     const products = tuyaNotConfigured
       ? dbProducts
-      : tuyaDevicesVisible.map(realProduct => {
+      : await Promise.all(tuyaDevicesVisible.map(async (realProduct) => {
       const dbProduct = dbProductsMap.get(realProduct.id);
       if (dbProduct) {
         const merged = dbProduct.merged_from_device_ids || [];
@@ -225,61 +210,7 @@ export const getAllProducts = async (req, res) => {
         let status = realProduct.status;
         let online = realProduct.online;
         if (merged.length > 0 && isOsmosisRow) {
-          const hasAnyMergedInTuya = merged.some((mid) =>
-            (realProducts.data || []).some((p) => p && String(p.id) === String(mid))
-          );
-          let historicalLiters = hasAnyMergedInTuya
-            ? null
-            : merged.reduce((acc, mid) => {
-                const row = historicalByMergedDeviceId.get(String(mid));
-                if (!row) return acc;
-                const currentTuyaProd = Number(
-                  (realProduct.status || []).find((s) => s.code === 'flowrate_total_1')?.value
-                ) / 10;
-                const currentTuyaRej = Number(
-                  (realProduct.status || []).find((s) => s.code === 'flowrate_total_2')?.value
-                ) / 10;
-                acc.production_volume += normalizeHistoricalVolumeLiters(row.production_volume, currentTuyaProd);
-                acc.rejected_volume += normalizeHistoricalVolumeLiters(row.rejected_volume, currentTuyaRej);
-                return acc;
-              }, { production_volume: 0, rejected_volume: 0 });
-
-          // If merged device logs were already reassigned to canonical product_id,
-          // old device_id lookup can be empty; use canonical max as baseline.
-          if (!hasAnyMergedInTuya) {
-            const canonicalId = Number(dbProduct._id);
-            const canonicalMax = historicalByCanonicalProductId.get(canonicalId);
-            const canonicalTuyaProd = Number(
-              (realProduct.status || []).find((s) => s.code === 'flowrate_total_1')?.value
-            ) / 10;
-            const canonicalTuyaRej = Number(
-              (realProduct.status || []).find((s) => s.code === 'flowrate_total_2')?.value
-            ) / 10;
-            if (canonicalMax) {
-              const canonicalMaxProd = normalizeHistoricalVolumeLiters(
-                canonicalMax.production_volume,
-                Number(canonicalTuyaProd) || 0
-              );
-              const canonicalMaxRej = normalizeHistoricalVolumeLiters(
-                canonicalMax.rejected_volume,
-                Number(canonicalTuyaRej) || 0
-              );
-              historicalLiters.production_volume = Math.max(
-                Number(historicalLiters.production_volume) || 0,
-                Math.max(0, Number(canonicalMaxProd) - (Number(canonicalTuyaProd) || 0))
-              );
-              historicalLiters.rejected_volume = Math.max(
-                Number(historicalLiters.rejected_volume) || 0,
-                Math.max(0, Number(canonicalMaxRej) - (Number(canonicalTuyaRej) || 0))
-              );
-            }
-          }
-          status = mergeOsmosisTotalRawStatusFromDevices(
-            realProduct,
-            merged,
-            realProducts.data || [],
-            historicalLiters
-          );
+          status = await mergeOsmosisTotalsWithProductTableBaseline(realProduct.status, merged);
           online = anyMergedDeviceOnline(realProduct, merged, realProducts.data || []);
         }
         return {
@@ -302,7 +233,7 @@ export const getAllProducts = async (req, res) => {
         city: realProduct.city || 'Hermosillo',
         state: realProduct.state || 'Sonora',
       };
-    });
+    }));
 
     if (tuyaNotConfigured) {
       devLog(`📦 [Tuya not configured] Using ${dbProducts.length} products from database only`);
@@ -763,6 +694,11 @@ export const getProductById = async (req, res) => {
         if (product) {
           const lastDisplayFail = await getLastUpdatedDisplay(id, product.update_time);
           const outFail = { ...product };
+          const mergedFail = Array.isArray(outFail.merged_from_device_ids) ? outFail.merged_from_device_ids : [];
+          const isOsmosisFail = String(outFail.product_type || 'Osmosis').toLowerCase() === 'osmosis';
+          if (isOsmosisFail && mergedFail.length > 0) {
+            outFail.status = await mergeOsmosisTotalsWithProductTableBaseline(outFail.status, mergedFail);
+          }
           outFail.last_updated_display = lastDisplayFail != null ? lastDisplayFail : outFail.update_time;
           const productosEspecialesFail = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
           if (outFail.status && Array.isArray(outFail.status) && !productosEspecialesFail.includes(id)) {
@@ -784,6 +720,10 @@ export const getProductById = async (req, res) => {
           'ebf9738480d78e0132gnru',
           'ebea4ffa2ab1483940nrqn'
         ];
+        const mergedCurrent = Array.isArray(product.merged_from_device_ids) ? product.merged_from_device_ids : [];
+        if (isOsmosis && mergedCurrent.length > 0) {
+          product.status = await mergeOsmosisTotalsWithProductTableBaseline(product.status, mergedCurrent);
+        }
         devLog(`Product ${id} updated in MongoDB.`);
         
         // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
@@ -862,6 +802,11 @@ export const getProductById = async (req, res) => {
       devLog('Tuya API did not return data. Returning existing MongoDB product.');
       const lastDisplayExisting = await getLastUpdatedDisplay(id, product.update_time);
       const outExisting = { ...product };
+      const mergedExisting = Array.isArray(outExisting.merged_from_device_ids) ? outExisting.merged_from_device_ids : [];
+      const isOsmosisExisting = String(outExisting.product_type || 'Osmosis').toLowerCase() === 'osmosis';
+      if (isOsmosisExisting && mergedExisting.length > 0) {
+        outExisting.status = await mergeOsmosisTotalsWithProductTableBaseline(outExisting.status, mergedExisting);
+      }
       outExisting.last_updated_display = lastDisplayExisting != null ? lastDisplayExisting : outExisting.update_time;
       // Apply same flowrate_total_1/2 ÷10 for display (Tuya uses 0.1 L units)
       const productosEspeciales = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
@@ -908,6 +853,10 @@ export const getProductById = async (req, res) => {
     
     // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
     const isOsmosis = newProductModel.product_type === 'Osmosis' || newProductModel.product_type === 'osmosis';
+    const mergedNew = Array.isArray(newProductModel.merged_from_device_ids) ? newProductModel.merged_from_device_ids : [];
+    if (isOsmosis && mergedNew.length > 0) {
+      newProductModel.status = await mergeOsmosisTotalsWithProductTableBaseline(newProductModel.status, mergedNew);
+    }
     
     if (isOsmosis && newProductModel.status && Array.isArray(newProductModel.status)) {
       const flowSpeed1 = newProductModel.status.find(s => s.code === 'flowrate_speed_1');

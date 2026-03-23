@@ -33,6 +33,24 @@ class ProductModel {
     return this.findById(idOrDeviceId);
   }
 
+  /** Strict lookup by the row's own device_id (does not resolve merged_from_device_ids). */
+  static async findByExactDeviceId(deviceId) {
+    if (!deviceId) return null;
+    const result = await query('SELECT * FROM products WHERE device_id = $1 LIMIT 1', [deviceId]);
+    return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+  }
+
+  /** Strict lookup for many device_ids (does not resolve merged_from_device_ids). */
+  static async findManyByExactDeviceIds(deviceIds = []) {
+    const ids = Array.from(new Set((deviceIds || []).filter(Boolean).map(String)));
+    if (ids.length === 0) return [];
+    const result = await query(
+      'SELECT * FROM products WHERE device_id = ANY($1::text[])',
+      [ids]
+    );
+    return (result.rows || []).map((r) => this.parseRow(r));
+  }
+
   /** All Tuya device_ids absorbed into another row (equipos list: hide duplicate Tuya devices). */
   static async getSupersededDeviceIdSet() {
     try {
