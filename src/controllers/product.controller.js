@@ -57,6 +57,18 @@ function anyMergedDeviceOnline(canonicalTuya, mergedFromDeviceIds, allTuyaData) 
   return false;
 }
 
+// Historical volumes in product_logs may come as liters or 0.1L units depending on source path.
+// Normalize to liters before adding baseline to Tuya totals.
+function normalizeHistoricalVolumeLiters(value, currentTuyaLiters = 0) {
+  const n = Number(value) || 0;
+  if (n <= 0) return 0;
+  // If historical value is disproportionately larger than live liters, treat it as 0.1L units.
+  if (currentTuyaLiters > 0 && n > currentTuyaLiters * 20) return n / 10;
+  // Fallback guard for obviously oversized values.
+  if (n > 10000) return n / 10;
+  return n;
+}
+
 export const getAllProducts = async (req, res) => {
   try {
     const user = req.user;
@@ -221,8 +233,14 @@ export const getAllProducts = async (req, res) => {
             : merged.reduce((acc, mid) => {
                 const row = historicalByMergedDeviceId.get(String(mid));
                 if (!row) return acc;
-                acc.production_volume += Number(row.production_volume) || 0;
-                acc.rejected_volume += Number(row.rejected_volume) || 0;
+                const currentTuyaProd = Number(
+                  (realProduct.status || []).find((s) => s.code === 'flowrate_total_1')?.value
+                ) / 10;
+                const currentTuyaRej = Number(
+                  (realProduct.status || []).find((s) => s.code === 'flowrate_total_2')?.value
+                ) / 10;
+                acc.production_volume += normalizeHistoricalVolumeLiters(row.production_volume, currentTuyaProd);
+                acc.rejected_volume += normalizeHistoricalVolumeLiters(row.rejected_volume, currentTuyaRej);
                 return acc;
               }, { production_volume: 0, rejected_volume: 0 });
 
@@ -238,13 +256,21 @@ export const getAllProducts = async (req, res) => {
               (realProduct.status || []).find((s) => s.code === 'flowrate_total_2')?.value
             ) / 10;
             if (canonicalMax) {
+              const canonicalMaxProd = normalizeHistoricalVolumeLiters(
+                canonicalMax.production_volume,
+                Number(canonicalTuyaProd) || 0
+              );
+              const canonicalMaxRej = normalizeHistoricalVolumeLiters(
+                canonicalMax.rejected_volume,
+                Number(canonicalTuyaRej) || 0
+              );
               historicalLiters.production_volume = Math.max(
                 Number(historicalLiters.production_volume) || 0,
-                Math.max(0, Number(canonicalMax.production_volume) - (Number(canonicalTuyaProd) || 0))
+                Math.max(0, Number(canonicalMaxProd) - (Number(canonicalTuyaProd) || 0))
               );
               historicalLiters.rejected_volume = Math.max(
                 Number(historicalLiters.rejected_volume) || 0,
-                Math.max(0, Number(canonicalMax.rejected_volume) - (Number(canonicalTuyaRej) || 0))
+                Math.max(0, Number(canonicalMaxRej) - (Number(canonicalTuyaRej) || 0))
               );
             }
           }
