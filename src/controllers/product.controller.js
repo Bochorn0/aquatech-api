@@ -17,6 +17,41 @@ const productos_nivel = [
 
 const drives = ["Humalla", "Piaxtla", "Tierra Blanca", "Estadio", "Sarzana", "Buena vista", "Valle marquez", "Aeropuerto", "Navarrete", "Planta2", "Pinos", "Perisur"];
 
+/** Sum Tuya raw flowrate_total_* (0.1 L units) across canonical + merged devices; list transform divides by 10 once. */
+function mergeOsmosisTotalRawStatusFromDevices(canonicalTuya, mergedFromDeviceIds, allTuyaData) {
+  if (!Array.isArray(mergedFromDeviceIds) || mergedFromDeviceIds.length === 0) {
+    return canonicalTuya.status;
+  }
+  const devices = [canonicalTuya];
+  for (const mid of mergedFromDeviceIds) {
+    const p = (allTuyaData || []).find((t) => t && String(t.id) === String(mid));
+    if (p) devices.push(p);
+  }
+  const base = Array.isArray(canonicalTuya.status)
+    ? JSON.parse(JSON.stringify(canonicalTuya.status))
+    : [];
+  const sumRaw = (code) => devices.reduce((acc, d) => {
+    const st = (d.status || []).find((s) => s.code === code);
+    return acc + (Number(st?.value) || 0);
+  }, 0);
+  for (const code of ['flowrate_total_1', 'flowrate_total_2']) {
+    const rawSum = sumRaw(code);
+    const i = base.findIndex((s) => s.code === code);
+    if (i >= 0) base[i] = { ...base[i], value: rawSum };
+    else base.push({ code, value: rawSum });
+  }
+  return base;
+}
+
+function anyMergedDeviceOnline(canonicalTuya, mergedFromDeviceIds, allTuyaData) {
+  if (canonicalTuya?.online) return true;
+  for (const mid of mergedFromDeviceIds || []) {
+    const p = (allTuyaData || []).find((t) => t && String(t.id) === String(mid));
+    if (p?.online) return true;
+  }
+  return false;
+}
+
 export const getAllProducts = async (req, res) => {
   try {
     const user = req.user;
@@ -151,12 +186,26 @@ export const getAllProducts = async (req, res) => {
       : tuyaDevicesVisible.map(realProduct => {
       const dbProduct = dbProductsMap.get(realProduct.id);
       if (dbProduct) {
+        const merged = dbProduct.merged_from_device_ids || [];
+        const isOsmosisRow =
+          String(dbProduct.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
+          !productos_nivel.includes(realProduct.id);
+        let status = realProduct.status;
+        let online = realProduct.online;
+        if (merged.length > 0 && isOsmosisRow) {
+          status = mergeOsmosisTotalRawStatusFromDevices(
+            realProduct,
+            merged,
+            realProducts.data || []
+          );
+          online = anyMergedDeviceOnline(realProduct, merged, realProducts.data || []);
+        }
         return {
           ...dbProduct,
-          online: realProduct.online,
+          online,
           name: realProduct.name,
           ip: realProduct.ip,
-          status: realProduct.status,
+          status,
           update_time: realProduct.update_time,
           active_time: realProduct.active_time,
         };
@@ -317,7 +366,9 @@ export const getAllProducts = async (req, res) => {
 
     // 🔽 EXTRA: incluir productos sólo locales que no están en Tuya (visible list only)
     const idsTuya = new Set(tuyaDevicesVisible.map(p => p.id));
-    const productosLocales = dbProducts.filter(p => !idsTuya.has(p.id));
+    const productosLocales = dbProducts.filter(
+      (p) => !idsTuya.has(p.id) && !supersededDeviceIds.has(p.id)
+    );
     const productosLocalesAdaptados = productosLocales.map((dbProduct) => ({
       ...dbProduct,
       online: false,
@@ -355,6 +406,16 @@ export const getAllProducts = async (req, res) => {
         p.create_time <= filtros.create_time.$lte
       );
     }
+
+    // One row per Tuya device_id (Tuya branch wins over duplicate local row)
+    const seenDeviceIds = new Set();
+    todosLosProductos = todosLosProductos.filter((p) => {
+      const id = p.id != null ? String(p.id) : '';
+      if (!id) return true;
+      if (seenDeviceIds.has(id)) return false;
+      seenDeviceIds.add(id);
+      return true;
+    });
 
     devLog(`🎯 Final products after filters (combinados): ${todosLosProductos.length}`);
     res.json(todosLosProductos);
