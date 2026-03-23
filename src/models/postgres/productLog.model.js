@@ -203,6 +203,28 @@ class ProductLogModel {
     return (result.rows || []).map(r => ({ id: r.id, date: r.date }));
   }
 
+  static async getMaxVolumesByDeviceIds(deviceIds = []) {
+    const ids = Array.from(new Set((deviceIds || []).filter(Boolean).map(String)));
+    if (ids.length === 0) return new Map();
+    const result = await query(
+      `SELECT product_device_id,
+              MAX(COALESCE(production_volume, 0)) AS max_production_volume,
+              MAX(COALESCE(rejected_volume, 0))   AS max_rejected_volume
+       FROM product_logs
+       WHERE product_device_id = ANY($1::text[])
+       GROUP BY product_device_id`,
+      [ids]
+    );
+    const map = new Map();
+    for (const row of result.rows || []) {
+      map.set(String(row.product_device_id), {
+        production_volume: Number(row.max_production_volume) || 0,
+        rejected_volume: Number(row.max_rejected_volume) || 0,
+      });
+    }
+    return map;
+  }
+
   static parseRow(row) {
     if (!row) return null;
     return {
