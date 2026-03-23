@@ -196,6 +196,9 @@ export const getAllProducts = async (req, res) => {
       if (!hasAnyMergedInTuya) needsHistoricalBaseline.push(...merged.map(String));
     }
     const historicalByMergedDeviceId = await ProductLogModel.getMaxVolumesByDeviceIds(needsHistoricalBaseline);
+    const historicalByCanonicalProductId = await ProductLogModel.getMaxVolumesByProductIds(
+      dbProducts.map((p) => Number(p._id))
+    );
 
     // When Tuya not configured, use DB products only; otherwise combine Tuya + DB
     const products = tuyaNotConfigured
@@ -213,7 +216,7 @@ export const getAllProducts = async (req, res) => {
           const hasAnyMergedInTuya = merged.some((mid) =>
             (realProducts.data || []).some((p) => p && String(p.id) === String(mid))
           );
-          const historicalLiters = hasAnyMergedInTuya
+          let historicalLiters = hasAnyMergedInTuya
             ? null
             : merged.reduce((acc, mid) => {
                 const row = historicalByMergedDeviceId.get(String(mid));
@@ -222,6 +225,29 @@ export const getAllProducts = async (req, res) => {
                 acc.rejected_volume += Number(row.rejected_volume) || 0;
                 return acc;
               }, { production_volume: 0, rejected_volume: 0 });
+
+          // If merged device logs were already reassigned to canonical product_id,
+          // old device_id lookup can be empty; use canonical max as baseline.
+          if (!hasAnyMergedInTuya) {
+            const canonicalId = Number(dbProduct._id);
+            const canonicalMax = historicalByCanonicalProductId.get(canonicalId);
+            const canonicalTuyaProd = Number(
+              (realProduct.status || []).find((s) => s.code === 'flowrate_total_1')?.value
+            ) / 10;
+            const canonicalTuyaRej = Number(
+              (realProduct.status || []).find((s) => s.code === 'flowrate_total_2')?.value
+            ) / 10;
+            if (canonicalMax) {
+              historicalLiters.production_volume = Math.max(
+                Number(historicalLiters.production_volume) || 0,
+                Math.max(0, Number(canonicalMax.production_volume) - (Number(canonicalTuyaProd) || 0))
+              );
+              historicalLiters.rejected_volume = Math.max(
+                Number(historicalLiters.rejected_volume) || 0,
+                Math.max(0, Number(canonicalMax.rejected_volume) - (Number(canonicalTuyaRej) || 0))
+              );
+            }
+          }
           status = mergeOsmosisTotalRawStatusFromDevices(
             realProduct,
             merged,

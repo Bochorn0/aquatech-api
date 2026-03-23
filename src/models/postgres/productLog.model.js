@@ -225,6 +225,34 @@ class ProductLogModel {
     return map;
   }
 
+  static async getMaxVolumesByProductIds(productIds = []) {
+    const ids = Array.from(
+      new Set(
+        (productIds || [])
+          .map((x) => Number(x))
+          .filter((x) => Number.isFinite(x) && x > 0)
+      )
+    );
+    if (ids.length === 0) return new Map();
+    const result = await query(
+      `SELECT product_id,
+              MAX(COALESCE(production_volume, 0)) AS max_production_volume,
+              MAX(COALESCE(rejected_volume, 0))   AS max_rejected_volume
+       FROM product_logs
+       WHERE product_id = ANY($1::bigint[])
+       GROUP BY product_id`,
+      [ids]
+    );
+    const map = new Map();
+    for (const row of result.rows || []) {
+      map.set(Number(row.product_id), {
+        production_volume: Number(row.max_production_volume) || 0,
+        rejected_volume: Number(row.max_rejected_volume) || 0,
+      });
+    }
+    return map;
+  }
+
   static parseRow(row) {
     if (!row) return null;
     return {
