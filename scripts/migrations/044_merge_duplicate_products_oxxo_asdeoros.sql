@@ -1,5 +1,5 @@
 -- Merge two Tuya devices that represent the same physical equipo (same name / punto).
--- Prerequisite: run 044_products_merged_from_device_ids.sql first (adds merged_from_device_ids).
+-- Prerequisite: 043_products_merged_from_device_ids.sql (adds merged_from_device_ids column).
 -- Scenario: keep NEW device, move all product_logs to NEW, drop OLD product row.
 --
 -- Devices (edit if you reuse this pattern):
@@ -26,7 +26,7 @@ WHERE meta IS NOT NULL
 
 -- If meta only has numeric ids (e.g. 7 → 22), fix manually in SQL or UI after checking no other punto shares id 7.
 
--- 2b) Logic layer: record merged Tuya id on canonical product (requires migration 044)
+-- 2b) Logic layer: record merged Tuya id on canonical product
 UPDATE products
 SET merged_from_device_ids = COALESCE(merged_from_device_ids, '[]'::jsonb) || jsonb_build_array('eb3a4ee3ad618b4696anyi'::text)
 WHERE device_id = 'eb49196e47e2711139bfx9';
