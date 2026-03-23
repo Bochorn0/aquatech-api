@@ -2167,10 +2167,11 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
                 groupedLogs[timestamp].flujo_rechazo = Number(log.value) || 0;
                 break;
               case 'flowrate_total_1':
-                groupedLogs[timestamp].production_volume = Number(log.value) || 0;
+                // Tuya reports totals in 0.1 L steps; store liters like API display / reporte mensual
+                groupedLogs[timestamp].production_volume = (Number(log.value) || 0) / 10;
                 break;
               case 'flowrate_total_2':
-                groupedLogs[timestamp].rejected_volume = Number(log.value) || 0;
+                groupedLogs[timestamp].rejected_volume = (Number(log.value) || 0) / 10;
                 break;
               case 'tds_out':
                 groupedLogs[timestamp].tds = Number(log.value) || 0;

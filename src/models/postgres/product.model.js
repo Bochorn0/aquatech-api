@@ -9,8 +9,20 @@ class ProductModel {
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
+  /**
+   * Resolve product by Tuya device_id: primary row OR canonical row that lists this id in merged_from_device_ids.
+   */
   static async findByDeviceId(deviceId) {
-    const result = await query('SELECT * FROM products WHERE device_id = $1 LIMIT 1', [deviceId]);
+    if (!deviceId) return null;
+    const result = await query(
+      `SELECT * FROM products
+       WHERE device_id = $1
+          OR (COALESCE(jsonb_typeof(merged_from_device_ids), 'array') = 'array'
+              AND merged_from_device_ids @> jsonb_build_array($1::text))
+       ORDER BY CASE WHEN device_id = $1 THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [deviceId]
+    );
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
@@ -26,12 +38,13 @@ class ProductModel {
     for (const data of items) {
       try {
         const row = this.toRow(data);
+        const mergedJson = JSON.stringify(Array.isArray(data.merged_from_device_ids) ? data.merged_from_device_ids : []);
         const r = await query(`
-          INSERT INTO products (device_id, active_time, last_time_active, product_type, biz_type, category, create_time, icon, ip, city, state, client_id, drive, lat, local_key, lon, model, name, online, owner_id, product_id, product_name, status, sub, time_zone, uid, update_time, uuid, tuya_logs_routine_enabled)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+          INSERT INTO products (device_id, active_time, last_time_active, product_type, biz_type, category, create_time, icon, ip, city, state, client_id, drive, lat, local_key, lon, model, name, online, owner_id, product_id, product_name, status, sub, time_zone, uid, update_time, uuid, tuya_logs_routine_enabled, merged_from_device_ids)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, COALESCE($30::jsonb, '[]'::jsonb))
           ON CONFLICT (device_id) DO UPDATE SET updatedat = CURRENT_TIMESTAMP
           RETURNING *
-        `, [row.device_id, row.active_time, row.last_time_active, row.product_type, row.biz_type, row.category, row.create_time, row.icon, row.ip, row.city, row.state, row.client_id, row.drive, row.lat, row.local_key, row.lon, row.model, row.name, row.online, row.owner_id, row.product_id, row.product_name, row.status, row.sub, row.time_zone, row.uid, row.update_time, row.uuid, row.tuya_logs_routine_enabled]);
+        `, [row.device_id, row.active_time, row.last_time_active, row.product_type, row.biz_type, row.category, row.create_time, row.icon, row.ip, row.city, row.state, row.client_id, row.drive, row.lat, row.local_key, row.lon, row.model, row.name, row.online, row.owner_id, row.product_id, row.product_name, row.status, row.sub, row.time_zone, row.uid, row.update_time, row.uuid, row.tuya_logs_routine_enabled, mergedJson]);
         if (r.rows?.[0]) created.push(this.parseRow(r.rows[0]));
       } catch (e) {
         devWarn('[ProductModel] insertMany skip:', e.message);
@@ -101,11 +114,12 @@ class ProductModel {
 
   static async create(data) {
     const row = this.toRow(data);
+    const mergedJson = JSON.stringify(Array.isArray(data.merged_from_device_ids) ? data.merged_from_device_ids : []);
     const result = await query(`
-      INSERT INTO products (device_id, active_time, last_time_active, product_type, biz_type, category, create_time, icon, ip, city, state, client_id, drive, lat, local_key, lon, model, name, online, owner_id, product_id, product_name, status, sub, time_zone, uid, update_time, uuid, tuya_logs_routine_enabled)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+      INSERT INTO products (device_id, active_time, last_time_active, product_type, biz_type, category, create_time, icon, ip, city, state, client_id, drive, lat, local_key, lon, model, name, online, owner_id, product_id, product_name, status, sub, time_zone, uid, update_time, uuid, tuya_logs_routine_enabled, merged_from_device_ids)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, COALESCE($30::jsonb, '[]'::jsonb))
       RETURNING *
-    `, [row.device_id, row.active_time, row.last_time_active, row.product_type, row.biz_type, row.category, row.create_time, row.icon, row.ip, row.city, row.state, row.client_id, row.drive, row.lat, row.local_key, row.lon, row.model, row.name, row.online, row.owner_id, row.product_id, row.product_name, row.status, row.sub, row.time_zone, row.uid, row.update_time, row.uuid, row.tuya_logs_routine_enabled]);
+    `, [row.device_id, row.active_time, row.last_time_active, row.product_type, row.biz_type, row.category, row.create_time, row.icon, row.ip, row.city, row.state, row.client_id, row.drive, row.lat, row.local_key, row.lon, row.model, row.name, row.online, row.owner_id, row.product_id, row.product_name, row.status, row.sub, row.time_zone, row.uid, row.update_time, row.uuid, row.tuya_logs_routine_enabled, mergedJson]);
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
@@ -122,6 +136,10 @@ class ProductModel {
       numericId = parseInt(existing._id, 10);
     }
     const row = this.toRow(data);
+    let mergedUpdate = null;
+    if (data.merged_from_device_ids !== undefined) {
+      mergedUpdate = JSON.stringify(Array.isArray(data.merged_from_device_ids) ? data.merged_from_device_ids : []);
+    }
     const result = await query(`
       UPDATE products SET
         active_time = COALESCE($1, active_time), last_time_active = COALESCE($2, last_time_active), product_type = COALESCE($3, product_type),
@@ -132,9 +150,10 @@ class ProductModel {
         owner_id = COALESCE($19, owner_id), product_id = COALESCE($20, product_id), product_name = COALESCE($21, product_name),
         status = COALESCE($22, status), sub = COALESCE($23, sub), time_zone = COALESCE($24, time_zone), uid = COALESCE($25, uid),
         update_time = COALESCE($26, update_time), uuid = COALESCE($27, uuid), tuya_logs_routine_enabled = COALESCE($28, tuya_logs_routine_enabled),
+        merged_from_device_ids = COALESCE($30::jsonb, merged_from_device_ids),
         updatedat = CURRENT_TIMESTAMP
       WHERE id = $29 RETURNING *
-    `, [row.active_time, row.last_time_active, row.product_type, row.biz_type, row.category, row.create_time, row.icon, row.ip, row.city, row.state, row.client_id, row.drive, row.lat, row.local_key, row.lon, row.model, row.name, row.online, row.owner_id, row.product_id, row.product_name, row.status, row.sub, row.time_zone, row.uid, row.update_time, row.uuid, row.tuya_logs_routine_enabled, numericId]);
+    `, [row.active_time, row.last_time_active, row.product_type, row.biz_type, row.category, row.create_time, row.icon, row.ip, row.city, row.state, row.client_id, row.drive, row.lat, row.local_key, row.lon, row.model, row.name, row.online, row.owner_id, row.product_id, row.product_name, row.status, row.sub, row.time_zone, row.uid, row.update_time, row.uuid, row.tuya_logs_routine_enabled, numericId, mergedUpdate]);
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
@@ -216,8 +235,23 @@ class ProductModel {
       uid: row.uid,
       update_time: row.update_time,
       uuid: row.uuid,
-      tuya_logs_routine_enabled: row.tuya_logs_routine_enabled ?? false
+      tuya_logs_routine_enabled: row.tuya_logs_routine_enabled ?? false,
+      merged_from_device_ids: ProductModel._parseMergedFrom(row.merged_from_device_ids)
     };
+  }
+
+  static _parseMergedFrom(raw) {
+    if (raw == null) return [];
+    if (Array.isArray(raw)) return raw.map(String);
+    if (typeof raw === 'string') {
+      try {
+        const p = JSON.parse(raw);
+        return Array.isArray(p) ? p.map(String) : [];
+      } catch (_) {
+        return [];
+      }
+    }
+    return [];
   }
 }
 
