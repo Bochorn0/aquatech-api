@@ -60,6 +60,15 @@ async function mergeOsmosisTotalsWithProductTableBaseline(canonicalStatus, merge
   return mergedStatus;
 }
 
+async function mergeOsmosisTotalsSafe(canonicalStatus, mergedFromDeviceIds, context = 'unknown') {
+  try {
+    return await mergeOsmosisTotalsWithProductTableBaseline(canonicalStatus, mergedFromDeviceIds);
+  } catch (err) {
+    devWarn(`[mergeOsmosisTotalsSafe] ${context}: ${err.message}`);
+    return canonicalStatus;
+  }
+}
+
 function anyMergedDeviceOnline(canonicalTuya, mergedFromDeviceIds, allTuyaData) {
   if (canonicalTuya?.online) return true;
   for (const mid of mergedFromDeviceIds || []) {
@@ -210,7 +219,7 @@ export const getAllProducts = async (req, res) => {
         let status = realProduct.status;
         let online = realProduct.online;
         if (merged.length > 0 && isOsmosisRow) {
-          status = await mergeOsmosisTotalsWithProductTableBaseline(realProduct.status, merged);
+          status = await mergeOsmosisTotalsSafe(realProduct.status, merged, 'getAllProducts');
           online = anyMergedDeviceOnline(realProduct, merged, realProducts.data || []);
         }
         return {
@@ -697,7 +706,7 @@ export const getProductById = async (req, res) => {
           const mergedFail = Array.isArray(outFail.merged_from_device_ids) ? outFail.merged_from_device_ids : [];
           const isOsmosisFail = String(outFail.product_type || 'Osmosis').toLowerCase() === 'osmosis';
           if (isOsmosisFail && mergedFail.length > 0) {
-            outFail.status = await mergeOsmosisTotalsWithProductTableBaseline(outFail.status, mergedFail);
+            outFail.status = await mergeOsmosisTotalsSafe(outFail.status, mergedFail, 'getProductById:tuya-fail');
           }
           outFail.last_updated_display = lastDisplayFail != null ? lastDisplayFail : outFail.update_time;
           const productosEspecialesFail = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
@@ -722,7 +731,7 @@ export const getProductById = async (req, res) => {
         ];
         const mergedCurrent = Array.isArray(product.merged_from_device_ids) ? product.merged_from_device_ids : [];
         if (isOsmosis && mergedCurrent.length > 0) {
-          product.status = await mergeOsmosisTotalsWithProductTableBaseline(product.status, mergedCurrent);
+          product.status = await mergeOsmosisTotalsSafe(product.status, mergedCurrent, 'getProductById:tuya-success');
         }
         devLog(`Product ${id} updated in MongoDB.`);
         
@@ -805,7 +814,7 @@ export const getProductById = async (req, res) => {
       const mergedExisting = Array.isArray(outExisting.merged_from_device_ids) ? outExisting.merged_from_device_ids : [];
       const isOsmosisExisting = String(outExisting.product_type || 'Osmosis').toLowerCase() === 'osmosis';
       if (isOsmosisExisting && mergedExisting.length > 0) {
-        outExisting.status = await mergeOsmosisTotalsWithProductTableBaseline(outExisting.status, mergedExisting);
+        outExisting.status = await mergeOsmosisTotalsSafe(outExisting.status, mergedExisting, 'getProductById:existing-fallback');
       }
       outExisting.last_updated_display = lastDisplayExisting != null ? lastDisplayExisting : outExisting.update_time;
       // Apply same flowrate_total_1/2 ÷10 for display (Tuya uses 0.1 L units)
@@ -855,7 +864,7 @@ export const getProductById = async (req, res) => {
     const isOsmosis = newProductModel.product_type === 'Osmosis' || newProductModel.product_type === 'osmosis';
     const mergedNew = Array.isArray(newProductModel.merged_from_device_ids) ? newProductModel.merged_from_device_ids : [];
     if (isOsmosis && mergedNew.length > 0) {
-      newProductModel.status = await mergeOsmosisTotalsWithProductTableBaseline(newProductModel.status, mergedNew);
+      newProductModel.status = await mergeOsmosisTotalsSafe(newProductModel.status, mergedNew, 'getProductById:new-product');
     }
     
     if (isOsmosis && newProductModel.status && Array.isArray(newProductModel.status)) {
