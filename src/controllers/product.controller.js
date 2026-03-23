@@ -92,6 +92,10 @@ export const getAllProducts = async (req, res) => {
     const defaultCliente = clientesList.find(c => c.name === 'Caffenio') || clientesList.find(c => c.name === 'All') || clientesList[0];
     const defCliente = clientes.find(c => c.name === 'Caffenio') || clientes.find(c => c.name === 'All') || clientes[0];
 
+    // Tuya may still list replaced devices; DB merge lists them under merged_from_device_ids — hide from equipos list
+    const supersededDeviceIds = await ProductModel.getSupersededDeviceIdSet();
+    const tuyaDevicesVisible = (realProducts.data || []).filter((p) => p && p.id && !supersededDeviceIds.has(p.id));
+
     // Sync Tuya → PostgreSQL (non-blocking: Tuya is source of truth)
     let dbProducts = [];
     try {
@@ -100,7 +104,7 @@ export const getAllProducts = async (req, res) => {
       let productosInsertados = 0;
       let productosConError = 0;
 
-      for (const tuyaProduct of realProducts.data) {
+      for (const tuyaProduct of tuyaDevicesVisible) {
         try {
           const existingProduct = await ProductModel.findByDeviceId(tuyaProduct.id);
           if (existingProduct) {
@@ -134,7 +138,7 @@ export const getAllProducts = async (req, res) => {
       devWarn('[getAllProducts] DB sync/query failed, using Tuya data only:', dbErr.message);
     }
 
-    devLog(`🌐 Found ${realProducts.data?.length ?? 0} products from Tuya (source of truth)`);
+    devLog(`🌐 Found ${realProducts.data?.length ?? 0} products from Tuya (${tuyaDevicesVisible.length} visible after merge suppress list)`);
 
     const dbProductsMap = new Map();
     dbProducts.forEach(p => {
@@ -144,7 +148,7 @@ export const getAllProducts = async (req, res) => {
     // When Tuya not configured, use DB products only; otherwise combine Tuya + DB
     const products = tuyaNotConfigured
       ? dbProducts
-      : realProducts.data.map(realProduct => {
+      : tuyaDevicesVisible.map(realProduct => {
       const dbProduct = dbProductsMap.get(realProduct.id);
       if (dbProduct) {
         return {
@@ -311,8 +315,8 @@ export const getAllProducts = async (req, res) => {
 
     devLog(`🎯 Final products after filters: ${finalProducts.length}`);
 
-    // 🔽 EXTRA: incluir productos sólo locales que no están en Tuya
-    const idsTuya = new Set(realProducts.data.map(p => p.id));
+    // 🔽 EXTRA: incluir productos sólo locales que no están en Tuya (visible list only)
+    const idsTuya = new Set(tuyaDevicesVisible.map(p => p.id));
     const productosLocales = dbProducts.filter(p => !idsTuya.has(p.id));
     const productosLocalesAdaptados = productosLocales.map((dbProduct) => ({
       ...dbProduct,

@@ -33,6 +33,29 @@ class ProductModel {
     return this.findById(idOrDeviceId);
   }
 
+  /** All Tuya device_ids absorbed into another row (equipos list: hide duplicate Tuya devices). */
+  static async getSupersededDeviceIdSet() {
+    try {
+      const result = await query(
+        `SELECT merged_from_device_ids FROM products
+         WHERE merged_from_device_ids IS NOT NULL
+           AND merged_from_device_ids <> '[]'::jsonb`
+      );
+      const set = new Set();
+      for (const row of result.rows || []) {
+        for (const id of ProductModel._parseMergedFrom(row.merged_from_device_ids)) {
+          if (id) set.add(String(id));
+        }
+      }
+      return set;
+    } catch (e) {
+      if ((e.message || '').includes('merged_from_device_ids')) {
+        return new Set();
+      }
+      throw e;
+    }
+  }
+
   static async insertMany(items) {
     const created = [];
     for (const data of items) {
