@@ -35,16 +35,31 @@ async function mergeOsmosisTotalsWithProductTableBaseline(canonicalStatus, merge
     return canonicalStatus;
   }
   const mergedRows = await ProductModel.findManyByExactDeviceIds(mergedFromDeviceIds);
-  if (!mergedRows.length) return canonicalStatus;
+  const foundIds = new Set(mergedRows.map((p) => String(p.id)));
+  const missingIds = mergedFromDeviceIds.filter((id) => !foundIds.has(String(id)));
 
-  const baselineRawProd = mergedRows.reduce(
+  let baselineRawProd = mergedRows.reduce(
     (acc, p) => acc + getRawStatusValue(p.status, 'flowrate_total_1'),
     0
   );
-  const baselineRawRej = mergedRows.reduce(
+  let baselineRawRej = mergedRows.reduce(
     (acc, p) => acc + getRawStatusValue(p.status, 'flowrate_total_2'),
     0
   );
+
+  // If old merged rows were deleted from products table, fallback to product_logs max for those device ids.
+  // product_logs stores liters, so convert to Tuya raw (0.1L) by *10 for display merge.
+  if (missingIds.length > 0) {
+    const historicalByMergedDeviceId = await ProductLogModel.getMaxVolumesByDeviceIds(missingIds);
+    for (const mid of missingIds) {
+      const hist = historicalByMergedDeviceId.get(String(mid));
+      if (!hist) continue;
+      baselineRawProd += (Number(hist.production_volume) || 0) * 10;
+      baselineRawRej += (Number(hist.rejected_volume) || 0) * 10;
+    }
+  }
+
+  if (baselineRawProd <= 0 && baselineRawRej <= 0) return canonicalStatus;
 
   let mergedStatus = canonicalStatus;
   mergedStatus = upsertRawStatusValue(
@@ -941,6 +956,29 @@ export const getProductById = async (req, res) => {
     
   } catch (error) {
     console.error('Error fetching product details:', error);
+    try {
+      const fallback = await ProductModel.findByDeviceId(req.params.id);
+      if (fallback) {
+        const mergedFallback = Array.isArray(fallback.merged_from_device_ids) ? fallback.merged_from_device_ids : [];
+        const isOsmosisFallback = String(fallback.product_type || 'Osmosis').toLowerCase() === 'osmosis';
+        let out = { ...fallback };
+        if (isOsmosisFallback && mergedFallback.length > 0) {
+          out.status = await mergeOsmosisTotalsSafe(out.status, mergedFallback, 'getProductById:catch-fallback');
+        }
+        const flujosTotalCodes = ['flowrate_total_1', 'flowrate_total_2'];
+        if (out.status && Array.isArray(out.status)) {
+          out.status = out.status.map((stat) => {
+            if (flujosTotalCodes.includes(stat.code)) stat.value = (Number(stat.value) / 10).toFixed(2);
+            return stat;
+          });
+        }
+        const lastDisplay = await getLastUpdatedDisplay(req.params.id, out.update_time);
+        out.last_updated_display = lastDisplay != null ? lastDisplay : out.update_time;
+        return res.json(out);
+      }
+    } catch (fallbackErr) {
+      console.error('[getProductById][catch-fallback]', fallbackErr.message);
+    }
     res.status(500).json({ message: 'Error fetching product details' });
   }
 };
