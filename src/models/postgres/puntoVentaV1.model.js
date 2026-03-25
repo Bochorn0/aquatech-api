@@ -39,14 +39,16 @@ class PuntoVentaV1Model {
     const values = [];
     let paramIndex = 1;
 
-    if (filters.clientId) {
+    // puntoventa_v1.clientid is VARCHAR — compare as text (not bigint[]) or PG throws 42883/22P02.
+    if (filters.clientId != null && filters.clientId !== '') {
       whereClause += ` AND clientid = $${paramIndex}`;
-      values.push(filters.clientId);
+      values.push(String(filters.clientId));
       paramIndex++;
     }
     if (Array.isArray(filters.clientIds) && filters.clientIds.length > 0) {
-      whereClause += ` AND clientid = ANY($${paramIndex}::bigint[])`;
-      values.push(filters.clientIds);
+      const asText = [...new Set(filters.clientIds.map((id) => String(id)))];
+      whereClause += ` AND clientid = ANY($${paramIndex}::text[])`;
+      values.push(asText);
       paramIndex++;
     }
     if (filters.status) {
