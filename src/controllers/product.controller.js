@@ -152,15 +152,27 @@ export const getAllProducts = async (req, res) => {
       return res.status(200).json(mockProducts);
     }
     const filtros = {};
+    const q1 = (key) => {
+      const v = query[key];
+      if (v == null || v === '') return '';
+      const raw = Array.isArray(v) ? v[0] : v;
+      return String(raw).trim();
+    };
+    const queryCity = q1('city');
+    const queryState = q1('state');
+    const queryDrive = q1('drive');
+    const queryStatus = q1('status');
+    const queryCliente = q1('cliente');
+
     // Cliente query: absent, empty string, or "All" means "no client filter" (all clients) for users without
     // an assigned client_id (e.g. admin). Users with client_id still get scoped to their client when param is empty.
     const id = user.id;
     const userData = await UserModel.findById(id);
     const userClientId = userData?.client_id != null ? String(userData.client_id) : null;
 
-    if (query.cliente && query.cliente !== '' && query.cliente !== 'All') {
-      filtros.client_id = query.cliente;
-      filtros.cliente = query.cliente;
+    if (queryCliente && queryCliente !== 'All') {
+      filtros.client_id = queryCliente;
+      filtros.cliente = queryCliente;
     } else if (userClientId) {
       filtros.client_id = userClientId;
       filtros.cliente = userClientId;
@@ -173,21 +185,21 @@ export const getAllProducts = async (req, res) => {
     }
 
     // Set city and state filters
-    if (query.city && query.city !== 'All') {
-      filtros.city = query.city;
+    if (queryCity && queryCity !== 'All') {
+      filtros.city = queryCity;
     }
-    if (query.state && query.state !== 'All') {
-      filtros.state = query.state;
+    if (queryState && queryState !== 'All') {
+      filtros.state = queryState;
     }
     // Set drive filter
-    if (query.drive && query.drive !== 'All') {
-      filtros.drive = query.drive;
+    if (queryDrive && queryDrive !== 'All') {
+      filtros.drive = queryDrive;
     }
-    // Set status filter
-    if (query.status && query.status !== 'All') {
-      const online = query.status === 'Online' ? true : false;
-      filtros.online = online;
+    // Status (online) — applied after Tuya merge only; DB column can be stale vs live list
+    if (queryStatus && queryStatus !== 'All') {
+      filtros.online = queryStatus === 'Online';
     }
+
     // Convert and filter by `create_time` (Unix timestamp)
     if (query.startDate && query.endDate && query.startDate !== 'null' && query.endDate !== 'null') {
       const startTimestamp = Math.floor(new Date(query.startDate).getTime() / 1000);
@@ -198,6 +210,12 @@ export const getAllProducts = async (req, res) => {
       } else {
         return res.status(400).json({ message: 'Invalid date format' });
       }
+    }
+
+    /** SQL filters: exclude `online` so lista uses live Tuya online + in-memory filter */
+    const findFilters = { ...filtros };
+    if (findFilters.online !== undefined) {
+      delete findFilters.online;
     }
 
     devLog('Fetching products from Tuya (source of truth) with filters:', filtros);
@@ -258,7 +276,7 @@ export const getAllProducts = async (req, res) => {
       }
       devLog(`🔄 [Sincronización] Completada: ${productosInsertados} nuevos almacenados, ${productosActualizados} ya existían, ${productosConError} con error`);
 
-      dbProducts = await ProductModel.find(filtros);
+      dbProducts = await ProductModel.find(findFilters);
       devLog(`📦 Found ${dbProducts.length} products in database`);
 
       supersededIdsStillHidden = new Set(
