@@ -44,7 +44,8 @@ class ProductLogModel {
         values.push(filters.product_id.$in);
         i++;
       } else {
-        where.push(`(product_device_id = $${i} OR product_id = $${i})`);
+        // Never compare product_id (bigint) to Tuya device_id strings — PG cast fails the whole query.
+        where.push(`(product_device_id = $${i} OR product_id::text = $${i}::text)`);
         values.push(filters.product_id);
         i++;
       }
@@ -107,7 +108,7 @@ class ProductLogModel {
         values.push(filters.product_id.$in);
         i++;
       } else {
-        where.push(`(product_id = $${i} OR product_device_id = $${i})`);
+        where.push(`(product_device_id = $${i} OR product_id::text = $${i}::text)`);
         values.push(filters.product_id);
         i++;
       }
@@ -170,7 +171,7 @@ class ProductLogModel {
         values.push(filters.product_id.$in);
         i++;
       } else {
-        where.push(`(product_id = $${i} OR product_device_id = $${i})`);
+        where.push(`(product_device_id = $${i} OR product_id::text = $${i}::text)`);
         values.push(filters.product_id);
         i++;
       }
@@ -197,7 +198,7 @@ class ProductLogModel {
     if (!dates?.length) return [];
     const dateArr = dates.map(d => (d instanceof Date ? d : new Date(d)));
     const result = await query(
-      `SELECT id, date FROM product_logs WHERE (product_id = $1 OR product_device_id = $1) AND date::date = ANY($2::date[])`,
+      `SELECT id, date FROM product_logs WHERE (product_device_id = $1 OR product_id::text = $1::text) AND date::date = ANY($2::date[])`,
       [productId, dateArr]
     );
     return (result.rows || []).map(r => ({ id: r.id, date: r.date }));
