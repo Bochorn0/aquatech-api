@@ -1057,12 +1057,15 @@ export const getMergedProductDetail = async (req, res) => {
     }
 
     const newRawStatus = tuyaResponse.data.status;
-    const mergedFromDeviceIds = Array.isArray(oldLocked.merged_from_device_ids) ? oldLocked.merged_from_device_ids : [];
 
-    const isOsmosis = String(oldLocked.product_type || 'osmosis').toLowerCase() === 'osmosis';
+    // Match getProductById/list behavior: Osmosis baseline merge uses the *live* row's merged_from_device_ids.
+    const liveRow = await ProductModel.findByExactDeviceId(liveDeviceId);
+    const mergedCurrent = Array.isArray(liveRow?.merged_from_device_ids) ? liveRow.merged_from_device_ids : [];
+
+    const isOsmosis = String(liveRow?.product_type ?? oldLocked.product_type ?? 'osmosis').toLowerCase() === 'osmosis';
     let mergedRawStatus = newRawStatus;
-    if (isOsmosis && mergedFromDeviceIds.length > 0) {
-      mergedRawStatus = await mergeOsmosisTotalsSafe(mergedRawStatus, mergedFromDeviceIds, 'getMergedProductDetail:tuya');
+    if (isOsmosis && mergedCurrent.length > 0) {
+      mergedRawStatus = await mergeOsmosisTotalsSafe(mergedRawStatus, mergedCurrent, 'getMergedProductDetail:tuya');
     }
     mergedRawStatus = await ensureLockedCanonicalFlowTotalsMerged(mergedRawStatus, liveDeviceId, [oldLocked]);
 
