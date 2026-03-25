@@ -139,6 +139,11 @@ class ProductModel {
       values.push(filters.client_id);
       i++;
     }
+    if (Array.isArray(filters.client_ids) && filters.client_ids.length > 0) {
+      where.push(`client_id = ANY($${i}::bigint[])`);
+      values.push(filters.client_ids);
+      i++;
+    }
     if (filters.cliente != null) {
       where.push(`client_id = $${i}`);
       values.push(filters.cliente);

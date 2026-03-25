@@ -13,6 +13,7 @@ function toUserResponse(user) {
   if (!user) return null;
   const u = typeof user.role_id !== 'undefined' ? user : UserModel.parseRow(user);
   const { password, ...rest } = u;
+  const clients = Array.isArray(u.clients) ? u.clients : (u.client_id ? [{ _id: String(u.client_id), id: String(u.client_id), name: u.clienteName || '' }] : []);
   return {
     ...rest,
     role: {
@@ -22,7 +23,9 @@ function toUserResponse(user) {
       dashboardVersion: u.dashboardVersion || 'v1'
     },
     cliente: u.client_id ? { _id: u.client_id, name: '' } : null,
-    postgresClientId: u.postgresClientId || null
+    postgresClientId: u.postgresClientId || null,
+    clients,
+    client_ids: clients.map((c) => String(c.id || c._id)),
   };
 }
 

@@ -74,9 +74,19 @@ export const updateUser = async (req, res) => {
     }
 
     const updated = await UserModel.update(id, toUpdate);
+    const incomingClientIds = Array.isArray(updatedUser.client_ids)
+      ? updatedUser.client_ids
+      : (Array.isArray(updatedUser.clientes) ? updatedUser.clientes : null);
+    if (incomingClientIds) {
+      await UserModel.setUserClients(id, incomingClientIds);
+    } else if (updatedUser.client_id !== undefined || updatedUser.postgres_client_id !== undefined || updatedUser.cliente !== undefined) {
+      const singleId = updatedUser.client_id ?? updatedUser.postgres_client_id ?? updatedUser.cliente;
+      await UserModel.setUserClients(id, singleId != null ? [singleId] : []);
+    }
     if (!updated) return res.status(500).json({ message: 'Error updating user' });
 
-    const { password, ...rest } = updated;
+    const refreshed = await UserModel.findById(id);
+    const { password, ...rest } = refreshed || updated;
     res.json(rest);
   } catch (error) {
     console.error('Error updating user:', error);
@@ -123,7 +133,9 @@ export const addUser = async (req, res) => {
       roleId = def.rows?.[0]?.id;
     }
     const clientRes = await query('SELECT id FROM clients ORDER BY id LIMIT 1');
-    const clientId = userData.client_id ?? userData.cliente ?? userData.postgres_client_id ?? clientRes.rows?.[0]?.id ?? null;
+    const clientIdsFromBody = Array.isArray(userData.client_ids) ? userData.client_ids : [];
+    const firstClientFromList = clientIdsFromBody.length > 0 ? clientIdsFromBody[0] : null;
+    const clientId = firstClientFromList ?? userData.client_id ?? userData.cliente ?? userData.postgres_client_id ?? clientRes.rows?.[0]?.id ?? null;
 
     if (!roleId) return res.status(400).json({ message: 'Invalid role' });
 
@@ -138,6 +150,12 @@ export const addUser = async (req, res) => {
       puesto: userData.puesto || '',
       mqtt_zip_password: mqttZip
     });
+
+    if (clientIdsFromBody.length > 0) {
+      await UserModel.setUserClients(created.id, clientIdsFromBody);
+    } else if (clientId != null) {
+      await UserModel.setUserClients(created.id, [clientId]);
+    }
 
     const user = await UserModel.findById(created.id);
     const { password: _, ...rest } = user;

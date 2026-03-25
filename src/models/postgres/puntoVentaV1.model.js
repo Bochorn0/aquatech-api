@@ -44,6 +44,11 @@ class PuntoVentaV1Model {
       values.push(filters.clientId);
       paramIndex++;
     }
+    if (Array.isArray(filters.clientIds) && filters.clientIds.length > 0) {
+      whereClause += ` AND clientid = ANY($${paramIndex}::bigint[])`;
+      values.push(filters.clientIds);
+      paramIndex++;
+    }
     if (filters.status) {
       whereClause += ` AND status = $${paramIndex}`;
       values.push(filters.status);

@@ -9,6 +9,7 @@ import config from '../config/config.js';
 import moment from 'moment';
 import { devLog, devWarn } from '../utils/devLogger.js';
 import { getClient } from '../config/postgres.config.js';
+import { getAllowedClientIdsForRequest } from '../utils/user-clients.helper.js';
 
 // IDs de productos tipo "Nivel"
 const productos_nivel = [
@@ -207,22 +208,28 @@ export const getAllProducts = async (req, res) => {
     const queryDrive = q1('drive');
     const queryStatus = q1('status');
     const queryCliente = q1('cliente');
+    const queryClienteIds = queryCliente
+      ? queryCliente.split(',').map((v) => parseInt(v.trim(), 10)).filter((v) => !isNaN(v))
+      : [];
 
     // Cliente query: absent, empty string, or "All" means "no client filter" (all clients) for users without
     // an assigned client_id (e.g. admin). Users with client_id still get scoped to their client when param is empty.
     const id = user.id;
-    const userData = await UserModel.findById(id);
-    const userClientId = userData?.client_id != null ? String(userData.client_id) : null;
+    const allowedClientIds = await getAllowedClientIdsForRequest(req);
+    const requestedIds = queryCliente && queryCliente !== 'All' ? queryClienteIds : [];
+    const scopedIds = requestedIds.length > 0
+      ? requestedIds.filter((cid) => allowedClientIds.length === 0 || allowedClientIds.includes(cid))
+      : allowedClientIds;
 
-    if (queryCliente && queryCliente !== 'All') {
-      filtros.client_id = queryCliente;
-      filtros.cliente = queryCliente;
-    } else if (userClientId) {
-      filtros.client_id = userClientId;
-      filtros.cliente = userClientId;
+    if (scopedIds.length > 0) {
+      filtros.client_ids = scopedIds;
+    } else if (queryCliente && queryCliente !== 'All' && allowedClientIds.length > 0) {
+      return res.status(403).json({ message: 'No tienes acceso a ese cliente' });
+    } else if (queryCliente && queryCliente !== 'All' && allowedClientIds.length === 0 && queryClienteIds.length > 0) {
+      filtros.client_ids = queryClienteIds;
     }
 
-    const currentclient = clientes.find(c => String(c.id) === String(filtros.cliente || filtros.client_id));
+    const currentclient = clientes.find(c => String(c.id) === String((filtros.client_ids || [])[0] || filtros.cliente || filtros.client_id));
     if (currentclient?.name === 'All') {
       delete filtros.cliente;
       delete filtros.client_id;

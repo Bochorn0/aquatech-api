@@ -9,6 +9,7 @@ import moment from 'moment';
 import mqttService from '../services/mqtt.service.js';
 import { buildTiwaterTopic } from '../utils/mqttTopic.js';
 import PostgresService from '../services/postgres.service.js';
+import { getAllowedClientIdsForRequest } from '../utils/user-clients.helper.js';
 
 /** Default full tiwater payload when no sensor data exists (same structure as generate-daily-data). */
 function getDefaultTiwaterPayload() {
@@ -283,8 +284,10 @@ async function buildPuntoResponseFromPostgres(pv) {
 export const getPuntosVenta = async (req, res) => {
   try {
     console.log('Fetching Puntos de Venta from PostgreSQL (V1 puntoventa_v1)...');
-
-    const puntosPG = await PuntoVentaV1Model.find({}, { limit: 1000, offset: 0 });
+    const allowedClientIds = await getAllowedClientIdsForRequest(req);
+    const filters = {};
+    if (allowedClientIds.length > 0) filters.clientIds = allowedClientIds;
+    const puntosPG = await PuntoVentaV1Model.find(filters, { limit: 1000, offset: 0 });
     const puntosConEstado = await Promise.all(puntosPG.map(pv => buildPuntoResponseFromPostgresV1(pv)));
 
     res.json(puntosConEstado);
@@ -301,7 +304,18 @@ export const getPuntosVentaFiltered = async (req, res) => {
     const { cliente, city, online } = req.query;
 
     const filters = {};
-    if (cliente) filters.clientId = cliente;
+    const allowedClientIds = await getAllowedClientIdsForRequest(req);
+    if (cliente) {
+      const requested = parseInt(String(cliente), 10);
+      if (!isNaN(requested)) {
+        if (allowedClientIds.length > 0 && !allowedClientIds.includes(requested)) {
+          return res.status(403).json({ message: 'No tienes acceso a ese cliente' });
+        }
+        filters.clientId = requested;
+      }
+    } else if (allowedClientIds.length > 0) {
+      filters.clientIds = allowedClientIds;
+    }
 
     const puntosPG = await PuntoVentaV1Model.find(filters, { limit: 1000, offset: 0 });
     let puntosConEstado = await Promise.all(puntosPG.map(pv => buildPuntoResponseFromPostgresV1(pv)));

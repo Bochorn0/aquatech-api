@@ -4,6 +4,65 @@
 import { query } from '../../config/postgres.config.js';
 
 class UserModel {
+  static normalizeClientIds(input) {
+    const source = Array.isArray(input) ? input : [input];
+    const ids = source
+      .map((v) => parseInt(String(v), 10))
+      .filter((v) => !isNaN(v));
+    return [...new Set(ids)];
+  }
+
+  static async getAssignedClientRowsByUserIds(userIds = []) {
+    const normalizedUserIds = this.normalizeClientIds(userIds);
+    if (normalizedUserIds.length === 0) return [];
+    try {
+      const result = await query(
+        `SELECT uc.user_id, uc.client_id, c.name as client_name
+         FROM user_clients uc
+         INNER JOIN clients c ON c.id = uc.client_id
+         WHERE uc.user_id = ANY($1::bigint[])`,
+        [normalizedUserIds]
+      );
+      return result.rows || [];
+    } catch (error) {
+      if ((error.message || '').toLowerCase().includes('relation "user_clients" does not exist')) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  static async enrichUsersWithClientAssignments(users = []) {
+    if (!Array.isArray(users) || users.length === 0) return users;
+    const userIds = users
+      .map((u) => parseInt(String(u.id), 10))
+      .filter((v) => !isNaN(v));
+    const assignments = await this.getAssignedClientRowsByUserIds(userIds);
+    const assignmentMap = new Map();
+    for (const row of assignments) {
+      const uid = String(row.user_id);
+      if (!assignmentMap.has(uid)) assignmentMap.set(uid, []);
+      assignmentMap.get(uid).push({
+        id: String(row.client_id),
+        _id: String(row.client_id),
+        name: row.client_name || ''
+      });
+    }
+    return users.map((u) => {
+      const fromTable = assignmentMap.get(String(u.id)) || [];
+      const fallback = u.client_id != null
+        ? [{ id: String(u.client_id), _id: String(u.client_id), name: u.clienteName || u.client_name || '' }]
+        : [];
+      const merged = fromTable.length > 0 ? fromTable : fallback;
+      return {
+        ...u,
+        clients: merged,
+        client_ids: merged.map((c) => c.id),
+        client_names: merged.map((c) => c.name).filter(Boolean),
+      };
+    });
+  }
+
   static async findById(id) {
     const result = await query(
       `SELECT u.*, r.name as role_name, r.permissions as role_permissions, r.dashboard_version as role_dashboard_version,
@@ -14,7 +73,11 @@ class UserModel {
        WHERE u.id = $1 LIMIT 1`,
       [id]
     );
-    if (result.rows?.length > 0) return this.parseRow(result.rows[0]);
+    if (result.rows?.length > 0) {
+      const base = this.parseRow(result.rows[0]);
+      const [enriched] = await this.enrichUsersWithClientAssignments([base]);
+      return enriched;
+    }
     return null;
   }
 
@@ -51,7 +114,8 @@ class UserModel {
        ORDER BY u.createdat DESC`,
       values
     );
-    return (result.rows || []).map(r => this.parseRow(r));
+    const parsed = (result.rows || []).map(r => this.parseRow(r));
+    return this.enrichUsersWithClientAssignments(parsed);
   }
 
   static async delete(id) {
@@ -69,8 +133,38 @@ class UserModel {
        WHERE LOWER(u.email) = LOWER($1) LIMIT 1`,
       [email]
     );
-    if (result.rows?.length > 0) return this.parseRow(result.rows[0]);
+    if (result.rows?.length > 0) {
+      const base = this.parseRow(result.rows[0]);
+      const [enriched] = await this.enrichUsersWithClientAssignments([base]);
+      return enriched;
+    }
     return null;
+  }
+
+  static async setUserClients(userId, clientIds = []) {
+    const uid = parseInt(String(userId), 10);
+    if (isNaN(uid)) return;
+    const normalized = this.normalizeClientIds(clientIds);
+    try {
+      await query('DELETE FROM user_clients WHERE user_id = $1', [uid]);
+      for (const clientId of normalized) {
+        await query(
+          `INSERT INTO user_clients (user_id, client_id)
+           VALUES ($1, $2)
+           ON CONFLICT (user_id, client_id) DO NOTHING`,
+          [uid, clientId]
+        );
+      }
+    } catch (error) {
+      if (!(error.message || '').toLowerCase().includes('relation "user_clients" does not exist')) {
+        throw error;
+      }
+    }
+    const primaryClientId = normalized[0] ?? null;
+    await query(
+      'UPDATE users SET client_id = $1, postgres_client_id = $1, updatedat = CURRENT_TIMESTAMP WHERE id = $2',
+      [primaryClientId, uid]
+    );
   }
 
   static async create(data) {

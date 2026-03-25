@@ -1,9 +1,15 @@
 import ClientModel from '../models/postgres/client.model.js';
+import { getAllowedClientIdsForRequest } from '../utils/user-clients.helper.js';
 
 export const getClients = async (req, res) => {
   try {
     const clients = await ClientModel.find();
-    res.status(200).json(clients);
+    const allowedClientIds = await getAllowedClientIdsForRequest(req);
+    if (allowedClientIds.length === 0) {
+      return res.status(200).json(clients);
+    }
+    const filtered = clients.filter((c) => allowedClientIds.includes(parseInt(String(c.id || c._id), 10)));
+    res.status(200).json(filtered);
   } catch (error) {
     console.error('Error fetching clients:', error);
     res.status(500).json({ message: 'Error al obtener clientes', error });
