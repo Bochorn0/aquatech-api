@@ -1,5 +1,11 @@
 # Punto de Venta V1 vs V2 Separation Plan
 
+**Remember:**  
+- **Punto venta V2** → **Sensores** (MQTT, codigo_tienda, sensor_latest, region/ciudad).  
+- **Punto venta V1** → **Productos** (Tuya/equipos, product_logs, metrics, meta.product_ids).
+
+---
+
 ## Problem
 
 The `puntoventa` table is used by both:
@@ -24,6 +30,7 @@ This creates conflicts because:
 
 - **metrics.punto_venta_id** → references **puntoventa_v1** (V1 metrics flow)
 - Metrics table stays as-is; only the FK target changes for V1 usage
+- **Why metrics use V1 IDs:** The metrics table stores `punto_venta_id` as FK to `puntoventa_v1`, but metrics are for **punto venta V2 (puntoventa)**. The list shows **only puntoventa.name** (V2). `getMetricsV2` resolves V1 → V2: by `puntoventa_v1.puntoventa_id`, then by `codigo_tienda`, then by name+clientId. There is **no fallback to puntoventa_v1.name**: if no V2 match is found, the column is left empty so it's clear the metric's punto is not linked to a V2 punto.
 
 ### New Tables / Migrations
 
@@ -47,6 +54,9 @@ This creates conflicts because:
 | **region_punto_venta** | Stays with puntoventa (V2) |
 | **puntoventasensors** | Stays with puntoventa (V2) |
 | **sensores** | Uses codigotienda; links to puntoventa via codigo_tienda (V2) |
+
+### V1 list “online” 
+- **V1 list** (`buildPuntoResponseFromPostgresV1`): `online` comes **only from producto status** (at least one assigned product is online). No sensor fallback; strict V1/product separation.
 
 ### Linking V1 and V2 (Optional)
 

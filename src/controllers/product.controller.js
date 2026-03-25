@@ -772,43 +772,58 @@ export const lockProducts = async (req, res) => {
     const results = { locked: [], skipped: [], errors: [] };
 
     for (const rawId of deviceIds) {
-      const plain = String(rawId || '').trim();
-      if (!plain || plain.startsWith('_')) {
-        results.skipped.push({ deviceId: plain, reason: 'vacío o ya bloqueado' });
+      const input = String(rawId || '').trim();
+      if (!input || input.startsWith('_')) {
+        results.skipped.push({ deviceId: input, reason: 'vacío o ya bloqueado' });
         continue;
       }
-      const row = await ProductModel.findByExactDeviceId(plain);
-      if (!row) {
-        results.errors.push({ deviceId: plain, error: 'Producto no encontrado' });
+
+      let row = await ProductModel.findByExactDeviceId(input);
+      let plainDeviceId = row ? String(row.device_id ?? row.id ?? '') : '';
+      if (!row && /^\d+$/.test(input)) {
+        const byPk = await ProductModel.findById(parseInt(input, 10));
+        if (byPk) {
+          row = byPk;
+          plainDeviceId = String(byPk.device_id ?? byPk.id ?? '');
+        }
+      }
+      if (!row || !plainDeviceId) {
+        results.errors.push({ deviceId: input, error: 'Producto no encontrado' });
         continue;
       }
-      const newDeviceId = `_${plain}`;
+
+      const newDeviceId = `_${plainDeviceId}`;
       const clash = await ProductModel.findByExactDeviceId(newDeviceId);
       if (clash) {
-        results.errors.push({ deviceId: plain, error: `Ya existe device_id ${newDeviceId}` });
+        results.errors.push({ deviceId: input, error: `Ya existe device_id ${newDeviceId}` });
         continue;
       }
       const prevMerged = Array.isArray(row.merged_from_device_ids)
         ? row.merged_from_device_ids.map(String)
         : [];
-      const merged = [...new Set([...prevMerged, plain])];
+      const merged = [...new Set([...prevMerged, plainDeviceId])];
 
       const client = await getClient();
       try {
         await client.query('BEGIN');
         await client.query(
           `UPDATE product_logs SET product_device_id = '_' || product_device_id, updatedat = CURRENT_TIMESTAMP WHERE product_device_id = $1`,
-          [plain]
+          [plainDeviceId]
         );
         await client.query(
           `UPDATE products SET device_id = $1, merged_from_device_ids = $2::jsonb, updatedat = CURRENT_TIMESTAMP WHERE device_id = $3`,
-          [newDeviceId, JSON.stringify(merged), plain]
+          [newDeviceId, JSON.stringify(merged), plainDeviceId]
         );
         await client.query('COMMIT');
-        results.locked.push({ from: plain, to: newDeviceId, merged_from_device_ids: merged });
+        results.locked.push({
+          input,
+          from: plainDeviceId,
+          to: newDeviceId,
+          merged_from_device_ids: merged,
+        });
       } catch (e) {
         await client.query('ROLLBACK');
-        results.errors.push({ deviceId: plain, error: e.message });
+        results.errors.push({ deviceId: input, error: e.message });
       } finally {
         client.release();
       }

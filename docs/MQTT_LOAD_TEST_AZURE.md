@@ -44,10 +44,21 @@ The API (and its MQTT consumer) only **receive** these messages; they do **not**
 ## What’s in the repo
 
 - **`/lcc_mqtt_mocker`** – Lcc_mqtt_mocker: Azure Functions (Node v4) app:
-  - One Timer function: runs every minute.
-  - Reads `MQTT_LOAD_PUNTOS_COUNT` (default 30; use 30–135).
+  - One Timer function: runs every minute by default, or every N minutes via `MQTT_LOAD_INTERVAL_MINUTES` (1, 2, 3, …).
+  - Reads `MQTT_LOAD_PUNTOS_COUNT` (default 30; use 1–135). Lower to reduce load.
+  - Reads `MQTT_LOAD_INTERVAL_MINUTES` (optional): run every N minutes (e.g. 2 or 3) to ease server load.
   - Uses same topic format: `tiwater/REGION/CIUDAD/CODIGO/data` and same mock payload shape as the API.
   - Reuses the same MQTT env vars as the API (`MQTT_BROKER`, `MQTT_PORT`, TLS/certs, etc.) so traffic is identical.
+
+### API: limiting PostgreSQL concurrency
+
+When many MQTT messages arrive at once (e.g. 135/min), the API **queues** tiwater→PostgreSQL saves and processes them with a **concurrency limit** so the Postgres pool is not exhausted (`timeout exceeded when trying to connect`). You can tune this in the **API** app settings:
+
+| Variable | Default | Description |
+|----------|--------|-------------|
+| `MQTT_TIWATER_SAVE_CONCURRENCY` | `10` | Max number of tiwater saves to PostgreSQL running at the same time. Keep below `POSTGRES_MAX_CONNECTIONS` (e.g. 20) so other requests can use the pool. |
+
+No change is required for 30–135 puntos; the default keeps concurrent DB writes within a safe limit.
 
 ## How to create the resource
 
@@ -180,7 +191,8 @@ Then add (or confirm) these settings, using the **same values as your Aquatech A
 | `MQTT_PASSWORD` | Your MQTT password | If your broker uses it |
 | `MQTT_CLIENT_CERT_B64` | Base64 client cert | If using Event Grid / client certs |
 | `MQTT_CLIENT_KEY_B64` | Base64 client key | If using Event Grid / client certs |
-| `MQTT_LOAD_PUNTOS_COUNT` | `30` (or up to `135`) | Yes – number of messages per run |
+| `MQTT_LOAD_PUNTOS_COUNT` | `30` (or 1–135; lower = less load) | Yes – number of messages per run |
+| `MQTT_LOAD_INTERVAL_MINUTES` | `1`, `2`, `3`, … (optional) | Run every N minutes; e.g. `2` or `3` to reduce load |
 
 Click **Save** / **Apply**.
 
@@ -194,7 +206,7 @@ You can deploy from GitHub so every push to `lcc_mqtt_mocker` deploys to Azure, 
    - Name: `AZURE_FUNCTIONAPP_PUBLISH_PROFILE_MQTT_MOCKER`  
    - Value: paste the **entire contents** of the publish profile file → **Add secret**.
 
-2. **Ensure app settings in Azure are set** (Step 1 above): `AzureWebJobsStorage`, MQTT vars, `MQTT_LOAD_PUNTOS_COUNT`. These are not in the repo; they stay in the Function App.
+2. **Ensure app settings in Azure are set** (Step 1 above): `AzureWebJobsStorage`, MQTT vars, `MQTT_LOAD_PUNTOS_COUNT`, and optionally `MQTT_LOAD_INTERVAL_MINUTES`. These are not in the repo; they stay in the Function App.
 
 3. **Workflow is already in the repo:** `.github/workflows/deploy-lcc-mqtt-mocker.yml`  
    It runs on push to `main` when files under `lcc_mqtt_mocker/` change, and on **workflow_dispatch** (manual run).  
@@ -230,8 +242,9 @@ From the project root (where `lcc_mqtt_mocker` lives):
 
 ## Configuration
 
-- **Puntos count:** `MQTT_LOAD_PUNTOS_COUNT` (30–135). Number of “stores” that send one message per run.
-- **Schedule:** In code, default is every minute. You can move the CRON to an app setting and read it in the function for flexibility.
+- **Puntos count:** `MQTT_LOAD_PUNTOS_COUNT` (1–135). Number of “stores” that send one message per run. Lower it to reduce load.
+- **Time lapse (interval):** `MQTT_LOAD_INTERVAL_MINUTES` = `1`, `2`, `3`, etc. Run every N minutes (e.g. `2` or `3` when the server is overloaded). If not set, default is every minute.
+- **Schedule (advanced):** `MQTT_LOAD_SCHEDULE` = NCRONTAB (e.g. `0 * * * * *`). Only used when `MQTT_LOAD_INTERVAL_MINUTES` is not set.
 - **MQTT:** Same as API: `MQTT_BROKER`, `MQTT_PORT`, `MQTT_USE_TLS`, `MQTT_USERNAME`, `MQTT_PASSWORD`, and if using Event Grid: `MQTT_CLIENT_CERT_B64`, `MQTT_CLIENT_KEY_B64`, etc.
 
 ## Cost (ballpark)
