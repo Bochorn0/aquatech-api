@@ -931,6 +931,157 @@ export const lockProducts = async (req, res) => {
   }
 };
 
+const PRODUCTOS_ESPECIALES = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
+
+function extractStatusValue(status, code) {
+  return (status || []).find((s) => s && s.code === code)?.value;
+}
+
+/**
+ * Apply the same display conversion rules used by getProductById for:
+ * - flowrate_total_* (divide by 10)
+ * - special products: flowrate_speed_* and flowrate_total_* *= 1.6 then totals ÷10
+ */
+function applyDisplayConversionsToStatus(status, tuyaDetailId) {
+  const out = Array.isArray(status) ? JSON.parse(JSON.stringify(status)) : [];
+  if (!Array.isArray(out)) return [];
+
+  const isSpecial = PRODUCTOS_ESPECIALES.includes(String(tuyaDetailId || ''));
+  const flujos_total_codes = ['flowrate_total_1', 'flowrate_total_2'];
+  if (isSpecial) {
+    const flujos_codes = ['flowrate_speed_1', 'flowrate_speed_2', 'flowrate_total_1', 'flowrate_total_2'];
+    out.map((stat) => {
+      if (flujos_codes.includes(stat.code)) {
+        stat.value = (Number(stat.value) * 1.6).toFixed(2);
+      }
+      if (flujos_total_codes.includes(stat.code)) {
+        stat.value = (Number(stat.value) / 10).toFixed(2);
+      }
+      return stat;
+    });
+    return out;
+  }
+
+  return out.map((stat) => {
+    if (flujos_total_codes.includes(stat.code)) stat.value = (Number(stat.value) / 10).toFixed(2);
+    return stat;
+  });
+}
+
+function statusToMergedDisplayFields(status) {
+  // UI requested: flowrate_total_*, tds, ettc..
+  return {
+    flowrate_total_1: extractStatusValue(status, 'flowrate_total_1'),
+    flowrate_total_2: extractStatusValue(status, 'flowrate_total_2'),
+    tds_out: extractStatusValue(status, 'tds_out'),
+    flowrate_speed_1: extractStatusValue(status, 'flowrate_speed_1'),
+    flowrate_speed_2: extractStatusValue(status, 'flowrate_speed_2'),
+    temperature: extractStatusValue(status, 'temperature'),
+    filter_element_1: extractStatusValue(status, 'filter_element_1'),
+    filter_element_2: extractStatusValue(status, 'filter_element_2'),
+    filter_element_3: extractStatusValue(status, 'filter_element_3'),
+    filter_element_4: extractStatusValue(status, 'filter_element_4'),
+  };
+}
+
+/**
+ * Admin: list locked canonical rows `_...` that map 1:1 to a live device id.
+ * This drives the "Productos mezclados" tab (Personalización v1).
+ */
+export const getMergedProductsList = async (req, res) => {
+  try {
+    const lockedRows = await ProductModel.findLockedCanonicalRowsForMergedPairs();
+    const osmosisRows = lockedRows.filter(
+      (r) => String(r.product_type || 'osmosis').toLowerCase() === 'osmosis' || String(r.product_type || '').toLowerCase() === 'osmosis'
+    );
+
+    const items = osmosisRows
+      .map((row) => {
+        const merged = Array.isArray(row.merged_from_device_ids) ? row.merged_from_device_ids : [];
+        if (merged.length !== 1) return null;
+        const liveDeviceId = String(merged[0]);
+        if (!liveDeviceId || liveDeviceId.startsWith('_')) return null;
+        return {
+          liveDeviceId,
+          oldDeviceId: String(row.id || row.device_id || ''),
+          switchedDate: row.update_time ? Number(row.update_time) : null,
+        };
+      })
+      .filter(Boolean);
+
+    return res.json(items);
+  } catch (error) {
+    console.error('[getMergedProductsList]', error);
+    return res.status(500).json({ message: 'Error al obtener productos mezclados', error: error.message });
+  }
+};
+
+/**
+ * Admin: detail diff old (_... row) vs new (Tuya live status merged with stored baseline).
+ */
+export const getMergedProductDetail = async (req, res) => {
+  try {
+    let { liveDeviceId } = req.params;
+    try {
+      liveDeviceId = decodeURIComponent(String(liveDeviceId || ''));
+    } catch (_) {
+      liveDeviceId = String(req.params.liveDeviceId || '');
+    }
+    if (!liveDeviceId || String(liveDeviceId).startsWith('_')) {
+      return res.status(400).json({ message: 'liveDeviceId inválido' });
+    }
+
+    const oldLocked = await ProductModel.findLockedCanonicalForLiveDeviceId(liveDeviceId);
+    if (!oldLocked) return res.status(404).json({ message: 'Par merge no encontrado' });
+
+    const oldDeviceId = String(oldLocked.id || oldLocked.device_id || '');
+    const switchedDate = oldLocked.update_time ? Number(oldLocked.update_time) : null;
+
+    const tuyaDetailId = resolveTuyaLiveDeviceIdForTuyaApi(oldLocked) || liveDeviceId;
+
+    // OLD: stored status from `_...` row (no Tuya sync, so we preserve old totals)
+    const oldConvertedStatus = applyDisplayConversionsToStatus(oldLocked.status, tuyaDetailId);
+    const oldFields = statusToMergedDisplayFields(oldConvertedStatus);
+
+    const oldProductLogsCount = await ProductLogModel.count({ product_device_id: oldDeviceId });
+    const newProductLogsCount = await ProductLogModel.count({ product_device_id: liveDeviceId });
+
+    // NEW: fetch current Tuya status, merge Osmosis baselines and add locked canonical flow totals
+    const tuyaResponse = await tuyaService.getDeviceDetail(tuyaDetailId);
+    if (!tuyaResponse?.success || !tuyaResponse?.data?.status) {
+      return res.status(400).json({
+        message: 'No se pudieron obtener valores actuales desde Tuya para el detalle del merge',
+        code: tuyaResponse?.code,
+        error: tuyaResponse?.error,
+      });
+    }
+
+    const newRawStatus = tuyaResponse.data.status;
+    const mergedFromDeviceIds = Array.isArray(oldLocked.merged_from_device_ids) ? oldLocked.merged_from_device_ids : [];
+
+    const isOsmosis = String(oldLocked.product_type || 'osmosis').toLowerCase() === 'osmosis';
+    let mergedRawStatus = newRawStatus;
+    if (isOsmosis && mergedFromDeviceIds.length > 0) {
+      mergedRawStatus = await mergeOsmosisTotalsSafe(mergedRawStatus, mergedFromDeviceIds, 'getMergedProductDetail:tuya');
+    }
+    mergedRawStatus = await ensureLockedCanonicalFlowTotalsMerged(mergedRawStatus, liveDeviceId, [oldLocked]);
+
+    const newConvertedStatus = applyDisplayConversionsToStatus(mergedRawStatus, tuyaDetailId);
+    const newFields = statusToMergedDisplayFields(newConvertedStatus);
+
+    return res.json({
+      liveDeviceId,
+      oldDeviceId,
+      switchedDate,
+      old: { device_id: oldDeviceId, ...oldFields, product_logs_count: oldProductLogsCount },
+      new: { device_id: liveDeviceId, ...newFields, product_logs_count: newProductLogsCount },
+    });
+  } catch (error) {
+    console.error('[getMergedProductDetail]', error);
+    return res.status(500).json({ message: 'Error al obtener el detalle de productos mezclados', error: error.message });
+  }
+};
+
 /**
  * Returns the Unix timestamp (seconds) to show as "Última vez actualizado":
  * the greater of product.update_time and the date of the latest ProductLog

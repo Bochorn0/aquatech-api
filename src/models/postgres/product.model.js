@@ -71,6 +71,24 @@ class ProductModel {
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
+  /**
+   * Returns all locked canonical rows `_...` that map 1:1 to a live Tuya device id
+   * via merged_from_device_ids = [liveDeviceId].
+   */
+  static async findLockedCanonicalRowsForMergedPairs() {
+    const result = await query(
+      `SELECT * FROM products
+       WHERE LENGTH(device_id) > 1
+         AND LEFT(device_id, 1) = '_'
+         AND COALESCE(jsonb_typeof(merged_from_device_ids), '') = 'array'
+         AND jsonb_array_length(COALESCE(merged_from_device_ids, '[]'::jsonb)) = 1
+         AND merged_from_device_ids->>0 IS NOT NULL
+       ORDER BY update_time DESC
+      `
+    );
+    return (result.rows || []).map((r) => this.parseRow(r));
+  }
+
   /** All Tuya device_ids absorbed into another row (equipos list: hide duplicate Tuya devices). */
   static async getSupersededDeviceIdSet() {
     try {

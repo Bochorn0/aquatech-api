@@ -1,6 +1,6 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, createProduct, updateProduct, deleteProduct, lockProducts } from '../controllers/product.controller.js'; // Named imports
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, createProduct, updateProduct, deleteProduct, lockProducts, getMergedProductsList, getMergedProductDetail } from '../controllers/product.controller.js'; // Named imports
 import { authenticate, requirePermission, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -38,6 +38,10 @@ router.get('/', authenticate, getAllProducts);
 
 // Admin: lock products (archive logs, `_` device_id + merged_from_device_ids)
 router.post('/lock', authenticate, authorizeRoles('admin'), lockProducts);
+
+// Admin: merged canonical pairs (for Personalización V1)
+router.get('/merged', authenticate, authorizeRoles('admin'), getMergedProductsList);
+router.get('/merged/:liveDeviceId', authenticate, authorizeRoles('admin'), getMergedProductDetail);
 
 // get multiple mocked
 router.get('/mocked', authenticate, generateAllProducts);
