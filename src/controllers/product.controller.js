@@ -152,7 +152,8 @@ export const getAllProducts = async (req, res) => {
       return res.status(200).json(mockProducts);
     }
     const filtros = {};
-    // Resolve client filter: explicit query param, or user's client for single-client users, or "all" only for admin
+    // Cliente query: absent, empty string, or "All" means "no client filter" (all clients) for users without
+    // an assigned client_id (e.g. admin). Users with client_id still get scoped to their client when param is empty.
     const id = user.id;
     const userData = await UserModel.findById(id);
     const userClientId = userData?.client_id != null ? String(userData.client_id) : null;
@@ -161,11 +162,9 @@ export const getAllProducts = async (req, res) => {
       filtros.client_id = query.cliente;
       filtros.cliente = query.cliente;
     } else if (userClientId) {
-      // User has a client (cliente role): empty/All param = filter by their client so they only see their products
       filtros.client_id = userClientId;
       filtros.cliente = userClientId;
     }
-    // When no userClientId (admin), empty/All = no filter = show all clients
 
     const currentclient = clientes.find(c => String(c.id) === String(filtros.cliente || filtros.client_id));
     if (currentclient?.name === 'All') {
@@ -447,11 +446,16 @@ export const getAllProducts = async (req, res) => {
     // Aplicar filtros adicionales después de combinar
     let finalProducts = filteredProducts;
 
-    // Filtrar por cliente si es necesario
-    if (filtros.cliente) {
-      finalProducts = finalProducts.filter(p => 
-        p.cliente?._id?.toString() === filtros.cliente.toString()
-      );
+    const rowClientIdString = (p) => {
+      const c = p.cliente ?? p.client_id;
+      if (c && typeof c === 'object') return String((c._id ?? c.id) ?? '');
+      return String(c ?? '');
+    };
+
+    // Filtrar por cliente si es necesario (misma lógica que el segundo pase, para filas bloqueadas con solo client_id)
+    if (filtros.cliente || filtros.client_id) {
+      const cid = String(filtros.cliente || filtros.client_id);
+      finalProducts = finalProducts.filter((p) => rowClientIdString(p) === cid);
     }
 
     // Filtrar por ciudad
@@ -495,18 +499,13 @@ export const getAllProducts = async (req, res) => {
       // Mantén el resto de campos tal como en la BD
     }));
 
-    // Combina ambos arreglos antes de filtrar de nuevo
-    let todosLosProductos = [...filteredProducts, ...productosLocalesAdaptados];
+    // Combina: base ya filtrada + sólo-locales (evita duplicar filas que el primer pase ya excluyó por cliente/ciudad/etc.)
+    let todosLosProductos = [...finalProducts, ...productosLocalesAdaptados];
 
     // 🔽 Vuelve a aplicar los filtros extra (post-combinados)
     if (filtros.cliente || filtros.client_id) {
       const cid = String(filtros.cliente || filtros.client_id);
-      const getClientId = (p) => {
-        const c = p.cliente ?? p.client_id;
-        if (c && typeof c === 'object') return (c._id ?? c.id)?.toString() ?? '';
-        return String(c ?? '');
-      };
-      todosLosProductos = todosLosProductos.filter(p => getClientId(p) === cid);
+      todosLosProductos = todosLosProductos.filter((p) => rowClientIdString(p) === cid);
     }
     if (filtros.city) {
       todosLosProductos = todosLosProductos.filter(p => p.city === filtros.city);
@@ -862,7 +861,12 @@ async function getLastUpdatedDisplay(productId, updateTimeSeconds, productForLog
 
 export const getProductById = async (req, res) => {
   try {
-    const { id } = req.params;
+    let { id } = req.params;
+    try {
+      id = decodeURIComponent(String(id || ''));
+    } catch (_) {
+      id = String(req.params.id || '');
+    }
     const ONLINE_THRESHOLD_MS = 5000; // 5 segundos
     const now = Date.now();
     devLog('Fetching product details for:', id);
