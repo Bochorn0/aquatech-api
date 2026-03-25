@@ -555,8 +555,11 @@ export const getAllProducts = async (req, res) => {
       return String(c ?? '');
     };
 
-    // Filtrar por cliente si es necesario (misma lógica que el segundo pase, para filas bloqueadas con solo client_id)
-    if (filtros.cliente || filtros.client_id) {
+    // Post-merge client filter: DB uses client_ids; Tuya branch must be filtered the same way here.
+    if (Array.isArray(filtros.client_ids) && filtros.client_ids.length > 0) {
+      const allowed = new Set(filtros.client_ids.map((id) => String(id)));
+      finalProducts = finalProducts.filter((p) => allowed.has(rowClientIdString(p)));
+    } else if (filtros.cliente || filtros.client_id) {
       const cid = String(filtros.cliente || filtros.client_id);
       finalProducts = finalProducts.filter((p) => rowClientIdString(p) === cid);
     }
@@ -606,7 +609,10 @@ export const getAllProducts = async (req, res) => {
     let todosLosProductos = [...finalProducts, ...productosLocalesAdaptados];
 
     // 🔽 Vuelve a aplicar los filtros extra (post-combinados)
-    if (filtros.cliente || filtros.client_id) {
+    if (Array.isArray(filtros.client_ids) && filtros.client_ids.length > 0) {
+      const allowed = new Set(filtros.client_ids.map((id) => String(id)));
+      todosLosProductos = todosLosProductos.filter((p) => allowed.has(rowClientIdString(p)));
+    } else if (filtros.cliente || filtros.client_id) {
       const cid = String(filtros.cliente || filtros.client_id);
       todosLosProductos = todosLosProductos.filter((p) => rowClientIdString(p) === cid);
     }
