@@ -92,6 +92,50 @@ async function mergeOsmosisTotalsSafe(canonicalStatus, mergedFromDeviceIds, cont
   }
 }
 
+/**
+ * Live row (ebdd) is listed without the _ebdd row when both exist. Add stored totals from the locked
+ * canonical row (same Tuya raw 0.1L units as mergeOsmosisTotals baseline).
+ */
+function addLockedCanonicalFlowTotalsToStatus(status, liveDeviceId, dbProductsList) {
+  const lid = String(liveDeviceId || '');
+  if (!lid || lid.startsWith('_')) return status;
+  const locked = (dbProductsList || []).find(
+    (p) =>
+      p &&
+      String(p.id ?? p.device_id ?? '').startsWith('_') &&
+      Array.isArray(p.merged_from_device_ids) &&
+      p.merged_from_device_ids.length === 1 &&
+      String(p.merged_from_device_ids[0]) === lid
+  );
+  if (!locked) return status;
+  const add1 = getRawStatusValue(locked.status, 'flowrate_total_1');
+  const add2 = getRawStatusValue(locked.status, 'flowrate_total_2');
+  if (add1 <= 0 && add2 <= 0) return status;
+  let out = upsertRawStatusValue(
+    status,
+    'flowrate_total_1',
+    getRawStatusValue(status, 'flowrate_total_1') + add1
+  );
+  out = upsertRawStatusValue(
+    out,
+    'flowrate_total_2',
+    getRawStatusValue(out, 'flowrate_total_2') + add2
+  );
+  return out;
+}
+
+/** When dbProductsList is empty, loads the locked `_…` row from DB (detail endpoint has no full list). */
+async function ensureLockedCanonicalFlowTotalsMerged(status, liveDeviceId, dbProductsList) {
+  const lid = String(liveDeviceId || '');
+  if (!lid || lid.startsWith('_')) return status;
+  let list = dbProductsList;
+  if (!Array.isArray(list) || list.length === 0) {
+    const locked = await ProductModel.findLockedCanonicalForLiveDeviceId(lid);
+    list = locked ? [locked] : [];
+  }
+  return addLockedCanonicalFlowTotalsToStatus(status, lid, list);
+}
+
 function anyMergedDeviceOnline(canonicalTuya, mergedFromDeviceIds, allTuyaData) {
   if (canonicalTuya?.online) return true;
   for (const mid of mergedFromDeviceIds || []) {
@@ -403,6 +447,16 @@ export const getAllProducts = async (req, res) => {
         cliente._id.toString() === (product.cliente?._id?.toString() || product.cliente?.toString())
       );
       product.cliente = cliente || clientes.find(c => c.name === 'All') || clientes[0];
+
+      const isOsmosisForLockPair =
+        String(product.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
+        !productos_nivel.includes(product.id);
+      if (isOsmosisForLockPair && product.status && Array.isArray(product.status)) {
+        const pid = String(product.id || '');
+        if (pid && !pid.startsWith('_')) {
+          product.status = addLockedCanonicalFlowTotalsToStatus(product.status, pid, dbProducts);
+        }
+      }
       
       // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
       // COMENTADO PARA MEJORAR RENDIMIENTO - Esta sección consulta ProductLog para obtener valores de flowrate
@@ -934,6 +988,12 @@ export const getProductById = async (req, res) => {
           if (isOsmosisFail && mergedFail.length > 0) {
             outFail.status = await mergeOsmosisTotalsSafe(outFail.status, mergedFail, 'getProductById:tuya-fail');
           }
+          if (isOsmosisFail && outFail.status && Array.isArray(outFail.status)) {
+            const lidFail = String(outFail.id || id || '');
+            if (lidFail && !lidFail.startsWith('_')) {
+              outFail.status = await ensureLockedCanonicalFlowTotalsMerged(outFail.status, lidFail, null);
+            }
+          }
           outFail.last_updated_display = lastDisplayFail != null ? lastDisplayFail : outFail.update_time;
           const productosEspecialesFail = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
           if (outFail.status && Array.isArray(outFail.status) && !productosEspecialesFail.includes(tuyaDetailId)) {
@@ -1007,6 +1067,13 @@ export const getProductById = async (req, res) => {
             }
           }
         }
+
+        if (isOsmosis && product.status && Array.isArray(product.status)) {
+          const lidDetail = String(product.id || id || '');
+          if (lidDetail && !lidDetail.startsWith('_')) {
+            product.status = await ensureLockedCanonicalFlowTotalsMerged(product.status, lidDetail, null);
+          }
+        }
         
         const flujos_total_codes = ['flowrate_total_1', 'flowrate_total_2'];
         if (PRODUCTOS_ESPECIALES.includes(tuyaDetailId)) {
@@ -1042,6 +1109,12 @@ export const getProductById = async (req, res) => {
       const isOsmosisExisting = String(outExisting.product_type || 'Osmosis').toLowerCase() === 'osmosis';
       if (isOsmosisExisting && mergedExisting.length > 0) {
         outExisting.status = await mergeOsmosisTotalsSafe(outExisting.status, mergedExisting, 'getProductById:existing-fallback');
+      }
+      if (isOsmosisExisting && outExisting.status && Array.isArray(outExisting.status)) {
+        const lidEx = String(outExisting.id || id || '');
+        if (lidEx && !lidEx.startsWith('_')) {
+          outExisting.status = await ensureLockedCanonicalFlowTotalsMerged(outExisting.status, lidEx, null);
+        }
       }
       outExisting.last_updated_display = lastDisplayExisting != null ? lastDisplayExisting : outExisting.update_time;
       // Apply same flowrate_total_1/2 ÷10 for display (Tuya uses 0.1 L units)
@@ -1136,6 +1209,13 @@ export const getProductById = async (req, res) => {
         }
       }
     }
+
+    if (isOsmosis && newProductModel.status && Array.isArray(newProductModel.status)) {
+      const lidNew = String(newProductModel.id || id || '');
+      if (lidNew && !lidNew.startsWith('_')) {
+        newProductModel.status = await ensureLockedCanonicalFlowTotalsMerged(newProductModel.status, lidNew, null);
+      }
+    }
     
     const PRODUCTOS_ESPECIALES = [
       'ebf9738480d78e0132gnru',
@@ -1176,6 +1256,12 @@ export const getProductById = async (req, res) => {
         let out = { ...fallback };
         if (isOsmosisFallback && mergedFallback.length > 0) {
           out.status = await mergeOsmosisTotalsSafe(out.status, mergedFallback, 'getProductById:catch-fallback');
+        }
+        if (isOsmosisFallback && out.status && Array.isArray(out.status)) {
+          const lidFb = String(out.id || req.params.id || '');
+          if (lidFb && !lidFb.startsWith('_')) {
+            out.status = await ensureLockedCanonicalFlowTotalsMerged(out.status, lidFb, null);
+          }
         }
         const flujosTotalCodes = ['flowrate_total_1', 'flowrate_total_2'];
         if (out.status && Array.isArray(out.status)) {

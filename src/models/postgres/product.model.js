@@ -51,6 +51,26 @@ class ProductModel {
     return (result.rows || []).map((r) => this.parseRow(r));
   }
 
+  /**
+   * Locked canonical row: device_id starts with `_`, merged_from_device_ids is exactly `[liveDeviceId]`.
+   * Used to add stored flow totals onto the live product detail/list response.
+   */
+  static async findLockedCanonicalForLiveDeviceId(liveDeviceId) {
+    if (!liveDeviceId) return null;
+    const lid = String(liveDeviceId);
+    const result = await query(
+      `SELECT * FROM products
+       WHERE LENGTH(device_id) > 1
+         AND LEFT(device_id, 1) = '_'
+         AND COALESCE(jsonb_typeof(merged_from_device_ids), '') = 'array'
+         AND jsonb_array_length(COALESCE(merged_from_device_ids, '[]'::jsonb)) = 1
+         AND merged_from_device_ids->>0 = $1
+       LIMIT 1`,
+      [lid]
+    );
+    return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+  }
+
   /** All Tuya device_ids absorbed into another row (equipos list: hide duplicate Tuya devices). */
   static async getSupersededDeviceIdSet() {
     try {
