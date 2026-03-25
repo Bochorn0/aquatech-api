@@ -63,8 +63,7 @@ class ProductModel {
        WHERE LENGTH(device_id) > 1
          AND LEFT(device_id, 1) = '_'
          AND COALESCE(jsonb_typeof(merged_from_device_ids), '') = 'array'
-         AND jsonb_array_length(COALESCE(merged_from_device_ids, '[]'::jsonb)) = 1
-         AND merged_from_device_ids->>0 = $1
+         AND merged_from_device_ids @> jsonb_build_array($1::text)
        LIMIT 1`,
       [lid]
     );
@@ -81,8 +80,7 @@ class ProductModel {
        WHERE LENGTH(device_id) > 1
          AND LEFT(device_id, 1) = '_'
          AND COALESCE(jsonb_typeof(merged_from_device_ids), '') = 'array'
-         AND jsonb_array_length(COALESCE(merged_from_device_ids, '[]'::jsonb)) = 1
-         AND merged_from_device_ids->>0 IS NOT NULL
+         AND jsonb_array_length(COALESCE(merged_from_device_ids, '[]'::jsonb)) > 0
        ORDER BY update_time DESC
       `
     );

@@ -991,25 +991,27 @@ function statusToMergedDisplayFields(status) {
 export const getMergedProductsList = async (req, res) => {
   try {
     const lockedRows = await ProductModel.findLockedCanonicalRowsForMergedPairs();
-    const osmosisRows = lockedRows.filter(
-      (r) => String(r.product_type || 'osmosis').toLowerCase() === 'osmosis' || String(r.product_type || '').toLowerCase() === 'osmosis'
-    );
 
-    const items = osmosisRows
-      .map((row) => {
-        const merged = Array.isArray(row.merged_from_device_ids) ? row.merged_from_device_ids : [];
-        if (merged.length !== 1) return null;
-        const liveDeviceId = String(merged[0]);
-        if (!liveDeviceId || liveDeviceId.startsWith('_')) return null;
-        return {
-          liveDeviceId,
-          oldDeviceId: String(row.id || row.device_id || ''),
-          switchedDate: row.update_time ? Number(row.update_time) : null,
-        };
-      })
-      .filter(Boolean);
+    // Show all locked canonical merges (not only Osmosis).
+    const rawItems = [];
+    for (const row of lockedRows) {
+      const oldDeviceId = String(row.id || row.device_id || '');
+      const merged = Array.isArray(row.merged_from_device_ids) ? row.merged_from_device_ids : [];
+      if (!oldDeviceId || merged.length === 0) continue;
+      const switchedDate = row.update_time ? Number(row.update_time) : null;
+      for (const liveId of merged) {
+        const liveDeviceId = String(liveId);
+        if (!liveDeviceId || liveDeviceId.startsWith('_')) continue;
+        rawItems.push({ liveDeviceId, oldDeviceId, switchedDate });
+      }
+    }
 
-    return res.json(items);
+    // De-dupe by liveDeviceId (a live device should only have one locked canonical row).
+    const dedup = new Map();
+    for (const it of rawItems) {
+      if (!dedup.has(it.liveDeviceId)) dedup.set(it.liveDeviceId, it);
+    }
+    return res.json(Array.from(dedup.values()));
   } catch (error) {
     console.error('[getMergedProductsList]', error);
     return res.status(500).json({ message: 'Error al obtener productos mezclados', error: error.message });
@@ -1046,7 +1048,8 @@ export const getMergedProductDetail = async (req, res) => {
     const oldProductLogsCount = await ProductLogModel.count({ product_device_id: oldDeviceId });
     const newProductLogsCount = await ProductLogModel.count({ product_device_id: liveDeviceId });
 
-    // NEW: fetch current Tuya status, merge Osmosis baselines and add locked canonical flow totals
+    // NEW (for this endpoint): fetch current Tuya status only.
+    // Do NOT apply the merge logic here; users want the "real" live product values.
     const tuyaResponse = await tuyaService.getDeviceDetail(tuyaDetailId);
     if (!tuyaResponse?.success || !tuyaResponse?.data?.status) {
       return res.status(400).json({
@@ -1058,18 +1061,7 @@ export const getMergedProductDetail = async (req, res) => {
 
     const newRawStatus = tuyaResponse.data.status;
 
-    // Match getProductById/list behavior: Osmosis baseline merge uses the *live* row's merged_from_device_ids.
-    const liveRow = await ProductModel.findByExactDeviceId(liveDeviceId);
-    const mergedCurrent = Array.isArray(liveRow?.merged_from_device_ids) ? liveRow.merged_from_device_ids : [];
-
-    const isOsmosis = String(liveRow?.product_type ?? oldLocked.product_type ?? 'osmosis').toLowerCase() === 'osmosis';
-    let mergedRawStatus = newRawStatus;
-    if (isOsmosis && mergedCurrent.length > 0) {
-      mergedRawStatus = await mergeOsmosisTotalsSafe(mergedRawStatus, mergedCurrent, 'getMergedProductDetail:tuya');
-    }
-    mergedRawStatus = await ensureLockedCanonicalFlowTotalsMerged(mergedRawStatus, liveDeviceId, [oldLocked]);
-
-    const newConvertedStatus = applyDisplayConversionsToStatus(mergedRawStatus, tuyaDetailId);
+    const newConvertedStatus = applyDisplayConversionsToStatus(newRawStatus, tuyaDetailId);
     const newFields = statusToMergedDisplayFields(newConvertedStatus);
 
     return res.json({
