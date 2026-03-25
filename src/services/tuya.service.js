@@ -74,6 +74,34 @@ export async function getAllDevices(userId) {
   }
 }
 
+/**
+ * Fetch devices for multiple Tuya user IDs and merge by device id (first occurrence wins).
+ * Returns { success, data, errors } where errors lists per-user failures when some calls fail.
+ */
+export async function getAllDevicesForUserIds(userIds) {
+  const ids = Array.isArray(userIds) ? userIds.filter(Boolean).map(String) : [];
+  if (!context) return { ...noTuyaConfig(), data: [], errors: [] };
+  if (ids.length === 0) return { success: true, data: [], errors: [] };
+
+  const merged = new Map();
+  const errors = [];
+
+  for (const uid of ids) {
+    const r = await getAllDevices(uid);
+    if (r.success && Array.isArray(r.data)) {
+      for (const d of r.data) {
+        if (d && d.id && !merged.has(String(d.id))) merged.set(String(d.id), d);
+      }
+    } else {
+      errors.push({ userId: uid, error: r.error || r.msg || 'unknown' });
+    }
+  }
+
+  const data = [...merged.values()];
+  const success = data.length > 0 || errors.length < ids.length;
+  return { success, data, errors };
+}
+
 // ---------------------------------------------
 // Fetch device logs (report logs) with query params
 // ---------------------------------------------

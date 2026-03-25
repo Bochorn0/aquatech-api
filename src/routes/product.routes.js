@@ -1,6 +1,6 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, createProduct, updateProduct, deleteProduct } from '../controllers/product.controller.js'; // Named imports
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, createProduct, updateProduct, deleteProduct, lockProducts } from '../controllers/product.controller.js'; // Named imports
 import { authenticate, requirePermission, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -35,6 +35,9 @@ export const productAuthOrCron = (req, res, next) => {
 
 // Get all products
 router.get('/', authenticate, getAllProducts);
+
+// Admin: lock products (archive logs, `_` device_id + merged_from_device_ids)
+router.post('/lock', authenticate, authorizeRoles('admin'), lockProducts);
 
 // get multiple mocked
 router.get('/mocked', authenticate, generateAllProducts);

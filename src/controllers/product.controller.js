@@ -5,8 +5,10 @@ import ClientModel from '../models/postgres/client.model.js';
 import ControllerModel from '../models/postgres/controller.model.js';
 import ProductLogModel from '../models/postgres/productLog.model.js';
 import * as tuyaService from '../services/tuya.service.js';
+import config from '../config/config.js';
 import moment from 'moment';
 import { devLog, devWarn } from '../utils/devLogger.js';
+import { getClient } from '../config/postgres.config.js';
 
 // IDs de productos tipo "Nivel"
 const productos_nivel = [
@@ -50,12 +52,18 @@ async function mergeOsmosisTotalsWithProductTableBaseline(canonicalStatus, merge
   // If old merged rows were deleted from products table, fallback to product_logs max for those device ids.
   // product_logs stores liters, so convert to Tuya raw (0.1L) by *10 for display merge.
   if (missingIds.length > 0) {
-    const historicalByMergedDeviceId = await ProductLogModel.getMaxVolumesByDeviceIds(missingIds);
+    const expandedForLogs = [
+      ...new Set(missingIds.flatMap((id) => [String(id), `_${String(id)}`])),
+    ];
+    const historicalByMergedDeviceId = await ProductLogModel.getMaxVolumesByDeviceIds(expandedForLogs);
     for (const mid of missingIds) {
-      const hist = historicalByMergedDeviceId.get(String(mid));
-      if (!hist) continue;
-      baselineRawProd += (Number(hist.production_volume) || 0) * 10;
-      baselineRawRej += (Number(hist.rejected_volume) || 0) * 10;
+      const a = historicalByMergedDeviceId.get(String(mid));
+      const b = historicalByMergedDeviceId.get(`_${String(mid)}`);
+      const prod = Math.max(Number(a?.production_volume) || 0, Number(b?.production_volume) || 0);
+      const rej = Math.max(Number(a?.rejected_volume) || 0, Number(b?.rejected_volume) || 0);
+      if (prod <= 0 && rej <= 0) continue;
+      baselineRawProd += prod * 10;
+      baselineRawRej += rej * 10;
     }
   }
 
@@ -93,18 +101,49 @@ function anyMergedDeviceOnline(canonicalTuya, mergedFromDeviceIds, allTuyaData) 
   return false;
 }
 
+/** Tuya API uses the physical device id; after a lock the DB row id is `_` + id with live id in merged_from_device_ids. */
+function resolveTuyaLiveDeviceIdForTuyaApi(product) {
+  if (!product) return null;
+  const did = String(product.id ?? product.device_id ?? '');
+  const merged = Array.isArray(product.merged_from_device_ids) ? product.merged_from_device_ids : [];
+  if (did.startsWith('_') && merged.length > 0) return String(merged[0]);
+  return did || null;
+}
+
+function collectProductLogDeviceIds(routeOrCanonicalId, product) {
+  const ids = new Set();
+  if (routeOrCanonicalId != null && String(routeOrCanonicalId)) ids.add(String(routeOrCanonicalId));
+  if (product) {
+    const pid = String(product.id ?? '');
+    if (pid) ids.add(pid);
+    const live = resolveTuyaLiveDeviceIdForTuyaApi(product);
+    if (live) ids.add(live);
+  }
+  return [...ids];
+}
+
 export const getAllProducts = async (req, res) => {
   try {
     const user = req.user;
     const query = req.query;
-    const uid = 'az1739408936787MhA1Y';  // Example user ID
+    const tuyaUserIds = config.TUYA_USER_IDS?.length ? config.TUYA_USER_IDS : ['az1739408936787MhA1Y'];
+
     // const realProducts = {data: [{}]}
     const ONLINE_THRESHOLD_MS = 5000; // 5 segundos
     const now = Date.now();
-    const realProducts = await tuyaService.getAllDevices(uid);
+    const realProducts = await tuyaService.getAllDevicesForUserIds(tuyaUserIds);
     const tuyaNotConfigured = !realProducts.success && (realProducts.error || '').includes('not configured');
-    if (!realProducts.success && !tuyaNotConfigured) {
-      return res.status(400).json({ message: realProducts.error, code: realProducts.code });
+    const hasTuyaList = Array.isArray(realProducts.data) && realProducts.data.length > 0;
+    if (!realProducts.success && !tuyaNotConfigured && !hasTuyaList) {
+      const msg =
+        realProducts.errors?.length > 0
+          ? realProducts.errors.map((e) => `${e.userId}: ${e.error}`).join('; ')
+          : realProducts.error;
+      return res.status(400).json({
+        message: msg || 'Tuya error',
+        code: realProducts.code,
+        errors: realProducts.errors,
+      });
     }
     const clientes = await ClientModel.find();
     // mocked products 
@@ -170,7 +209,15 @@ export const getAllProducts = async (req, res) => {
 
     // Tuya may still list replaced devices; DB merge lists them under merged_from_device_ids — hide from equipos list
     const supersededDeviceIds = await ProductModel.getSupersededDeviceIdSet();
-    const tuyaDevicesVisible = (realProducts.data || []).filter((p) => p && p.id && !supersededDeviceIds.has(p.id));
+    const allTuyaList = Array.isArray(realProducts.data) ? realProducts.data : [];
+    const tuyaDevicesVisible = allTuyaList.filter((p) => p && p.id && !supersededDeviceIds.has(p.id));
+
+    const isLockedCanonRow = (p) =>
+      p &&
+      p.id &&
+      String(p.id).startsWith('_') &&
+      Array.isArray(p.merged_from_device_ids) &&
+      p.merged_from_device_ids.length > 0;
 
     // Sync Tuya → PostgreSQL (non-blocking: Tuya is source of truth)
     let dbProducts = [];
@@ -214,17 +261,21 @@ export const getAllProducts = async (req, res) => {
       devWarn('[getAllProducts] DB sync/query failed, using Tuya data only:', dbErr.message);
     }
 
-    devLog(`🌐 Found ${realProducts.data?.length ?? 0} products from Tuya (${tuyaDevicesVisible.length} visible after merge suppress list)`);
+    devLog(`🌐 Found ${allTuyaList.length} products from Tuya (${tuyaDevicesVisible.length} visible after merge suppress list)`);
 
     const dbProductsMap = new Map();
     dbProducts.forEach(p => {
       dbProductsMap.set(p.id, p);
     });
 
-    // When Tuya not configured, use DB products only; otherwise combine Tuya + DB
-    const products = tuyaNotConfigured
-      ? dbProducts.filter((p) => p && p.id && !supersededDeviceIds.has(String(p.id)))
-      : await Promise.all(tuyaDevicesVisible.map(async (realProduct) => {
+    const allTuyaById = new Map(allTuyaList.map((d) => [String(d.id), d]));
+
+    // When Tuya not configured, use DB products only; otherwise combine Tuya + DB + locked canonical rows
+    let products;
+    if (tuyaNotConfigured) {
+      products = dbProducts.filter((p) => p && p.id && !supersededDeviceIds.has(String(p.id)));
+    } else {
+      const fromVisible = await Promise.all(tuyaDevicesVisible.map(async (realProduct) => {
       const dbProduct = dbProductsMap.get(realProduct.id);
       if (dbProduct) {
         const merged = dbProduct.merged_from_device_ids || [];
@@ -235,7 +286,7 @@ export const getAllProducts = async (req, res) => {
         let online = realProduct.online;
         if (merged.length > 0 && isOsmosisRow) {
           status = await mergeOsmosisTotalsSafe(realProduct.status, merged, 'getAllProducts');
-          online = anyMergedDeviceOnline(realProduct, merged, realProducts.data || []);
+          online = anyMergedDeviceOnline(realProduct, merged, allTuyaList);
         }
         return {
           ...dbProduct,
@@ -258,6 +309,38 @@ export const getAllProducts = async (req, res) => {
         state: realProduct.state || 'Sonora',
       };
     }));
+
+      const lockedDbCandidates = dbProducts.filter(isLockedCanonRow);
+      const lockedCanon = await Promise.all(
+        lockedDbCandidates.map(async (dbProduct) => {
+          const merged = (dbProduct.merged_from_device_ids || []).map(String);
+          const liveTuya = merged.map((mid) => allTuyaById.get(mid)).find(Boolean);
+          if (!liveTuya) {
+            return { ...dbProduct, online: false };
+          }
+          const isOsmosisRow =
+            String(dbProduct.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
+            !productos_nivel.includes(liveTuya.id);
+          let status = liveTuya.status;
+          let online = liveTuya.online;
+          if (merged.length > 0 && isOsmosisRow) {
+            status = await mergeOsmosisTotalsSafe(liveTuya.status, merged, 'getAllProducts:locked');
+            online = anyMergedDeviceOnline(liveTuya, merged, allTuyaList);
+          }
+          return {
+            ...dbProduct,
+            online,
+            name: liveTuya.name,
+            ip: liveTuya.ip,
+            status,
+            update_time: liveTuya.update_time,
+            active_time: liveTuya.active_time,
+          };
+        })
+      );
+
+      products = [...fromVisible, ...lockedCanon];
+    }
 
     if (tuyaNotConfigured) {
       devLog(`📦 [Tuya not configured] Using ${dbProducts.length} products from database only`);
@@ -404,7 +487,7 @@ export const getAllProducts = async (req, res) => {
     // 🔽 EXTRA: incluir productos sólo locales que no están en Tuya (visible list only)
     const idsTuya = new Set(tuyaDevicesVisible.map(p => p.id));
     const productosLocales = dbProducts.filter(
-      (p) => !idsTuya.has(p.id) && !supersededDeviceIds.has(p.id)
+      (p) => !idsTuya.has(p.id) && !supersededDeviceIds.has(p.id) && !isLockedCanonRow(p)
     );
     const productosLocalesAdaptados = productosLocales.map((dbProduct) => ({
       ...dbProduct,
@@ -494,8 +577,8 @@ export const saveAllProducts = async (req, res) => {
 
 export const mockedProducts = async () => {
   try {
-  const uid = 'az1739408936787MhA1Y';  // Example user ID
-  const realProducts = await tuyaService.getAllDevices(iud);
+  const tuyaUserIds = config.TUYA_USER_IDS?.length ? config.TUYA_USER_IDS : ['az1739408936787MhA1Y'];
+  const realProducts = await tuyaService.getAllDevicesForUserIds(tuyaUserIds);
   if (!realProducts.success) {
     return res.status(400).json({ message: realProducts.error, code: realProducts.code });
   }
@@ -677,14 +760,80 @@ export const deleteProduct = async (req, res) => {
 };
 
 /**
+ * Admin: "lock" selected products — archive logs under `_` + device_id and point the row at the live Tuya id via merged_from_device_ids.
+ * Body: { deviceIds: string[] } (plain Tuya device ids, not already `_`-prefixed).
+ */
+export const lockProducts = async (req, res) => {
+  try {
+    const { deviceIds } = req.body || {};
+    if (!Array.isArray(deviceIds) || deviceIds.length === 0) {
+      return res.status(400).json({ message: 'Se requiere deviceIds (arreglo de ids de equipo).' });
+    }
+    const results = { locked: [], skipped: [], errors: [] };
+
+    for (const rawId of deviceIds) {
+      const plain = String(rawId || '').trim();
+      if (!plain || plain.startsWith('_')) {
+        results.skipped.push({ deviceId: plain, reason: 'vacío o ya bloqueado' });
+        continue;
+      }
+      const row = await ProductModel.findByExactDeviceId(plain);
+      if (!row) {
+        results.errors.push({ deviceId: plain, error: 'Producto no encontrado' });
+        continue;
+      }
+      const newDeviceId = `_${plain}`;
+      const clash = await ProductModel.findByExactDeviceId(newDeviceId);
+      if (clash) {
+        results.errors.push({ deviceId: plain, error: `Ya existe device_id ${newDeviceId}` });
+        continue;
+      }
+      const prevMerged = Array.isArray(row.merged_from_device_ids)
+        ? row.merged_from_device_ids.map(String)
+        : [];
+      const merged = [...new Set([...prevMerged, plain])];
+
+      const client = await getClient();
+      try {
+        await client.query('BEGIN');
+        await client.query(
+          `UPDATE product_logs SET product_device_id = '_' || product_device_id, updatedat = CURRENT_TIMESTAMP WHERE product_device_id = $1`,
+          [plain]
+        );
+        await client.query(
+          `UPDATE products SET device_id = $1, merged_from_device_ids = $2::jsonb, updatedat = CURRENT_TIMESTAMP WHERE device_id = $3`,
+          [newDeviceId, JSON.stringify(merged), plain]
+        );
+        await client.query('COMMIT');
+        results.locked.push({ from: plain, to: newDeviceId, merged_from_device_ids: merged });
+      } catch (e) {
+        await client.query('ROLLBACK');
+        results.errors.push({ deviceId: plain, error: e.message });
+      } finally {
+        client.release();
+      }
+    }
+
+    return res.status(200).json({ success: true, results });
+  } catch (error) {
+    console.error('lockProducts:', error);
+    return res.status(500).json({ message: 'Error al bloquear productos', error: error.message });
+  }
+};
+
+/**
  * Returns the Unix timestamp (seconds) to show as "Última vez actualizado":
  * the greater of product.update_time and the date of the latest ProductLog
  * that has at least one non-zero value (tds, production_volume, rejected_volume,
  * temperature, flujo_produccion, flujo_rechazo).
  */
-async function getLastUpdatedDisplay(productId, updateTimeSeconds) {
+async function getLastUpdatedDisplay(productId, updateTimeSeconds, productForLogIds = null) {
   try {
-    const latestLog = await ProductLogModel.findLatestWithData(productId);
+    const deviceIds = productForLogIds ? collectProductLogDeviceIds(productId, productForLogIds) : [String(productId)];
+    const latestLog =
+      deviceIds.length > 1
+        ? await ProductLogModel.findLatestWithDataAmong(deviceIds)
+        : await ProductLogModel.findLatestWithData(String(productId));
 
     const productTime = updateTimeSeconds && Number(updateTimeSeconds) > 0 ? Number(updateTimeSeconds) : 0;
     if (!latestLog || !latestLog.date) return productTime || undefined;
@@ -709,14 +858,15 @@ export const getProductById = async (req, res) => {
     if (product) {
       devLog('Product found in MongoDB. Fetching latest details from Tuya API...');
       product.online = product.last_time_active && (now - product.last_time_active <= ONLINE_THRESHOLD_MS);
-      
+      const tuyaDetailId = resolveTuyaLiveDeviceIdForTuyaApi(product) || id;
+
       // Fetch the latest details from Tuya API
-      const response = await tuyaService.getDeviceDetail(id);
+      const response = await tuyaService.getDeviceDetail(tuyaDetailId);
       
       devLog('response product detail', response)
       if (!response.success) {
         if (product) {
-          const lastDisplayFail = await getLastUpdatedDisplay(id, product.update_time);
+          const lastDisplayFail = await getLastUpdatedDisplay(id, product.update_time, product);
           const outFail = { ...product };
           const mergedFail = Array.isArray(outFail.merged_from_device_ids) ? outFail.merged_from_device_ids : [];
           const isOsmosisFail = String(outFail.product_type || 'Osmosis').toLowerCase() === 'osmosis';
@@ -725,7 +875,7 @@ export const getProductById = async (req, res) => {
           }
           outFail.last_updated_display = lastDisplayFail != null ? lastDisplayFail : outFail.update_time;
           const productosEspecialesFail = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
-          if (outFail.status && Array.isArray(outFail.status) && !productosEspecialesFail.includes(id)) {
+          if (outFail.status && Array.isArray(outFail.status) && !productosEspecialesFail.includes(tuyaDetailId)) {
             outFail.status = outFail.status.map((s) => {
               if (s.code === 'flowrate_total_1' || s.code === 'flowrate_total_2') s.value = (Number(s.value) / 10).toFixed(2);
               return s;
@@ -744,6 +894,7 @@ export const getProductById = async (req, res) => {
           'ebf9738480d78e0132gnru',
           'ebea4ffa2ab1483940nrqn'
         ];
+        const isOsmosis = product.product_type === 'Osmosis' || product.product_type === 'osmosis';
         const mergedCurrent = Array.isArray(product.merged_from_device_ids) ? product.merged_from_device_ids : [];
         if (isOsmosis && mergedCurrent.length > 0) {
           product.status = await mergeOsmosisTotalsSafe(product.status, mergedCurrent, 'getProductById:tuya-success');
@@ -751,7 +902,6 @@ export const getProductById = async (req, res) => {
         devLog(`Product ${id} updated in MongoDB.`);
         
         // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
-        const isOsmosis = product.product_type === 'Osmosis' || product.product_type === 'osmosis';
         
         if (isOsmosis && product.status && Array.isArray(product.status)) {
           const flowSpeed1 = product.status.find(s => s.code === 'flowrate_speed_1');
@@ -764,8 +914,9 @@ export const getProductById = async (req, res) => {
             devLog(`🔍 [getProductById] Producto ${id}: flowrate en 0, consultando ProductLogModel...`);
             
             try {
-              // Obtener el registro más reciente de ProductLog
-              const latestLog = await ProductLogModel.findOne({ product_id: id });
+              const logDevIds = collectProductLogDeviceIds(id, product);
+              const logRows = await ProductLogModel.find({ product_device_ids: logDevIds, _limit: 1 });
+              const latestLog = logRows[0];
               
               if (latestLog) {
                 devLog(`✅ [getProductById] Log encontrado para ${id}`);
@@ -797,7 +948,7 @@ export const getProductById = async (req, res) => {
         }
         
         const flujos_total_codes = ['flowrate_total_1', 'flowrate_total_2'];
-        if (PRODUCTOS_ESPECIALES.includes(id)) {
+        if (PRODUCTOS_ESPECIALES.includes(tuyaDetailId)) {
           const flujos_codes = ["flowrate_speed_1", "flowrate_speed_2", "flowrate_total_1", "flowrate_total_2"];
           product.status.map((stat) => {
             if (flujos_codes.includes(stat.code)) {
@@ -816,7 +967,7 @@ export const getProductById = async (req, res) => {
             return stat;
           });
         }
-        const lastDisplay = await getLastUpdatedDisplay(id, product.update_time);
+        const lastDisplay = await getLastUpdatedDisplay(id, product.update_time, product);
         const out = { ...product };
         out.last_updated_display = lastDisplay != null ? lastDisplay : out.update_time;
         return res.json(out);
@@ -824,7 +975,7 @@ export const getProductById = async (req, res) => {
 
       // If Tuya API doesn't return data, return the existing MongoDB product
       devLog('Tuya API did not return data. Returning existing MongoDB product.');
-      const lastDisplayExisting = await getLastUpdatedDisplay(id, product.update_time);
+      const lastDisplayExisting = await getLastUpdatedDisplay(id, product.update_time, product);
       const outExisting = { ...product };
       const mergedExisting = Array.isArray(outExisting.merged_from_device_ids) ? outExisting.merged_from_device_ids : [];
       const isOsmosisExisting = String(outExisting.product_type || 'Osmosis').toLowerCase() === 'osmosis';
@@ -835,7 +986,7 @@ export const getProductById = async (req, res) => {
       // Apply same flowrate_total_1/2 ÷10 for display (Tuya uses 0.1 L units)
       const productosEspeciales = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
       const flujosTotalCodes = ['flowrate_total_1', 'flowrate_total_2'];
-      if (outExisting.status && Array.isArray(outExisting.status) && !productosEspeciales.includes(id)) {
+      if (outExisting.status && Array.isArray(outExisting.status) && !productosEspeciales.includes(tuyaDetailId)) {
         outExisting.status = outExisting.status.map((stat) => {
           if (flujosTotalCodes.includes(stat.code)) stat.value = (Number(stat.value) / 10).toFixed(2);
           return stat;
@@ -949,7 +1100,7 @@ export const getProductById = async (req, res) => {
         return stat;
       });
     }
-    const lastDisplayNew = await getLastUpdatedDisplay(id, newProductModel.update_time);
+    const lastDisplayNew = await getLastUpdatedDisplay(id, newProductModel.update_time, newProductModel);
     const outNew = { ...newProductModel };
     outNew.last_updated_display = lastDisplayNew != null ? lastDisplayNew : outNew.update_time;
     res.json(outNew);
@@ -972,7 +1123,7 @@ export const getProductById = async (req, res) => {
             return stat;
           });
         }
-        const lastDisplay = await getLastUpdatedDisplay(req.params.id, out.update_time);
+        const lastDisplay = await getLastUpdatedDisplay(req.params.id, out.update_time, fallback);
         out.last_updated_display = lastDisplay != null ? lastDisplay : out.update_time;
         return res.json(out);
       }
@@ -999,9 +1150,13 @@ export const getProductLogsById = async (req, res) => {
     }
 
     const product = await ProductModel.findByDeviceId(id);
+    const tuyaLogId = product ? (resolveTuyaLiveDeviceIdForTuyaApi(product) || id) : id;
+    const logDeviceIds = product ? collectProductLogDeviceIds(id, product) : [String(id)];
+    const logWriteDeviceId = tuyaLogId;
+
     const productType = product?.product_type || 'Osmosis';
     const isNivel = productType === 'Nivel' || productType === 'nivel';
-    devLog('Fetching product logs for:', { id, productType });
+    devLog('Fetching product logs for:', { id, tuyaLogId, productType });
 
     // ====== FUNCIÓN PARA APLICAR CONVERSIONES ======
     const applySpecialProductLogic = (fieldName, value) => {
@@ -1019,7 +1174,7 @@ export const getProductLogsById = async (req, res) => {
       let convertedValue = value;
 
       // 1. Si es producto especial y es código de flujo: multiplicar por 1.6
-      if (PRODUCTOS_ESPECIALES.includes(id) && flujos_codes.includes(fieldName)) {
+      if (PRODUCTOS_ESPECIALES.includes(tuyaLogId) && flujos_codes.includes(fieldName)) {
         convertedValue = convertedValue * 1.6;
         
         // 2. Si es total (flowrate_total_1 o flowrate_total_2): dividir por 10
@@ -1048,7 +1203,7 @@ export const getProductLogsById = async (req, res) => {
     const fields = tuyaFieldsByType[productType] || tuyaFieldsByType.Osmosis;
 
     const filters = {
-      id,
+      id: tuyaLogId,
       start_date: numericStartDate,
       end_date: numericEndDate,
       fields,
@@ -1088,7 +1243,7 @@ export const getProductLogsById = async (req, res) => {
             for (const code of nivelCodes) {
               try {
                 const resp = await tuyaService.getDeviceLogsForRoutine({
-                  id,
+                  id: tuyaLogId,
                   start_date: numericStartDate,
                   end_date: numericEndDate,
                   fields: code,
@@ -1124,12 +1279,13 @@ export const getProductLogsById = async (req, res) => {
               );
               if (toSave.length > 0) {
                 const dates = toSave.map((l) => l.date);
-                const existing = await ProductLogModel.findByDates(id, dates);
+                const existing = await ProductLogModel.findByDatesForDeviceIds(logDeviceIds, dates);
                 const existingSet = new Set(existing.map((e) => (e.date instanceof Date ? e.date : new Date(e.date)).getTime()));
                 const toInsert = toSave
                   .filter((l) => !existingSet.has(l.date.getTime()))
                   .map((l) => ({
-                    product_id: id,
+                    product_id: logWriteDeviceId,
+                    product_device_id: logWriteDeviceId,
                     producto: l.producto,
                     date: l.date,
                     flujo_produccion: l.flujo_produccion ?? undefined,
@@ -1149,7 +1305,7 @@ export const getProductLogsById = async (req, res) => {
       }
 
       devLog('🔁 Consultando logs desde base de datos local...');
-      const query = { product_id: id, _limit: parseInt(limit, 10) * 5 };
+      const query = { product_device_ids: logDeviceIds, _limit: parseInt(limit, 10) * 5 };
 
       if (start_date && end_date) {
         query.date = {
@@ -1254,12 +1410,13 @@ export const getProductLogsById = async (req, res) => {
           const logsWithData = logsToSync.filter(hasValidData);
           if (logsWithData.length > 0) {
             const dates = logsWithData.map((l) => l.date);
-            const existing = await ProductLogModel.findByDates(id, dates);
+            const existing = await ProductLogModel.findByDatesForDeviceIds(logDeviceIds, dates);
             const existingSet = new Set(existing.map((e) => (e.date instanceof Date ? e.date : new Date(e.date)).getTime()));
             const toInsert = logsWithData
               .filter((l) => !existingSet.has(l.date.getTime()))
               .map((l) => ({
-                product_id: id,
+                product_id: logWriteDeviceId,
+                product_device_id: logWriteDeviceId,
                 producto: l.producto,
                 date: l.date,
                 tds: l.tds ?? undefined,
@@ -1462,8 +1619,9 @@ export const getProductMetrics = async (req, res) => {
       return res.status(404).json({ message: 'Product not found' });
     }
 
+    const tuyaDetailId = resolveTuyaLiveDeviceIdForTuyaApi(product) || id;
     devLog('Fetching status from Tuya API...');
-    const response = await tuyaService.getDeviceDetail(id);
+    const response = await tuyaService.getDeviceDetail(tuyaDetailId);
     if (!response.success) {
       return res.status(400).json({ message: response.error, code: response.code });
     }
@@ -1492,16 +1650,18 @@ export const sendDeviceCommands = async (req, res) => {
       return res.status(400).json({ message: "Invalid request payload" });
     }
 
-    devLog(`Sending commands to device ${id}:`, commands);
+    const productRow = await ProductModel.findByDeviceId(id);
+    const tuyaCmdId = resolveTuyaLiveDeviceIdForTuyaApi(productRow) || id;
+    devLog(`Sending commands to device ${tuyaCmdId} (ruta ${id}):`, commands);
 
-    const response = await tuyaService.executeCommands({id, commands});
+    const response = await tuyaService.executeCommands({ id: tuyaCmdId, commands });
     if (!response.success) {
       return res.status(400).json({ message: response.error, code: response.code });
     }
     devLog('response commands:', response);
     // await new Promise(resolve => setTimeout(resolve, 2000)); // Simulating delay
     // const response = { executed: true };
-    const deviceData = await tuyaService.getDeviceDetail(id);
+    const deviceData = await tuyaService.getDeviceDetail(tuyaCmdId);
     if (!deviceData.success) {
       return res.status(400).json({ message: deviceData.error, code: deviceData.code });
     }
@@ -2224,6 +2384,8 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
           continue;
         }
 
+        const tuyaDeviceId = resolveTuyaLiveDeviceIdForTuyaApi(product) || productId;
+
         // ====== OBTENER LOGS DE TUYA POR CADA CÓDIGO (SEPARADO) ======
         // Es importante hacer consultas separadas ya que cada una tiene límite de 100 registros
         const allTuyaLogs = [];
@@ -2231,10 +2393,10 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
 
         for (const code of logCodes) {
           try {
-            devLog(`🔍 [fetchLogsRoutine] Obteniendo logs de código '${code}' para ${productId}...`);
+            devLog(`🔍 [fetchLogsRoutine] Obteniendo logs de código '${code}' para ${tuyaDeviceId} (fila ${productId})...`);
             
             const filters = {
-              id: productId,
+              id: tuyaDeviceId,
               start_date: startTime,
               end_date: now,
               fields: code, // ⚠️ IMPORTANTE: Solo un código a la vez
@@ -2284,7 +2446,8 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
           
           if (!groupedLogs[timestamp]) {
             groupedLogs[timestamp] = {
-              product_id: productId,
+              product_id: tuyaDeviceId,
+              product_device_id: tuyaDeviceId,
               producto: product._id,
               date: new Date(timestamp),
               source: 'tuya',
@@ -2358,7 +2521,7 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
           try {
             // Verificar si ya existe un log similar (evitar duplicados)
             const existingLog = await ProductLogModel.findOne({
-              product_id: productId,
+              product_id: tuyaDeviceId,
               date: logData.date,
             });
 

@@ -85,6 +85,20 @@ class ProductLogModel {
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
+  /** Latest log with data across several product_device_id values (e.g. locked canonical `_id` + live Tuya id). */
+  static async findLatestWithDataAmong(deviceIds = []) {
+    const ids = [...new Set((deviceIds || []).filter(Boolean).map(String))];
+    if (ids.length === 0) return null;
+    const result = await query(`
+      SELECT * FROM product_logs
+      WHERE product_device_id = ANY($1::text[])
+        AND (COALESCE(tds, 0) != 0 OR COALESCE(production_volume, 0) != 0 OR COALESCE(rejected_volume, 0) != 0
+             OR COALESCE(temperature, 0) != 0 OR COALESCE(flujo_produccion, 0) != 0 OR COALESCE(flujo_rechazo, 0) != 0)
+      ORDER BY date DESC LIMIT 1
+    `, [ids]);
+    return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+  }
+
   static async insertMany(items) {
     const created = [];
     for (const data of items) {
@@ -116,6 +130,11 @@ class ProductLogModel {
     if (filters.product_device_id) {
       where.push(`product_device_id = $${i}`);
       values.push(filters.product_device_id);
+      i++;
+    }
+    if (filters.product_device_ids != null && Array.isArray(filters.product_device_ids) && filters.product_device_ids.length > 0) {
+      where.push(`product_device_id = ANY($${i}::text[])`);
+      values.push(filters.product_device_ids.map(String));
       i++;
     }
     if (filters.date) {
@@ -200,6 +219,18 @@ class ProductLogModel {
     const result = await query(
       `SELECT id, date FROM product_logs WHERE (product_device_id = $1 OR product_id::text = $1::text) AND date::date = ANY($2::date[])`,
       [productId, dateArr]
+    );
+    return (result.rows || []).map(r => ({ id: r.id, date: r.date }));
+  }
+
+  /** Dedup check for sync when logs may be stored under multiple device_id strings (locked + live). */
+  static async findByDatesForDeviceIds(deviceIds, dates) {
+    if (!dates?.length || !deviceIds?.length) return [];
+    const ids = [...new Set(deviceIds.filter(Boolean).map(String))];
+    const dateArr = dates.map(d => (d instanceof Date ? d : new Date(d)));
+    const result = await query(
+      `SELECT id, date FROM product_logs WHERE product_device_id = ANY($1::text[]) AND date::date = ANY($2::date[])`,
+      [ids, dateArr]
     );
     return (result.rows || []).map(r => ({ id: r.id, date: r.date }));
   }

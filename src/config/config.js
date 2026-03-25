@@ -20,6 +20,12 @@ const config = {
   // TI Water API Key configuration
   TIWATER_API_KEY: process.env.TIWATER_API_KEY,
   TIWATER_API_KEY_HASH: process.env.TIWATER_API_KEY_HASH, // Optional: SHA256 hash of the API key
+  /** Comma-separated Tuya cloud user IDs whose devices are merged in getAllProducts (deduped by device id). */
+  TUYA_USER_IDS: (process.env.TUYA_USER_IDS
+    || 'az1740167873867P5flA,az1758216258645Rvcgb,az1711484065099Tm0oG,az1739408936787MhA1Y')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
 };
 
 export default config;  // Use 'export default' for ESM
