@@ -209,7 +209,9 @@ export const getAllProducts = async (req, res) => {
     // Tuya may still list replaced devices; DB merge lists them under merged_from_device_ids — hide from equipos list
     const supersededDeviceIds = await ProductModel.getSupersededDeviceIdSet();
     const allTuyaList = Array.isArray(realProducts.data) ? realProducts.data : [];
-    const tuyaDevicesVisible = allTuyaList.filter((p) => p && p.id && !supersededDeviceIds.has(p.id));
+    /** After lock, live id stays in merged_from; hide Tuya duplicate only until a row with device_id = live id exists. */
+    let supersededIdsStillHidden = new Set(supersededDeviceIds);
+    let tuyaDevicesVisible = [];
 
     const isLockedCanonRow = (p) =>
       p &&
@@ -226,12 +228,14 @@ export const getAllProducts = async (req, res) => {
       let productosInsertados = 0;
       let productosConError = 0;
 
-      for (const tuyaProduct of tuyaDevicesVisible) {
+      // Full Tuya list: superseded filter hid locked live ids from sync before, so no new row was ever inserted.
+      // Insert only when no row has device_id === Tuya id (canonical locked row uses _+id, not a match).
+      for (const tuyaProduct of allTuyaList.filter((p) => p && p.id)) {
         try {
-          const existingProduct = await ProductModel.findByDeviceId(tuyaProduct.id);
+          const existingProduct = await ProductModel.findByExactDeviceId(tuyaProduct.id);
           if (existingProduct) {
             productosActualizados++;
-            continue; // Already in DB, Tuya structure used for response
+            continue;
           }
           // Store Tuya product in DB only when it doesn't exist
           const clientId = tuyaProduct.cliente || defaultCliente?.id;
@@ -256,8 +260,21 @@ export const getAllProducts = async (req, res) => {
 
       dbProducts = await ProductModel.find(filtros);
       devLog(`📦 Found ${dbProducts.length} products in database`);
+
+      supersededIdsStillHidden = new Set(
+        [...supersededDeviceIds].filter(
+          (sid) => !dbProducts.some((p) => p && String(p.id) === String(sid))
+        )
+      );
+      tuyaDevicesVisible = allTuyaList.filter(
+        (p) => p && p.id && !supersededIdsStillHidden.has(p.id)
+      );
     } catch (dbErr) {
       devWarn('[getAllProducts] DB sync/query failed, using Tuya data only:', dbErr.message);
+      supersededIdsStillHidden = new Set(supersededDeviceIds);
+      tuyaDevicesVisible = allTuyaList.filter(
+        (p) => p && p.id && !supersededIdsStillHidden.has(p.id)
+      );
     }
 
     devLog(`🌐 Found ${allTuyaList.length} products from Tuya (${tuyaDevicesVisible.length} visible after merge suppress list)`);
@@ -272,7 +289,7 @@ export const getAllProducts = async (req, res) => {
     // When Tuya not configured, use DB products only; otherwise combine Tuya + DB + locked canonical rows
     let products;
     if (tuyaNotConfigured) {
-      products = dbProducts.filter((p) => p && p.id && !supersededDeviceIds.has(String(p.id)));
+      products = dbProducts.filter((p) => p && p.id && !supersededIdsStillHidden.has(String(p.id)));
     } else {
       const fromVisible = await Promise.all(tuyaDevicesVisible.map(async (realProduct) => {
       const dbProduct = dbProductsMap.get(realProduct.id);
@@ -309,7 +326,14 @@ export const getAllProducts = async (req, res) => {
       };
     }));
 
-      const lockedDbCandidates = dbProducts.filter(isLockedCanonRow);
+      const lockedDbCandidates = dbProducts.filter((p) => {
+        if (!isLockedCanonRow(p)) return false;
+        const merged = (p.merged_from_device_ids || []).map(String);
+        const hasLiveExactRow = merged.some((mid) =>
+          dbProducts.some((r) => r && String(r.device_id ?? r.id) === String(mid))
+        );
+        return !hasLiveExactRow;
+      });
       const lockedCanon = await Promise.all(
         lockedDbCandidates.map(async (dbProduct) => {
           const merged = (dbProduct.merged_from_device_ids || []).map(String);
@@ -491,7 +515,7 @@ export const getAllProducts = async (req, res) => {
     // 🔽 EXTRA: incluir productos sólo locales que no están en Tuya (visible list only)
     const idsTuya = new Set(tuyaDevicesVisible.map(p => p.id));
     const productosLocales = dbProducts.filter(
-      (p) => !idsTuya.has(p.id) && !supersededDeviceIds.has(p.id) && !isLockedCanonRow(p)
+      (p) => !idsTuya.has(p.id) && !supersededIdsStillHidden.has(p.id) && !isLockedCanonRow(p)
     );
     const productosLocalesAdaptados = productosLocales.map((dbProduct) => ({
       ...dbProduct,
