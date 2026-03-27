@@ -372,40 +372,57 @@ export const getAllProducts = async (req, res) => {
     if (tuyaNotConfigured) {
       products = dbProducts.filter((p) => p && p.id && !supersededIdsStillHidden.has(String(p.id)));
     } else {
-      const fromVisible = await Promise.all(tuyaDevicesVisible.map(async (realProduct) => {
-      const dbProduct = dbProductsMap.get(realProduct.id);
-      if (dbProduct) {
-        const merged = dbProduct.merged_from_device_ids || [];
-        const isOsmosisRow =
-          String(dbProduct.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
-          !productos_nivel.includes(realProduct.id);
-        let status = realProduct.status;
-        let online = realProduct.online;
-        if (merged.length > 0 && isOsmosisRow) {
-          status = await mergeOsmosisTotalsSafe(realProduct.status, merged, 'getAllProducts');
-          online = anyMergedDeviceOnline(realProduct, merged, allTuyaList);
-        }
-        return {
-          ...dbProduct,
-          online,
-          name: realProduct.name,
-          ip: realProduct.ip,
-          status,
-          update_time: realProduct.update_time,
-          active_time: realProduct.active_time,
-        };
-      }
-      // No DB record: use Tuya data with defaults
-      return {
-        ...realProduct,
-        id: realProduct.id,
-        cliente: defaultCliente?.id,
-        client_id: defaultCliente?.id,
-        product_type: productos_nivel.includes(realProduct.id) ? 'Nivel' : 'Osmosis',
-        city: realProduct.city || 'Hermosillo',
-        state: realProduct.state || 'Sonora',
-      };
-    }));
+      // Scoped users: DB query omits rows outside allowed clients, so dbProductsMap may miss a device.
+      // Without resolving the row, we would fall through to "Tuya only" and assign defaultCliente (wrong cliente / leak).
+      const fromVisible = (
+        await Promise.all(
+          tuyaDevicesVisible.map(async (realProduct) => {
+            let dbProduct = dbProductsMap.get(realProduct.id);
+            if (!dbProduct && isClientScopedProductAccess(accessCtx)) {
+              const fullRow = await ProductModel.findByDeviceId(realProduct.id);
+              if (!fullRow) {
+                return null;
+              }
+              const cid = normalizeClientIdFromProduct(fullRow);
+              if (!clientIdInAllowedList(cid, accessCtx.allowedClientIds)) {
+                return null;
+              }
+              dbProduct = fullRow;
+            }
+            if (dbProduct) {
+              const merged = dbProduct.merged_from_device_ids || [];
+              const isOsmosisRow =
+                String(dbProduct.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
+                !productos_nivel.includes(realProduct.id);
+              let status = realProduct.status;
+              let online = realProduct.online;
+              if (merged.length > 0 && isOsmosisRow) {
+                status = await mergeOsmosisTotalsSafe(realProduct.status, merged, 'getAllProducts');
+                online = anyMergedDeviceOnline(realProduct, merged, allTuyaList);
+              }
+              return {
+                ...dbProduct,
+                online,
+                name: realProduct.name,
+                ip: realProduct.ip,
+                status,
+                update_time: realProduct.update_time,
+                active_time: realProduct.active_time,
+              };
+            }
+            // No DB record: use Tuya data with defaults (admins / unscoped only; scoped handled above)
+            return {
+              ...realProduct,
+              id: realProduct.id,
+              cliente: defaultCliente?.id,
+              client_id: defaultCliente?.id,
+              product_type: productos_nivel.includes(realProduct.id) ? 'Nivel' : 'Osmosis',
+              city: realProduct.city || 'Hermosillo',
+              state: realProduct.state || 'Sonora',
+            };
+          })
+        )
+      ).filter((p) => p != null);
 
       const lockedDbCandidates = dbProducts.filter((p) => {
         if (!isLockedCanonRow(p)) return false;
