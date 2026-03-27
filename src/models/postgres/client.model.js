@@ -130,6 +130,16 @@ class ClientModel {
   }
 
   /**
+   * All clients (no LIMIT). Use when resolving foreign keys (e.g. products.client_id) so IDs outside the default find() cap are included.
+   */
+  static async findAll() {
+    const result = await query(
+      'SELECT * FROM clients ORDER BY LOWER(TRIM(name)) ASC NULLS LAST'
+    );
+    return result.rows.map((row) => this.parseRow(row));
+  }
+
+  /**
    * Create a new client
    * @param {Object} data - Client data object
    * @returns {Promise<Object>} Created client record

@@ -9,7 +9,13 @@ import config from '../config/config.js';
 import moment from 'moment';
 import { devLog, devWarn } from '../utils/devLogger.js';
 import { getClient } from '../config/postgres.config.js';
-import { getAllowedClientIdsForRequest } from '../utils/user-clients.helper.js';
+import {
+  getProductAccessContext,
+  isClientScopedProductAccess,
+  normalizeClientIdFromProduct,
+  parseClientIdFromBody,
+  clientIdInAllowedList,
+} from '../utils/user-clients.helper.js';
 
 // IDs de productos tipo "Nivel"
 const productos_nivel = [
@@ -17,6 +23,9 @@ const productos_nivel = [
   'ebbe9512565e8a06a2ucnr',
   // Agregar más IDs de productos tipo Nivel aquí
 ];
+
+/** Cliente por defecto al sincronizar desde Tuya o crear fila sin asignación explícita. */
+const DEFAULT_PRODUCT_CLIENT_NAME = 'Sin Cliente';
 
 const drives = ["Humalla", "Piaxtla", "Tierra Blanca", "Estadio", "Sarzana", "Buena vista", "Valle marquez", "Aeropuerto", "Navarrete", "Planta2", "Pinos", "Perisur"];
 
@@ -190,7 +199,11 @@ export const getAllProducts = async (req, res) => {
         errors: realProducts.errors,
       });
     }
-    const clientes = await ClientModel.find();
+    const clientes = await ClientModel.findAll();
+    const defaultCliente =
+      clientes.find((c) => c.name === DEFAULT_PRODUCT_CLIENT_NAME) ||
+      clientes.find((c) => c.name === 'All') ||
+      clientes[0];
     // mocked products 
     if (query.mocked) {
       const mockProducts = await mockedProducts();
@@ -212,20 +225,23 @@ export const getAllProducts = async (req, res) => {
       ? queryCliente.split(',').map((v) => parseInt(v.trim(), 10)).filter((v) => !isNaN(v))
       : [];
 
-    // Cliente query: absent, empty string, or "All" means "no client filter" (all clients) for users without
-    // an assigned client_id (e.g. admin). Users with client_id still get scoped to their client when param is empty.
+    // Cliente query: absent / "All" = no filter for admins, "All" whitelist, or users without scoped clients.
+    // Scoped users (assigned clients only) see only those clients unless they pass a narrower ?cliente= filter.
     const id = user.id;
-    const allowedClientIds = await getAllowedClientIdsForRequest(req);
+    const accessCtx = await getProductAccessContext(req);
+    const effectiveAllowed = isClientScopedProductAccess(accessCtx)
+      ? accessCtx.allowedClientIds
+      : [];
     const requestedIds = queryCliente && queryCliente !== 'All' ? queryClienteIds : [];
     const scopedIds = requestedIds.length > 0
-      ? requestedIds.filter((cid) => allowedClientIds.length === 0 || allowedClientIds.includes(cid))
-      : allowedClientIds;
+      ? requestedIds.filter((cid) => effectiveAllowed.length === 0 || effectiveAllowed.includes(cid))
+      : effectiveAllowed;
 
     if (scopedIds.length > 0) {
       filtros.client_ids = scopedIds;
-    } else if (queryCliente && queryCliente !== 'All' && allowedClientIds.length > 0) {
+    } else if (queryCliente && queryCliente !== 'All' && effectiveAllowed.length > 0) {
       return res.status(403).json({ message: 'No tienes acceso a ese cliente' });
-    } else if (queryCliente && queryCliente !== 'All' && allowedClientIds.length === 0 && queryClienteIds.length > 0) {
+    } else if (queryCliente && queryCliente !== 'All' && effectiveAllowed.length === 0 && queryClienteIds.length > 0) {
       filtros.client_ids = queryClienteIds;
     }
 
@@ -270,10 +286,6 @@ export const getAllProducts = async (req, res) => {
     }
 
     devLog('Fetching products from Tuya (source of truth) with filters:', filtros);
-
-    const clientesList = await ClientModel.find();
-    const defaultCliente = clientesList.find(c => c.name === 'Caffenio') || clientesList.find(c => c.name === 'All') || clientesList[0];
-    const defCliente = clientes.find(c => c.name === 'Caffenio') || clientes.find(c => c.name === 'All') || clientes[0];
 
     // Tuya may still list replaced devices; DB merge lists them under merged_from_device_ids — hide from equipos list
     const supersededDeviceIds = await ProductModel.getSupersededDeviceIdSet();
@@ -387,8 +399,8 @@ export const getAllProducts = async (req, res) => {
       return {
         ...realProduct,
         id: realProduct.id,
-        cliente: defCliente?.id,
-        client_id: defCliente?.id,
+        cliente: defaultCliente?.id,
+        client_id: defaultCliente?.id,
         product_type: productos_nivel.includes(realProduct.id) ? 'Nivel' : 'Osmosis',
         city: realProduct.city || 'Hermosillo',
         state: realProduct.state || 'Sonora',
@@ -449,11 +461,15 @@ export const getAllProducts = async (req, res) => {
         product.product_type = 'Nivel';
       }
 
-      // Buscar y asignar cliente
-      const cliente = clientes.find(cliente => 
-        cliente._id.toString() === (product.cliente?._id?.toString() || product.cliente?.toString())
-      );
-      product.cliente = cliente || clientes.find(c => c.name === 'All') || clientes[0];
+      // Buscar y asignar cliente (comparar por id normalizado; find() antes limitaba a 100 filas y rompía la vista /equipos)
+      const rawCid = product.cliente ?? product.client_id;
+      const rawStr = rawCid != null && typeof rawCid === 'object'
+        ? String((rawCid._id ?? rawCid.id) ?? '')
+        : String(rawCid ?? '');
+      const cliente = rawStr
+        ? clientes.find((c) => String(c._id) === rawStr || String(c.id) === rawStr)
+        : null;
+      product.cliente = cliente || clientes.find((c) => c.name === 'All') || clientes[0];
 
       const isOsmosisForLockPair =
         String(product.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
@@ -728,7 +744,7 @@ export const mockedProducts = async () => {
   for (let i = 0; i < 1000; i++) {
     const cliente = clientes[randomValue(0, clientes.length - 1)];
     let drive = cliente.name
-    if(['Caffenio', 'All'].includes(cliente.name)) {
+    if ([DEFAULT_PRODUCT_CLIENT_NAME, 'All'].includes(cliente.name)) {
       drive =  drives[randomValue(0, drives.length - 1)];
     } 
     const { lat, lon } =  getRandomCoordinateInMexico(mexicoCities);
@@ -795,6 +811,13 @@ export const mockedProducts = async () => {
 export const createProduct = async (req, res) => {
   try {
     const { name, device_id, cliente, city, state, product_type } = req.body;
+    const accessCtx = await getProductAccessContext(req);
+    if (isClientScopedProductAccess(accessCtx)) {
+      const targetCid = parseClientIdFromBody(cliente);
+      if (!clientIdInAllowedList(targetCid, accessCtx.allowedClientIds)) {
+        return res.status(403).json({ message: 'No puedes crear equipos para ese cliente' });
+      }
+    }
     const deviceId = (device_id ?? req.body.deviceId ?? '').toString().trim() || `manual-${Date.now()}`;
     const productName = (name ?? req.body.name ?? '').toString().trim() || 'Sin nombre';
     const productType = (product_type ?? req.body.product_type ?? 'Osmosis').toString().trim() || 'Osmosis';
@@ -832,6 +855,23 @@ export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
     const { cliente, city, state, product_type, tuya_logs_routine_enabled } = req.body;
+    const accessCtx = await getProductAccessContext(req);
+    const existing = await ProductModel.findByIdOrDeviceId(id);
+    if (!existing) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    if (isClientScopedProductAccess(accessCtx)) {
+      const currentCid = normalizeClientIdFromProduct(existing);
+      if (!clientIdInAllowedList(currentCid, accessCtx.allowedClientIds)) {
+        return res.status(403).json({ message: 'No tienes permiso para editar este equipo' });
+      }
+      if (cliente !== undefined) {
+        const targetCid = parseClientIdFromBody(cliente);
+        if (!clientIdInAllowedList(targetCid, accessCtx.allowedClientIds)) {
+          return res.status(403).json({ message: 'Solo puedes asignar clientes a los que tienes acceso' });
+        }
+      }
+    }
     const update = {
       ...(cliente != null && { cliente }),
       ...(city != null && { city }),
@@ -1126,10 +1166,17 @@ export const getProductById = async (req, res) => {
     const now = Date.now();
     devLog('Fetching product details for:', id);
 
-    // Check if the product exists in MongoDB
-    let product = await ProductModel.findByDeviceId(id);
+    const accessCtx = await getProductAccessContext(req);
+
+    let product = await ProductModel.findByIdOrDeviceId(id);
 
     if (product) {
+      if (isClientScopedProductAccess(accessCtx)) {
+        const cid = normalizeClientIdFromProduct(product);
+        if (!clientIdInAllowedList(cid, accessCtx.allowedClientIds)) {
+          return res.status(403).json({ message: 'No tienes acceso a este equipo' });
+        }
+      }
       devLog('Product found in MongoDB. Fetching latest details from Tuya API...');
       product.online = product.last_time_active && (now - product.last_time_active <= ONLINE_THRESHOLD_MS);
       const tuyaDetailId = resolveTuyaLiveDeviceIdForTuyaApi(product) || id;
@@ -1286,7 +1333,11 @@ export const getProductById = async (req, res) => {
         });
       }
       return res.json(outExisting);
-    } 
+    }
+
+    if (isClientScopedProductAccess(accessCtx)) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
 
     // If product does not exist in MongoDB, fetch from Tuya API
     devLog('Product not found in MongoDB. Fetching from Tuya API...');
@@ -1299,9 +1350,11 @@ export const getProductById = async (req, res) => {
       return res.status(404).json({ message: 'Device not found in Tuya API' });
     }
 
-    // Obtener cliente por defecto (Caffenio preferentemente)
-    const clientes = await ClientModel.find();
-    const defaultCliente = clientes.find(c => c.name === 'Caffenio') || clientes.find(c => c.name === 'All') || clientes[0];
+    const clientes = await ClientModel.findAll();
+    const defaultCliente =
+      clientes.find((c) => c.name === DEFAULT_PRODUCT_CLIENT_NAME) ||
+      clientes.find((c) => c.name === 'All') ||
+      clientes[0];
 
     // Save the new product to Postgres
     const productData = {
@@ -1885,6 +1938,12 @@ function mapTuyaLogsNivel(tuyaData) {
 // Save a product from Tuya API to Postgres
 export const saveProduct = async (req, res) => {
   try {
+    const accessCtx = await getProductAccessContext(req);
+    if (isClientScopedProductAccess(accessCtx)) {
+      return res.status(403).json({
+        message: 'Usa crear equipo con un cliente permitido o contacta a un administrador',
+      });
+    }
     devLog('Fetching product from Tuya API...');
     const { id } = req.params;
     const response = await tuyaService.getDeviceDetail(id);
@@ -1892,8 +1951,11 @@ export const saveProduct = async (req, res) => {
       return res.status(400).json({ message: response.error, code: response.code });
     }
 
-    const clientes = await ClientModel.find();
-    const defaultCliente = clientes.find(c => c.name === 'Caffenio') || clientes.find(c => c.name === 'All') || clientes[0];
+    const clientes = await ClientModel.findAll();
+    const defaultCliente =
+      clientes.find((c) => c.name === DEFAULT_PRODUCT_CLIENT_NAME) ||
+      clientes.find((c) => c.name === 'All') ||
+      clientes[0];
     const productData = {
       ...response.data,
       cliente: defaultCliente?.id,
