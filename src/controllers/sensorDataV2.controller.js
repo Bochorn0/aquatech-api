@@ -6,6 +6,49 @@ import SensorLatestModel from '../models/postgres/sensorLatest.model.js';
 import { query } from '../config/postgres.config.js';
 import ClientModel from '../models/postgres/client.model.js';
 
+/** Sonora (no DST). Used for historico day boundaries (matches chart labels). */
+const APP_TZ = 'America/Hermosillo';
+
+function isValidYmd(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+function todayYmdHermosillo() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const y = parts.find((p) => p.type === 'year')?.value;
+  const mo = parts.find((p) => p.type === 'month')?.value;
+  const d = parts.find((p) => p.type === 'day')?.value;
+  return `${y}-${mo}-${d}`;
+}
+
+/** Local calendar day in Hermosillo → UTC [start inclusive, end exclusive). */
+function hermosilloDayBoundsUtc(dateStr) {
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const startUtc = new Date(Date.UTC(y, mo - 1, d, 7, 0, 0, 0));
+  const endUtc = new Date(startUtc);
+  endUtc.setUTCDate(endUtc.getUTCDate() + 1);
+  return { startUtc, endUtc };
+}
+
+function addDaysYmd(dateStr, deltaDays) {
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + deltaDays);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
 /**
  * Genera el histórico diario de un producto tipo Nivel basándose en registros acumulados
  * Agrupa por día y toma el último valor registrado de cada día
@@ -15,9 +58,10 @@ import ClientModel from '../models/postgres/client.model.js';
  * @param {string} sensorName - Nombre del sensor (default: 'liquid_level_percent')
  * @param {number} daysBack - Número de días hacia atrás desde hoy (default: 30)
  * @param {string} resourceType - Tipo de recurso: 'nivel' o 'tiwater' (default: 'nivel')
+ * @param {{ endDayYmd?: string }} [opts] - Si `endDayYmd` (YYYY-MM-DD), ancla el rango al calendario Hermosillo en lugar del último mensaje
  * @returns {Promise<Object|null>} Objeto con el histórico diario o null si hay error
  */
-export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', daysBack = 30, resourceType = 'nivel') {
+export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', daysBack = 30, resourceType = 'nivel', opts = {}) {
   try {
     const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
     const rid = isTiwater ? ((resourceId || 'tiwater-system').toString().trim() || 'tiwater-system') : null;
@@ -59,17 +103,29 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
     const dateField = useTimestamp ? 'm.timestamp' : 'm.createdat';
     const maxDate = useTimestamp ? maxTimestamp : maxCreated;
 
-    const endDate = new Date(maxDate || new Date());
-    endDate.setHours(23, 59, 59, 999);
-    const startDate = new Date(endDate);
-    startDate.setDate(startDate.getDate() - daysBack);
-    startDate.setHours(0, 0, 0, 0);
-    if (maxDate) {
-      endDate.setTime(maxDate.getTime());
+    const anchorYmd = opts.endDayYmd && isValidYmd(opts.endDayYmd) ? opts.endDayYmd : null;
+    let startDate;
+    let endDate;
+    let rangeEndOp = '<=';
+
+    if (anchorYmd) {
+      const startYmd = addDaysYmd(anchorYmd, -daysBack);
+      startDate = hermosilloDayBoundsUtc(startYmd).startUtc;
+      endDate = hermosilloDayBoundsUtc(anchorYmd).endUtc;
+      rangeEndOp = '<';
+    } else {
+      endDate = new Date(maxDate || new Date());
       endDate.setHours(23, 59, 59, 999);
-      startDate.setTime(endDate.getTime());
+      startDate = new Date(endDate);
       startDate.setDate(startDate.getDate() - daysBack);
       startDate.setHours(0, 0, 0, 0);
+      if (maxDate) {
+        endDate.setTime(maxDate.getTime());
+        endDate.setHours(23, 59, 59, 999);
+        startDate.setTime(endDate.getTime());
+        startDate.setDate(startDate.getDate() - daysBack);
+        startDate.setHours(0, 0, 0, 0);
+      }
     }
 
     const timestampFilter = useTimestamp
@@ -87,7 +143,7 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
         INNER JOIN sensores_message m ON s.sensores_message_id = m.id
         WHERE ${baseWhere}
           AND ${dateField} >= $4
-          AND ${dateField} <= $5
+          AND ${dateField} ${rangeEndOp} $5
           ${timestampFilter}
       )
       SELECT dia, value AS liquid_level_percent_promedio, total_logs
@@ -111,10 +167,13 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
 
     console.log(`[generateNivelHistoricoDiarioV2] Histórico diario generado: ${daysWithData.length} días, ${totalLogs} registros totales`);
 
+    const startDateStr = anchorYmd ? addDaysYmd(anchorYmd, -daysBack) : startDate.toISOString().split('T')[0];
+    const endDateStr = anchorYmd ? anchorYmd : endDate.toISOString().split('T')[0];
+
     return {
       product: `Nivel ${resourceId}`,
-      start_date: startDate.toISOString().split('T')[0],
-      end_date: endDate.toISOString().split('T')[0],
+      start_date: startDateStr,
+      end_date: endDateStr,
       total_logs: totalLogs,
       days_with_data: daysWithData
     };
@@ -134,9 +193,10 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
  * @param {string} sensorName - Nombre del sensor (default: 'liquid_level_percent')
  * @param {Date} date - Fecha para generar el histórico (default: hoy)
  * @param {string} resourceType - Tipo de recurso: 'nivel' o 'tiwater' (default: 'nivel')
+ * @param {{ dayStartUtc?: Date, dayEndUtc?: Date, dateYmd?: string }} [opts] - Si `dayStartUtc`/`dayEndUtc` (fin exclusivo), filtra solo ese día calendario (p. ej. Hermosillo)
  * @returns {Promise<Object|null>} Objeto con el histórico o null si hay error
  */
-export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', date = null, resourceType = 'nivel') {
+export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', date = null, resourceType = 'nivel', opts = {}) {
   try {
     const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
     const rid = isTiwater ? ((resourceId || 'tiwater-system').toString().trim() || 'tiwater-system') : null;
@@ -178,17 +238,28 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     const dateField = useTimestamp ? 'm.timestamp' : 'm.createdat';
     const maxDate = useTimestamp ? maxTimestamp : maxCreated;
 
-    let targetDate = date;
-    if (!targetDate && maxDate) {
-      targetDate = new Date(maxDate);
-    } else if (!targetDate) {
-      targetDate = new Date();
+    let today;
+    let tomorrow;
+    let dateYmdOut;
+
+    if (opts.dayStartUtc && opts.dayEndUtc) {
+      today = opts.dayStartUtc;
+      tomorrow = opts.dayEndUtc;
+      dateYmdOut = opts.dateYmd || todayYmdHermosillo();
+    } else {
+      let targetDate = date;
+      if (!targetDate && maxDate) {
+        targetDate = new Date(maxDate);
+      } else if (!targetDate) {
+        targetDate = new Date();
+      }
+
+      today = new Date(targetDate);
+      today.setHours(0, 0, 0, 0);
+      tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      dateYmdOut = today.toISOString().split('T')[0];
     }
-    
-    const today = new Date(targetDate);
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
     
     const timestampFilter = useTimestamp
       ? "AND m.timestamp >= TIMESTAMP '2000-01-01' AND m.timestamp < TIMESTAMP '3001-01-01'"
@@ -217,7 +288,6 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
 
     const historicoResult = await query(historicoQuery, queryParams);
 
-    const APP_TZ = 'America/Hermosillo';
     const hoursWithData = historicoResult.rows.map(row => ({
       hora: new Date(row.hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', timeZone: APP_TZ }),
       total_logs: parseInt(row.total_logs) || 0,
@@ -232,7 +302,7 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
 
     return {
       product: `Nivel ${resourceId}`,
-      date: today.toISOString().split('T')[0],
+      date: dateYmdOut,
       total_logs: totalLogs,
       hours_with_data: hoursWithData
     };
@@ -722,12 +792,26 @@ export const getPuntosVentaV2 = async (req, res) => {
  * Separate endpoint to avoid heavy queries on main punto detalle.
  * @route GET /api/v2.0/puntoVentas/:id/historico
  * @query type=purificada|cruda|recuperada, resourceId=tiwater-system (default)
+ * @query date=YYYY-MM-DD (optional, America/Hermosillo calendar day; default: hoy en Hermosillo). Hourly data: [00:00, 24:00) local.
+ * @query daysBack=30 (optional, for historico_diario only; 1–365)
  */
 export const getPuntoVentaHistoricoV2 = async (req, res) => {
   try {
     const { id } = req.params;
     const type = (req.query.type || 'purificada').toLowerCase();
     const resourceId = req.query.resourceId || 'tiwater-system';
+
+    if (req.query.date != null && String(req.query.date).trim() !== '' && !isValidYmd(String(req.query.date).trim())) {
+      return res.status(400).json({ success: false, message: 'Invalid date; use YYYY-MM-DD (America/Hermosillo)' });
+    }
+    const dateYmd = req.query.date && String(req.query.date).trim() !== '' && isValidYmd(String(req.query.date).trim())
+      ? String(req.query.date).trim()
+      : todayYmdHermosillo();
+    let daysBack = parseInt(String(req.query.daysBack ?? '30'), 10);
+    if (Number.isNaN(daysBack)) daysBack = 30;
+    daysBack = Math.min(365, Math.max(1, daysBack));
+
+    const { startUtc: dayStartUtc, endUtc: dayEndUtc } = hermosilloDayBoundsUtc(dateYmd);
 
     const PuntoVentaModel = (await import('../models/postgres/puntoVenta.model.js')).default;
     let puntoFromPG = null;
@@ -758,9 +842,13 @@ export const getPuntoVentaHistoricoV2 = async (req, res) => {
 
     const runHistoricoPair = async (codigo, sensor) => {
       // Run hourly first; only request daily when there is hourly data.
-      const hourly = await generateNivelHistoricoV2(codigo, resourceId, sensor, null, 'tiwater');
+      const hourly = await generateNivelHistoricoV2(codigo, resourceId, sensor, null, 'tiwater', {
+        dayStartUtc,
+        dayEndUtc,
+        dateYmd,
+      });
       if (!hourly || !hourly.hours_with_data || hourly.hours_with_data.length === 0) return null;
-      const daily = await generateNivelHistoricoDiarioV2(codigo, resourceId, sensor, 30, 'tiwater');
+      const daily = await generateNivelHistoricoDiarioV2(codigo, resourceId, sensor, daysBack, 'tiwater', { endDayYmd: dateYmd });
       return { hourly, daily };
     };
 
@@ -788,6 +876,8 @@ export const getPuntoVentaHistoricoV2 = async (req, res) => {
       data: {
         historico: historicoHora || null,
         historico_diario: historicoDiario || null,
+        date: dateYmd,
+        daysBack,
       },
     });
   } catch (error) {
