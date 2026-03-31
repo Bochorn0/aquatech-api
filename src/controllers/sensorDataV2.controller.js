@@ -19,172 +19,86 @@ import ClientModel from '../models/postgres/client.model.js';
  */
 export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', daysBack = 30, resourceType = 'nivel') {
   try {
-    // Determinar el tipo de recurso primero
     const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
-    
-    // Calcular fecha de inicio (días hacia atrás desde hoy)
-    // Usar el último registro disponible como referencia si no hay datos del día actual
-    const endDate = new Date();
+    const rid = isTiwater ? ((resourceId || 'tiwater-system').toString().trim() || 'tiwater-system') : null;
+    const codigoNorm = (codigoTienda || '').toString().trim().toUpperCase();
+
+    const baseWhere = isTiwater
+      ? `m.codigotienda = $1
+         AND m.resourcetype = 'tiwater'
+         AND (m.resourceid IS NULL OR m.resourceid = $2)
+         AND s.name = $3`
+      : `m.codigotienda = $1
+         AND m.resourcetype = 'nivel'
+         AND m.resourceid = $2
+         AND s.name = $3`;
+    const baseParams = isTiwater ? [codigoNorm, rid, sensorName] : [codigoNorm, resourceId, sensorName];
+
+    const metaQuery = `
+      SELECT
+        MAX(m.createdat) AS max_created,
+        MAX(CASE
+          WHEN m.timestamp >= TIMESTAMP '2000-01-01' AND m.timestamp < TIMESTAMP '3001-01-01'
+          THEN m.timestamp
+          ELSE NULL
+        END) AS max_timestamp
+      FROM sensores s
+      INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+      WHERE ${baseWhere}
+    `;
+    const meta = await query(metaQuery, baseParams);
+    const row = meta.rows?.[0];
+    const maxCreated = row?.max_created ? new Date(row.max_created) : null;
+    const maxTimestamp = row?.max_timestamp ? new Date(row.max_timestamp) : null;
+    if (!maxCreated && !maxTimestamp) {
+      console.log(`[generateNivelHistoricoDiarioV2] No hay registros disponibles para ${codigoTienda}/${resourceId}/${sensorName}`);
+      return null;
+    }
+
+    const useTimestamp = maxTimestamp && maxTimestamp.getFullYear() >= 2000 && maxTimestamp.getFullYear() <= 3000;
+    const dateField = useTimestamp ? 'm.timestamp' : 'm.createdat';
+    const maxDate = useTimestamp ? maxTimestamp : maxCreated;
+
+    const endDate = new Date(maxDate || new Date());
     endDate.setHours(23, 59, 59, 999);
     const startDate = new Date(endDate);
     startDate.setDate(startDate.getDate() - daysBack);
     startDate.setHours(0, 0, 0, 0);
-    
-    const rid = isTiwater ? ((resourceId || 'tiwater-system').toString().trim() || 'tiwater-system') : null;
-    const codigoNorm = (codigoTienda || '').toString().trim().toUpperCase();
-    const checkQuery = isTiwater 
-      ? `SELECT COUNT(*) as count, 
-         MIN(m.createdat) as min_created, MAX(m.createdat) as max_created,
-         MIN(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as min_timestamp,
-         MAX(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as max_timestamp
-         FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
-         WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1)) AND m.resourcetype = 'tiwater' AND (m.resourceid IS NULL OR m.resourceid = $2) AND s.name = $3`
-      : `SELECT COUNT(*) as count,
-         MIN(m.createdat) as min_created, MAX(m.createdat) as max_created,
-         MIN(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as min_timestamp,
-         MAX(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as max_timestamp
-         FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
-         WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1)) AND m.resourcetype = 'nivel' AND m.resourceid = $2 AND s.name = $3`;
-    
-    const checkParams = isTiwater ? [codigoNorm, rid, sensorName] : [codigoNorm, resourceId, sensorName];
-    const checkResult = await query(checkQuery, checkParams);
-    
-    if (checkResult.rows.length === 0 || parseInt(checkResult.rows[0].count) === 0) {
-      console.log(`[generateNivelHistoricoDiarioV2] No hay registros disponibles para ${codigoTienda}/${resourceId}/${sensorName}`);
-      return null;
-    }
-    
-    const minCreated = checkResult.rows[0].min_created ? new Date(checkResult.rows[0].min_created) : null;
-    const maxCreated = checkResult.rows[0].max_created ? new Date(checkResult.rows[0].max_created) : null;
-    const minTimestamp = checkResult.rows[0].min_timestamp ? new Date(checkResult.rows[0].min_timestamp) : null;
-    const maxTimestamp = checkResult.rows[0].max_timestamp ? new Date(checkResult.rows[0].max_timestamp) : null;
-    
-    // Determinar si usar timestamp o createdat como fallback
-    const useTimestamp = maxTimestamp && maxTimestamp.getFullYear() >= 2000 && maxTimestamp.getFullYear() <= 3000;
-    const dateField = useTimestamp ? 'm.timestamp' : 'm.createdat';
-    const maxDate = useTimestamp ? maxTimestamp : maxCreated;
-    
-    console.log(`[generateNivelHistoricoDiarioV2] Datos disponibles: ${checkResult.rows[0].count} registros`);
-    console.log(`[generateNivelHistoricoDiarioV2] Usando campo: ${dateField} (timestamp válido: ${useTimestamp})`);
-    console.log(`[generateNivelHistoricoDiarioV2] Rango: ${minCreated?.toISOString()} hasta ${maxCreated?.toISOString()}`);
-    if (useTimestamp) {
-      console.log(`[generateNivelHistoricoDiarioV2] Timestamp válido: ${minTimestamp?.toISOString()} hasta ${maxTimestamp?.toISOString()}`);
-    }
-    
-    // Usar la fecha del último registro como referencia
     if (maxDate) {
       endDate.setTime(maxDate.getTime());
       endDate.setHours(23, 59, 59, 999);
       startDate.setTime(endDate.getTime());
       startDate.setDate(startDate.getDate() - daysBack);
       startDate.setHours(0, 0, 0, 0);
-      console.log(`[generateNivelHistoricoDiarioV2] Usando fecha del último registro (${dateField}): ${maxDate.toISOString()}`);
     }
 
-    // Construir la consulta SQL para obtener el histórico diario
-    let historicoQuery;
-    let queryParams;
-    
-    if (isTiwater) {
-      const timestampFilter = useTimestamp ? "AND (m.timestamp IS NULL OR EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000)" : "";
-      historicoQuery = `
-        WITH daily_data AS (
-          SELECT 
-            DATE_TRUNC('day', ` + dateField + `) AS dia,
-            s.value,
-            ` + dateField + ` as fecha,
-            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
-          FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
-          WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
-            AND m.resourcetype = 'tiwater'
-            AND (m.resourceid IS NULL OR m.resourceid = $2)
-            AND s.name = $3
-            AND ` + dateField + ` >= $4
-            AND ` + dateField + ` <= $5
-            ` + timestampFilter + `
-        ),
-        daily_stats AS (
-          SELECT 
-            dia,
-            value AS liquid_level_percent_promedio,
-            (SELECT COUNT(*) 
-             FROM sensores s2 INNER JOIN sensores_message m2 ON s2.sensores_message_id = m2.id
-             WHERE UPPER(TRIM(m2.codigotienda)) = UPPER(TRIM($1))
-               AND m2.resourcetype = 'tiwater'
-               AND (m2.resourceid IS NULL OR m2.resourceid = $2)
-               AND s2.name = $3
-               AND DATE_TRUNC('day', ` + dateField.replace('m.', 'm2.') + `) = daily_data.dia
-               AND ` + dateField.replace('m.', 'm2.') + ` >= $4
-               AND ` + dateField.replace('m.', 'm2.') + ` <= $5
-               ` + timestampFilter.replace(/m\./g, 'm2.') + `) AS total_logs
-          FROM daily_data
-          WHERE rn = 1
-        )
-        SELECT 
-          dia,
-          liquid_level_percent_promedio,
-          total_logs
-        FROM daily_stats
-        ORDER BY dia ASC
-      `;
-      queryParams = [codigoNorm, rid, sensorName, startDate, endDate];
-    } else {
-      // Para Nivel, buscar en resourcetype = 'nivel' con resourceId específico
-      const timestampFilter = useTimestamp ? "AND (m.timestamp IS NULL OR EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000)" : "";
-      historicoQuery = `
-        WITH daily_data AS (
-          SELECT 
-            DATE_TRUNC('day', ` + dateField + `) AS dia,
-            s.value,
-            ` + dateField + ` as fecha,
-            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
-          FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
-          WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
-            AND m.resourcetype = 'nivel'
-            AND m.resourceid = $2
-            AND s.name = $3
-            AND ` + dateField + ` >= $4
-            AND ` + dateField + ` <= $5
-            ` + timestampFilter + `
-        ),
-        daily_stats AS (
-          SELECT 
-            dia,
-            value AS liquid_level_percent_promedio,
-            (SELECT COUNT(*) 
-             FROM sensores s2 INNER JOIN sensores_message m2 ON s2.sensores_message_id = m2.id
-             WHERE UPPER(TRIM(m2.codigotienda)) = UPPER(TRIM($1))
-               AND m2.resourcetype = 'nivel'
-               AND m2.resourceid = $2
-               AND s2.name = $3
-               AND DATE_TRUNC('day', ` + dateField.replace('m.', 'm2.') + `) = daily_data.dia
-               AND ` + dateField.replace('m.', 'm2.') + ` >= $4
-               AND ` + dateField.replace('m.', 'm2.') + ` <= $5
-               ` + timestampFilter.replace(/m\./g, 'm2.') + `) AS total_logs
-          FROM daily_data
-          WHERE rn = 1
-        )
-        SELECT 
-          dia,
-          liquid_level_percent_promedio,
-          total_logs
-        FROM daily_stats
-        ORDER BY dia ASC
-      `;
-      queryParams = [codigoNorm, resourceId, sensorName, startDate, endDate];
-    }
-
-    console.log(`[generateNivelHistoricoDiarioV2] Ejecutando consulta para ${codigoTienda}/${resourceId}/${sensorName}:`, {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-      resourceType: isTiwater ? 'tiwater' : 'nivel',
-      queryParams
-    });
+    const timestampFilter = useTimestamp
+      ? "AND m.timestamp >= TIMESTAMP '2000-01-01' AND m.timestamp < TIMESTAMP '3001-01-01'"
+      : '';
+    const historicoQuery = `
+      WITH filtered AS (
+        SELECT
+          DATE_TRUNC('day', ${dateField}) AS dia,
+          s.value,
+          ${dateField} AS fecha,
+          ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', ${dateField}) ORDER BY ${dateField} DESC) AS rn,
+          COUNT(*) OVER (PARTITION BY DATE_TRUNC('day', ${dateField})) AS total_logs
+        FROM sensores s
+        INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+        WHERE ${baseWhere}
+          AND ${dateField} >= $4
+          AND ${dateField} <= $5
+          ${timestampFilter}
+      )
+      SELECT dia, value AS liquid_level_percent_promedio, total_logs
+      FROM filtered
+      WHERE rn = 1
+      ORDER BY dia ASC
+    `;
+    const queryParams = [...baseParams, startDate, endDate];
 
     const historicoResult = await query(historicoQuery, queryParams);
-    
-    console.log(`[generateNivelHistoricoDiarioV2] Resultado de consulta: ${historicoResult.rows.length} filas encontradas`);
-    
+
     const daysWithData = historicoResult.rows.map(row => ({
       fecha: new Date(row.dia).toISOString().split('T')[0], // Formato YYYY-MM-DD
       total_logs: parseInt(row.total_logs) || 0,
@@ -224,43 +138,48 @@ export async function generateNivelHistoricoDiarioV2(codigoTienda, resourceId, s
  */
 export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorName = 'liquid_level_percent', date = null, resourceType = 'nivel') {
   try {
-    // Determinar el tipo de recurso y condiciones de búsqueda primero
     const isTiwater = resourceType === 'tiwater' || resourceId === 'tiwater-system';
-    
     const rid = isTiwater ? ((resourceId || 'tiwater-system').toString().trim() || 'tiwater-system') : null;
     const codigoNorm = (codigoTienda || '').toString().trim().toUpperCase();
-    const checkQuery = isTiwater 
-      ? `SELECT COUNT(*) as count, 
-         MAX(m.createdat) as max_created,
-         MAX(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as max_timestamp
-         FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
-         WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1)) AND m.resourcetype = 'tiwater' AND (m.resourceid IS NULL OR m.resourceid = $2) AND s.name = $3`
-      : `SELECT COUNT(*) as count,
-         MAX(m.createdat) as max_created,
-         MAX(CASE WHEN m.timestamp IS NOT NULL AND EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000 THEN m.timestamp ELSE NULL END) as max_timestamp
-         FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
-         WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1)) AND m.resourcetype = 'nivel' AND m.resourceid = $2 AND s.name = $3`;
-    
-    const checkParams = isTiwater ? [codigoNorm, rid, sensorName] : [codigoNorm, resourceId, sensorName];
-    const checkResult = await query(checkQuery, checkParams);
-    
-    if (checkResult.rows.length === 0 || parseInt(checkResult.rows[0].count) === 0) {
+
+    const baseWhere = isTiwater
+      ? `m.codigotienda = $1
+         AND m.resourcetype = 'tiwater'
+         AND (m.resourceid IS NULL OR m.resourceid = $2)
+         AND s.name = $3`
+      : `m.codigotienda = $1
+         AND m.resourcetype = 'nivel'
+         AND m.resourceid = $2
+         AND s.name = $3`;
+    const baseParams = isTiwater ? [codigoNorm, rid, sensorName] : [codigoNorm, resourceId, sensorName];
+
+    const metaQuery = `
+      SELECT
+        MAX(m.createdat) AS max_created,
+        MAX(CASE
+          WHEN m.timestamp >= TIMESTAMP '2000-01-01' AND m.timestamp < TIMESTAMP '3001-01-01'
+          THEN m.timestamp
+          ELSE NULL
+        END) AS max_timestamp
+      FROM sensores s
+      INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+      WHERE ${baseWhere}
+    `;
+    const meta = await query(metaQuery, baseParams);
+    const row = meta.rows?.[0];
+    const maxCreated = row?.max_created ? new Date(row.max_created) : null;
+    const maxTimestamp = row?.max_timestamp ? new Date(row.max_timestamp) : null;
+    if (!maxCreated && !maxTimestamp) {
       console.log(`[generateNivelHistoricoV2] No hay registros disponibles para ${codigoTienda}/${resourceId}/${sensorName}`);
       return null;
     }
-    
-    const maxCreated = checkResult.rows[0].max_created ? new Date(checkResult.rows[0].max_created) : null;
-    const maxTimestamp = checkResult.rows[0].max_timestamp ? new Date(checkResult.rows[0].max_timestamp) : null;
-    
-    // Determinar si usar timestamp o createdat como fallback
+
     const useTimestamp = maxTimestamp && maxTimestamp.getFullYear() >= 2000 && maxTimestamp.getFullYear() <= 3000;
     const dateField = useTimestamp ? 'm.timestamp' : 'm.createdat';
     const maxDate = useTimestamp ? maxTimestamp : maxCreated;
-    
-    // Usar la fecha del último registro como referencia
+
     let targetDate = date;
     if (!targetDate && maxDate) {
-      // Si no se proporciona fecha, usar el día del último registro disponible
       targetDate = new Date(maxDate);
     } else if (!targetDate) {
       targetDate = new Date();
@@ -271,111 +190,33 @@ export async function generateNivelHistoricoV2(codigoTienda, resourceId, sensorN
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
     
-    console.log(`[generateNivelHistoricoV2] Usando campo: ${dateField} (timestamp válido: ${useTimestamp})`);
-    console.log(`[generateNivelHistoricoV2] Usando rango de fechas: ${today.toISOString()} a ${tomorrow.toISOString()} (último registro ${dateField}: ${maxDate?.toISOString()})`);
-    
-    let historicoQuery;
-    let queryParams;
-    
-    if (isTiwater) {
-      const timestampFilter = useTimestamp ? "AND (m.timestamp IS NULL OR EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000)" : "";
-      historicoQuery = `
-        WITH hourly_data AS (
-          SELECT 
-            DATE_TRUNC('hour', ` + dateField + `) AS hora,
-            s.value,
-            ` + dateField + ` as fecha,
-            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
-          FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
-          WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
-            AND m.resourcetype = 'tiwater'
-            AND (m.resourceid IS NULL OR m.resourceid = $2)
-            AND s.name = $3
-            AND ` + dateField + ` >= $4
-            AND ` + dateField + ` < $5
-            ` + timestampFilter + `
-        ),
-        hourly_stats AS (
-          SELECT 
-            hora,
-            value AS liquid_level_percent_promedio,
-            (SELECT COUNT(*) 
-             FROM sensores s2 INNER JOIN sensores_message m2 ON s2.sensores_message_id = m2.id
-             WHERE UPPER(TRIM(m2.codigotienda)) = UPPER(TRIM($1))
-               AND m2.resourcetype = 'tiwater'
-               AND (m2.resourceid IS NULL OR m2.resourceid = $2)
-               AND s2.name = $3
-               AND DATE_TRUNC('hour', ` + dateField.replace('m.', 'm2.') + `) = hourly_data.hora
-               AND ` + dateField.replace('m.', 'm2.') + ` >= $4
-               AND ` + dateField.replace('m.', 'm2.') + ` < $5
-               ` + timestampFilter.replace(/m\./g, 'm2.') + `) AS total_logs
-          FROM hourly_data
-          WHERE rn = 1
-        )
-        SELECT 
-          hora,
-          liquid_level_percent_promedio,
-          total_logs
-        FROM hourly_stats
-        ORDER BY hora ASC
-      `;
-      queryParams = [codigoNorm, rid, sensorName, today, tomorrow];
-    } else {
-      const timestampFilter = useTimestamp ? "AND (m.timestamp IS NULL OR EXTRACT(YEAR FROM m.timestamp) BETWEEN 2000 AND 3000)" : "";
-      historicoQuery = `
-        WITH hourly_data AS (
-          SELECT 
-            DATE_TRUNC('hour', ` + dateField + `) AS hora,
-            s.value,
-            ` + dateField + ` as fecha,
-            ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', ` + dateField + `) ORDER BY ` + dateField + ` DESC) AS rn
-          FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
-          WHERE UPPER(TRIM(m.codigotienda)) = UPPER(TRIM($1))
-            AND m.resourcetype = 'nivel'
-            AND m.resourceid = $2
-            AND s.name = $3
-            AND ` + dateField + ` >= $4
-            AND ` + dateField + ` < $5
-            ` + timestampFilter + `
-        ),
-        hourly_stats AS (
-          SELECT 
-            hora,
-            value AS liquid_level_percent_promedio,
-            (SELECT COUNT(*) 
-             FROM sensores s2 INNER JOIN sensores_message m2 ON s2.sensores_message_id = m2.id
-             WHERE UPPER(TRIM(m2.codigotienda)) = UPPER(TRIM($1))
-               AND m2.resourcetype = 'nivel'
-               AND m2.resourceid = $2
-               AND s2.name = $3
-               AND DATE_TRUNC('hour', ` + dateField.replace('m.', 'm2.') + `) = hourly_data.hora
-               AND ` + dateField.replace('m.', 'm2.') + ` >= $4
-               AND ` + dateField.replace('m.', 'm2.') + ` < $5
-               ` + timestampFilter.replace(/m\./g, 'm2.') + `) AS total_logs
-          FROM hourly_data
-          WHERE rn = 1
-        )
-        SELECT 
-          hora,
-          liquid_level_percent_promedio,
-          total_logs
-        FROM hourly_stats
-        ORDER BY hora ASC
-      `;
-      queryParams = [codigoNorm, resourceId, sensorName, today, tomorrow];
-    }
-
-    console.log(`[generateNivelHistoricoV2] Ejecutando consulta para ${codigoTienda}/${resourceId}/${sensorName}:`, {
-      today: today.toISOString(),
-      tomorrow: tomorrow.toISOString(),
-      resourceType: isTiwater ? 'tiwater' : 'nivel',
-      queryParams
-    });
+    const timestampFilter = useTimestamp
+      ? "AND m.timestamp >= TIMESTAMP '2000-01-01' AND m.timestamp < TIMESTAMP '3001-01-01'"
+      : '';
+    const historicoQuery = `
+      WITH filtered AS (
+        SELECT
+          DATE_TRUNC('hour', ${dateField}) AS hora,
+          s.value,
+          ${dateField} AS fecha,
+          ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('hour', ${dateField}) ORDER BY ${dateField} DESC) AS rn,
+          COUNT(*) OVER (PARTITION BY DATE_TRUNC('hour', ${dateField})) AS total_logs
+        FROM sensores s
+        INNER JOIN sensores_message m ON s.sensores_message_id = m.id
+        WHERE ${baseWhere}
+          AND ${dateField} >= $4
+          AND ${dateField} < $5
+          ${timestampFilter}
+      )
+      SELECT hora, value AS liquid_level_percent_promedio, total_logs
+      FROM filtered
+      WHERE rn = 1
+      ORDER BY hora ASC
+    `;
+    const queryParams = [...baseParams, today, tomorrow];
 
     const historicoResult = await query(historicoQuery, queryParams);
-    
-    console.log(`[generateNivelHistoricoV2] Resultado de consulta: ${historicoResult.rows.length} filas encontradas`);
-    
+
     const APP_TZ = 'America/Hermosillo';
     const hoursWithData = historicoResult.rows.map(row => ({
       hora: new Date(row.hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', timeZone: APP_TZ }),
@@ -915,25 +756,29 @@ export const getPuntoVentaHistoricoV2 = async (req, res) => {
     let historicoHora = null;
     let historicoDiario = null;
 
+    const runHistoricoPair = async (codigo, sensor) => {
+      // Run hourly first; only request daily when there is hourly data.
+      const hourly = await generateNivelHistoricoV2(codigo, resourceId, sensor, null, 'tiwater');
+      if (!hourly || !hourly.hours_with_data || hourly.hours_with_data.length === 0) return null;
+      const daily = await generateNivelHistoricoDiarioV2(codigo, resourceId, sensor, 30, 'tiwater');
+      return { hourly, daily };
+    };
+
     const crudaNames = ['Nivel Cruda (%)', 'Nivel Cruda', 'electronivel_cruda', 'level_cruda'];
     for (const codigo of codigosToTry) {
       if (type === 'cruda') {
         for (const name of crudaNames) {
-          const [h, d] = await Promise.all([
-            generateNivelHistoricoV2(codigo, resourceId, name, null, 'tiwater'),
-            generateNivelHistoricoDiarioV2(codigo, resourceId, name, 30, 'tiwater'),
-          ]);
-          if (h && h.hours_with_data && h.hours_with_data.length > 0) {
-            historicoHora = h;
-            historicoDiario = d;
+          const result = await runHistoricoPair(codigo, name);
+          if (result) {
+            historicoHora = result.hourly;
+            historicoDiario = result.daily;
             break;
           }
         }
       } else {
-        [historicoHora, historicoDiario] = await Promise.all([
-          generateNivelHistoricoV2(codigo, resourceId, sensorName, null, 'tiwater'),
-          generateNivelHistoricoDiarioV2(codigo, resourceId, sensorName, 30, 'tiwater'),
-        ]);
+        const result = await runHistoricoPair(codigo, sensorName);
+        historicoHora = result?.hourly || null;
+        historicoDiario = result?.daily || null;
       }
       if (historicoHora && historicoHora.hours_with_data && historicoHora.hours_with_data.length > 0) break;
     }
