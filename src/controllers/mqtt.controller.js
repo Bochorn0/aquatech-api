@@ -33,7 +33,7 @@ export const getMqttStatus = (req, res) => {
   }
 };
 
-// Certificado CA (el mismo que está en el ESP32)
+// Certificado CA embebido (fallback si no hay MQTT_DOC_DOWNLOAD_* en el entorno)
 const CA_CERT = `-----BEGIN CERTIFICATE-----
 MIIECTCCAvGgAwIBAgIUaeT7mWBE0krpOQdDiG/akjnNe9MwDQYJKoZIhvcNAQEL
 BQAwgZMxCzAJBgNVBAYTAk1YMQ8wDQYDVQQIDAZTb25vcmExEzARBgNVBAcMCkhl
@@ -58,6 +58,42 @@ C0l3buWSVNfbwL5HHTupUze06pn9zZgJbfcFk+WlwNwIizK3DPg39bom/0HT8+Fz
 BYZgMEvHi/6B83pecj+MoAVPhpwl8549NE92Sszv8OIKpR59WOuC+a4NiVktCctS
 U0YBXM/WsHxY/PyQl3qShJMZT3Q65aQAnC2Wocg=
 -----END CERTIFICATE-----`;
+
+/**
+ * PEM contents for the doc ZIP, independent of MQTT_CLIENT_CERT_B64 / MQTT client connection.
+ * Set in Azure App Service (Application settings):
+ *   MQTT_DOC_DOWNLOAD_CA_CERT_B64 — base64 of CA/trust PEM (e.g. cat ca.pem | base64 -w0)
+ *   MQTT_DOC_DOWNLOAD_CLIENT_CERT_B64 — base64 of optional second PEM (e.g. public client cert for onboarding)
+ * If neither decodes to valid PEM, the embedded CA_CERT above is used as a single file (backward compatible).
+ */
+function decodeDocPackPemFromEnv(b64) {
+  if (!b64 || typeof b64 !== 'string') return null;
+  const t = b64.trim();
+  if (!t) return null;
+  try {
+    const pem = Buffer.from(t, 'base64').toString('utf8');
+    if (!pem.includes('-----BEGIN')) {
+      console.warn('[MQTT download] Decoded doc pack value does not look like PEM');
+      return null;
+    }
+    return pem;
+  } catch (e) {
+    console.warn('[MQTT download] Invalid base64 in MQTT_DOC_DOWNLOAD_* env:', e.message);
+    return null;
+  }
+}
+
+function buildDocPackEntries() {
+  const ca = decodeDocPackPemFromEnv(process.env.MQTT_DOC_DOWNLOAD_CA_CERT_B64);
+  const client = decodeDocPackPemFromEnv(process.env.MQTT_DOC_DOWNLOAD_CLIENT_CERT_B64);
+  const entries = [];
+  if (ca) entries.push({ name: 'ca_cert.pem', content: ca });
+  if (client) entries.push({ name: 'client_cert.pem', content: client });
+  if (entries.length === 0) {
+    entries.push({ name: 'ca_cert.crt', content: CA_CERT });
+  }
+  return entries;
+}
 
 /**
  * Descargar certificado CA en un ZIP protegido con contraseña
@@ -88,13 +124,10 @@ export const downloadCertificateZip = async (req, res) => {
       fs.mkdirSync(tempDir, { recursive: true });
     }
 
-    const certFileName = 'ca_cert.crt';
     const zipFileName = 'aquatech_ca_certificate.zip';
-    const tempCertPath = path.join(tempDir, certFileName);
     const tempZipPath = path.join(tempDir, zipFileName);
 
-    // Escribir el certificado a un archivo temporal
-    fs.writeFileSync(tempCertPath, CA_CERT);
+    const docEntries = buildDocPackEntries();
 
     // Crear ZIP protegido con contraseña usando archiver-zip-encrypted
     return new Promise((resolve, reject) => {
@@ -109,7 +142,7 @@ export const downloadCertificateZip = async (req, res) => {
 
       // Manejar eventos
       output.on('close', () => {
-        console.log(`ZIP protegido creado: ${archive.pointer()} bytes`);
+        console.log(`ZIP protegido creado: ${archive.pointer()} bytes (${docEntries.length} cert file(s))`);
         
         // Enviar el archivo
         res.setHeader('Content-Type', 'application/zip');
@@ -122,7 +155,6 @@ export const downloadCertificateZip = async (req, res) => {
           // Limpiar archivos temporales
           setTimeout(() => {
             try {
-              if (fs.existsSync(tempCertPath)) fs.unlinkSync(tempCertPath);
               if (fs.existsSync(tempZipPath)) fs.unlinkSync(tempZipPath);
             } catch (cleanupError) {
               console.error('Error limpiando archivos temporales:', cleanupError);
@@ -145,14 +177,21 @@ export const downloadCertificateZip = async (req, res) => {
 
       archive.on('error', (error) => {
         console.error('Error creando ZIP:', error);
+        if (!res.headersSent) {
+          res.status(500).json({
+            message: 'Error al generar el archivo ZIP del certificado',
+            error: error.message,
+          });
+        }
         reject(error);
       });
 
       // Conectar el archiver al output
       archive.pipe(output);
 
-      // Agregar el certificado al ZIP
-      archive.file(tempCertPath, { name: certFileName });
+      for (const { name, content } of docEntries) {
+        archive.append(content, { name });
+      }
 
       // Finalizar el archivo ZIP
       archive.finalize();
