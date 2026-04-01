@@ -1263,7 +1263,8 @@ export const getProductById = async (req, res) => {
             }
           }
           outFail.last_updated_display = lastDisplayFail != null ? lastDisplayFail : outFail.update_time;
-          if (isOsmosisFail && mergedFail.length > 0) {
+          // Breakdown uses locked `_…` row by live Tuya id — live DB rows often have empty merged_from after sync insert.
+          if (isOsmosisFail && tuyaDetailId && !String(tuyaDetailId).startsWith('_')) {
             const breakdownFail = await buildMergedVolumeBreakdown(tuyaDetailId, tuyaDetailId, null);
             if (breakdownFail) outFail.merged_volume_breakdown = breakdownFail;
           }
@@ -1374,7 +1375,7 @@ export const getProductById = async (req, res) => {
         const out = { ...product };
         out.last_updated_display = lastDisplay != null ? lastDisplay : out.update_time;
         // Read-only breakdown for UI comparison; product.status above already includes mergeOsmosisTotals + locked row (no reversion).
-        if (isOsmosis && mergedCurrent.length > 0) {
+        if (isOsmosis && tuyaDetailId && !String(tuyaDetailId).startsWith('_')) {
           const breakdown = await buildMergedVolumeBreakdown(tuyaDetailId, tuyaDetailId, rawTuyaStatusForBreakdown);
           if (breakdown) out.merged_volume_breakdown = breakdown;
         }
@@ -1406,7 +1407,7 @@ export const getProductById = async (req, res) => {
           return stat;
         });
       }
-      if (isOsmosisExisting && mergedExisting.length > 0) {
+      if (isOsmosisExisting && tuyaDetailId && !String(tuyaDetailId).startsWith('_')) {
         const breakdownEx = await buildMergedVolumeBreakdown(tuyaDetailId, tuyaDetailId, null);
         if (breakdownEx) outExisting.merged_volume_breakdown = breakdownEx;
       }
@@ -1538,8 +1539,8 @@ export const getProductById = async (req, res) => {
     const lastDisplayNew = await getLastUpdatedDisplay(id, newProductModel.update_time, newProductModel);
     const outNew = { ...newProductModel };
     outNew.last_updated_display = lastDisplayNew != null ? lastDisplayNew : outNew.update_time;
-    if (isOsmosis && mergedNew.length > 0) {
-      const tidNew = String(response.data?.id || id);
+    const tidNew = String(response.data?.id || id);
+    if (isOsmosis && tidNew && !tidNew.startsWith('_')) {
       const breakdownNew = await buildMergedVolumeBreakdown(tidNew, tidNew, rawTuyaStatusNewProduct);
       if (breakdownNew) outNew.merged_volume_breakdown = breakdownNew;
     }
@@ -1571,8 +1572,8 @@ export const getProductById = async (req, res) => {
         }
         const lastDisplay = await getLastUpdatedDisplay(req.params.id, out.update_time, fallback);
         out.last_updated_display = lastDisplay != null ? lastDisplay : out.update_time;
-        if (isOsmosisFallback && mergedFallback.length > 0) {
-          const tidFb = resolveTuyaLiveDeviceIdForTuyaApi(fallback) || String(req.params.id);
+        const tidFb = resolveTuyaLiveDeviceIdForTuyaApi(fallback) || String(req.params.id);
+        if (isOsmosisFallback && tidFb && !String(tidFb).startsWith('_')) {
           const breakdownFb = await buildMergedVolumeBreakdown(tidFb, tidFb, null);
           if (breakdownFb) out.merged_volume_breakdown = breakdownFb;
         }
