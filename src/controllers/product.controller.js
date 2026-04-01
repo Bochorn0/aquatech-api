@@ -1054,6 +1054,51 @@ function statusToMergedDisplayFields(status) {
   };
 }
 
+function numFromMergedField(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * For equipos detail: archived totals (locked `_` row) vs live Tuya-only counters, separated by merge date.
+ * @param {string} liveDeviceId - Tuya live id (not `_…` row)
+ * @param {string} tuyaDetailId - same id used for special-product display conversions
+ * @param {Array|null|undefined} tuyaRawStatus - fresh Tuya status array before mergeOsmosisTotals; omit if unavailable
+ */
+async function buildMergedVolumeBreakdown(liveDeviceId, tuyaDetailId, tuyaRawStatus) {
+  try {
+    const lid = String(liveDeviceId || '');
+    if (!lid || lid.startsWith('_')) return null;
+    const locked = await ProductModel.findLockedCanonicalForLiveDeviceId(lid);
+    if (!locked) return null;
+    const switchedAt = locked.update_time != null ? Number(locked.update_time) : null;
+    const oldDeviceId = String(locked.id || locked.device_id || '');
+    const oldFields = statusToMergedDisplayFields(applyDisplayConversionsToStatus(locked.status, tuyaDetailId));
+    const before_merge = {
+      production_liters: numFromMergedField(oldFields.flowrate_total_1),
+      rejection_liters: numFromMergedField(oldFields.flowrate_total_2),
+    };
+    let since_merge_live = null;
+    if (Array.isArray(tuyaRawStatus)) {
+      const liveFields = statusToMergedDisplayFields(applyDisplayConversionsToStatus(tuyaRawStatus, tuyaDetailId));
+      since_merge_live = {
+        production_liters: numFromMergedField(liveFields.flowrate_total_1),
+        rejection_liters: numFromMergedField(liveFields.flowrate_total_2),
+      };
+    }
+    return {
+      switched_at: switchedAt,
+      old_device_id: oldDeviceId,
+      live_device_id: lid,
+      before_merge,
+      since_merge_live,
+    };
+  } catch (err) {
+    devWarn(`[buildMergedVolumeBreakdown] ${err.message}`);
+    return null;
+  }
+}
+
 /**
  * Admin: list locked canonical rows `_...` that map 1:1 to a live device id.
  * This drives the "Productos mezclados" tab (Personalización v1).
@@ -1218,6 +1263,10 @@ export const getProductById = async (req, res) => {
             }
           }
           outFail.last_updated_display = lastDisplayFail != null ? lastDisplayFail : outFail.update_time;
+          if (isOsmosisFail && mergedFail.length > 0) {
+            const breakdownFail = await buildMergedVolumeBreakdown(tuyaDetailId, tuyaDetailId, null);
+            if (breakdownFail) outFail.merged_volume_breakdown = breakdownFail;
+          }
           const productosEspecialesFail = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
           if (outFail.status && Array.isArray(outFail.status) && !productosEspecialesFail.includes(tuyaDetailId)) {
             outFail.status = outFail.status.map((s) => {
@@ -1231,6 +1280,9 @@ export const getProductById = async (req, res) => {
       }
       if (response && response.data) {
         const updatedData = response.data; // Assuming this is the correct structure
+        const rawTuyaStatusForBreakdown = Array.isArray(updatedData?.status)
+          ? JSON.parse(JSON.stringify(updatedData.status))
+          : null;
 
         // Update Postgres with the latest data from Tuya
         product = await ProductModel.update(id, updatedData);
@@ -1321,6 +1373,11 @@ export const getProductById = async (req, res) => {
         const lastDisplay = await getLastUpdatedDisplay(id, product.update_time, product);
         const out = { ...product };
         out.last_updated_display = lastDisplay != null ? lastDisplay : out.update_time;
+        // Read-only breakdown for UI comparison; product.status above already includes mergeOsmosisTotals + locked row (no reversion).
+        if (isOsmosis && mergedCurrent.length > 0) {
+          const breakdown = await buildMergedVolumeBreakdown(tuyaDetailId, tuyaDetailId, rawTuyaStatusForBreakdown);
+          if (breakdown) out.merged_volume_breakdown = breakdown;
+        }
         return res.json(out);
       }
 
@@ -1349,6 +1406,10 @@ export const getProductById = async (req, res) => {
           return stat;
         });
       }
+      if (isOsmosisExisting && mergedExisting.length > 0) {
+        const breakdownEx = await buildMergedVolumeBreakdown(tuyaDetailId, tuyaDetailId, null);
+        if (breakdownEx) outExisting.merged_volume_breakdown = breakdownEx;
+      }
       return res.json(outExisting);
     }
 
@@ -1366,6 +1427,10 @@ export const getProductById = async (req, res) => {
     if (!response || !response.data) {
       return res.status(404).json({ message: 'Device not found in Tuya API' });
     }
+
+    const rawTuyaStatusNewProduct = Array.isArray(response.data?.status)
+      ? JSON.parse(JSON.stringify(response.data.status))
+      : null;
 
     const clientes = await ClientModel.findAll();
     const defaultCliente =
@@ -1473,6 +1538,11 @@ export const getProductById = async (req, res) => {
     const lastDisplayNew = await getLastUpdatedDisplay(id, newProductModel.update_time, newProductModel);
     const outNew = { ...newProductModel };
     outNew.last_updated_display = lastDisplayNew != null ? lastDisplayNew : outNew.update_time;
+    if (isOsmosis && mergedNew.length > 0) {
+      const tidNew = String(response.data?.id || id);
+      const breakdownNew = await buildMergedVolumeBreakdown(tidNew, tidNew, rawTuyaStatusNewProduct);
+      if (breakdownNew) outNew.merged_volume_breakdown = breakdownNew;
+    }
     res.json(outNew);
     
   } catch (error) {
@@ -1501,6 +1571,11 @@ export const getProductById = async (req, res) => {
         }
         const lastDisplay = await getLastUpdatedDisplay(req.params.id, out.update_time, fallback);
         out.last_updated_display = lastDisplay != null ? lastDisplay : out.update_time;
+        if (isOsmosisFallback && mergedFallback.length > 0) {
+          const tidFb = resolveTuyaLiveDeviceIdForTuyaApi(fallback) || String(req.params.id);
+          const breakdownFb = await buildMergedVolumeBreakdown(tidFb, tidFb, null);
+          if (breakdownFb) out.merged_volume_breakdown = breakdownFb;
+        }
         return res.json(out);
       }
     } catch (fallbackErr) {
