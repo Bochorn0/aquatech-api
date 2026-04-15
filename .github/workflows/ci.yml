@@ -1,0 +1,33 @@
+# Runs in the Aquatech API Git repository root (separate repo from the front).
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      # Informational until transitive critical issues (e.g. axios) are resolved.
+      - name: npm audit (critical or higher)
+        continue-on-error: true
+        run: npm audit --audit-level=critical
