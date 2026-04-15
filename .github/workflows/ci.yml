@@ -1,6 +1,5 @@
-# Runs in the Aquatech API Git repository root (separate repo from the front).
-# Only on pull_request: pushes to main already run "Build and deploy Node.js app to Azure Web App"
-# (npm install, test, artifact, deploy). This avoids running the same tests twice on every merge.
+# Phase 4 (supply chain): PR checks — unit tests + secret scan (parallel) + optional audit.
+# Pushes to main still use the Azure deploy workflow only (no duplicate runs).
 
 name: CI
 
@@ -12,7 +11,20 @@ permissions:
   contents: read
 
 jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   test:
+    name: Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +40,6 @@ jobs:
       - name: Unit tests
         run: npm test
 
-      # Informational until transitive critical issues (e.g. axios) are resolved.
       - name: npm audit (critical or higher)
         continue-on-error: true
         run: npm audit --audit-level=critical

@@ -1,0 +1,9 @@
+# Weekly dependency update PRs (npm). Triage and merge when CI passes.
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
