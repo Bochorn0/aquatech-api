@@ -335,6 +335,20 @@ class ProductModel {
     }
     return [];
   }
+
+  /** Persist product_type only (e.g. Apagador after switch_1 commands). */
+  static async setProductTypeByDeviceId(deviceId, productType) {
+    if (!deviceId || !productType) return null;
+    const existing = await this.findByDeviceId(String(deviceId));
+    if (!existing?._id) return null;
+    const numericId = parseInt(String(existing._id), 10);
+    if (Number.isNaN(numericId)) return null;
+    const result = await query(
+      `UPDATE products SET product_type = $1, updatedat = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`,
+      [String(productType), numericId]
+    );
+    return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+  }
 }
 
 export default ProductModel;

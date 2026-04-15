@@ -8,6 +8,11 @@ import * as tuyaService from '../services/tuya.service.js';
 import config from '../config/config.js';
 import moment from 'moment';
 import { devLog, devWarn } from '../utils/devLogger.js';
+import {
+  inferApagadorProductType,
+  statusHasSwitch1,
+  withInferredApagadorProductType,
+} from '../utils/productApagadorType.js';
 import { getClient } from '../config/postgres.config.js';
 import {
   getProductAccessContext,
@@ -324,7 +329,9 @@ export const getAllProducts = async (req, res) => {
             ...tuyaProduct,
             client_id: clientId,
             cliente: clientId,
-            product_type: tuyaProduct.product_type || (productos_nivel.includes(tuyaProduct.id) ? 'Nivel' : 'Osmosis'),
+            product_type: productos_nivel.includes(tuyaProduct.id)
+              ? 'Nivel'
+              : inferApagadorProductType(tuyaProduct.product_type || 'Osmosis', tuyaProduct.status),
             city: tuyaProduct.city || 'Hermosillo',
             state: tuyaProduct.state || 'Sonora',
             drive: tuyaProduct.drive,
@@ -393,7 +400,8 @@ export const getAllProducts = async (req, res) => {
               const merged = dbProduct.merged_from_device_ids || [];
               const isOsmosisRow =
                 String(dbProduct.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
-                !productos_nivel.includes(realProduct.id);
+                !productos_nivel.includes(realProduct.id) &&
+                !statusHasSwitch1(realProduct.status);
               let status = realProduct.status;
               let online = realProduct.online;
               if (merged.length > 0 && isOsmosisRow) {
@@ -416,7 +424,9 @@ export const getAllProducts = async (req, res) => {
               id: realProduct.id,
               cliente: defaultCliente?.id,
               client_id: defaultCliente?.id,
-              product_type: productos_nivel.includes(realProduct.id) ? 'Nivel' : 'Osmosis',
+              product_type: productos_nivel.includes(realProduct.id)
+                ? 'Nivel'
+                : inferApagadorProductType(realProduct.product_type || 'Osmosis', realProduct.status),
               city: realProduct.city || 'Hermosillo',
               state: realProduct.state || 'Sonora',
             };
@@ -441,7 +451,8 @@ export const getAllProducts = async (req, res) => {
           }
           const isOsmosisRow =
             String(dbProduct.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
-            !productos_nivel.includes(liveTuya.id);
+            !productos_nivel.includes(liveTuya.id) &&
+            !statusHasSwitch1(liveTuya.status);
           let status = liveTuya.status;
           let online = liveTuya.online;
           if (merged.length > 0 && isOsmosisRow) {
@@ -490,7 +501,8 @@ export const getAllProducts = async (req, res) => {
 
       const isOsmosisForLockPair =
         String(product.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
-        !productos_nivel.includes(product.id);
+        !productos_nivel.includes(product.id) &&
+        !statusHasSwitch1(product.status);
       if (isOsmosisForLockPair && product.status && Array.isArray(product.status)) {
         const pid = String(product.id || '');
         if (pid && !pid.startsWith('_')) {
@@ -679,7 +691,7 @@ export const getAllProducts = async (req, res) => {
     });
 
     devLog(`🎯 Final products after filters (combinados): ${todosLosProductos.length}`);
-    res.json(todosLosProductos);
+    res.json(todosLosProductos.map((p) => withInferredApagadorProductType(p)));
   } catch (error) {
     console.error('Error fetching products:', error);
     res.status(500).json({ message: 'Error fetching products' });
@@ -900,7 +912,7 @@ export const updateProduct = async (req, res) => {
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
-    return res.status(200).json(product);
+    return res.status(200).json(withInferredApagadorProductType(product));
   } catch (error) {
     console.error('Error updating product:', error);
     return res.status(500).json({ message: 'Error updating product' });
@@ -1252,7 +1264,9 @@ export const getProductById = async (req, res) => {
           const lastDisplayFail = await getLastUpdatedDisplay(id, product.update_time, product);
           const outFail = { ...product };
           const mergedFail = Array.isArray(outFail.merged_from_device_ids) ? outFail.merged_from_device_ids : [];
-          const isOsmosisFail = String(outFail.product_type || 'Osmosis').toLowerCase() === 'osmosis';
+          const isOsmosisFail =
+            String(outFail.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
+            !statusHasSwitch1(outFail.status);
           if (isOsmosisFail && mergedFail.length > 0) {
             outFail.status = await mergeOsmosisTotalsSafe(outFail.status, mergedFail, 'getProductById:tuya-fail');
           }
@@ -1275,7 +1289,7 @@ export const getProductById = async (req, res) => {
               return s;
             });
           }
-          return res.json(outFail);
+          return res.json(withInferredApagadorProductType(outFail));
         }
         return res.status(400).json({ message: response.error, code: response.code });
       }
@@ -1291,7 +1305,9 @@ export const getProductById = async (req, res) => {
           'ebf9738480d78e0132gnru',
           'ebea4ffa2ab1483940nrqn'
         ];
-        const isOsmosis = product.product_type === 'Osmosis' || product.product_type === 'osmosis';
+        const isOsmosis =
+          (product.product_type === 'Osmosis' || product.product_type === 'osmosis') &&
+          !statusHasSwitch1(product.status);
         const mergedCurrent = Array.isArray(product.merged_from_device_ids) ? product.merged_from_device_ids : [];
         if (isOsmosis && mergedCurrent.length > 0) {
           product.status = await mergeOsmosisTotalsSafe(product.status, mergedCurrent, 'getProductById:tuya-success');
@@ -1379,7 +1395,7 @@ export const getProductById = async (req, res) => {
           const breakdown = await buildMergedVolumeBreakdown(tuyaDetailId, tuyaDetailId, rawTuyaStatusForBreakdown);
           if (breakdown) out.merged_volume_breakdown = breakdown;
         }
-        return res.json(out);
+        return res.json(withInferredApagadorProductType(out));
       }
 
       // If Tuya API doesn't return data, return the existing MongoDB product
@@ -1387,7 +1403,9 @@ export const getProductById = async (req, res) => {
       const lastDisplayExisting = await getLastUpdatedDisplay(id, product.update_time, product);
       const outExisting = { ...product };
       const mergedExisting = Array.isArray(outExisting.merged_from_device_ids) ? outExisting.merged_from_device_ids : [];
-      const isOsmosisExisting = String(outExisting.product_type || 'Osmosis').toLowerCase() === 'osmosis';
+      const isOsmosisExisting =
+        String(outExisting.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
+        !statusHasSwitch1(outExisting.status);
       if (isOsmosisExisting && mergedExisting.length > 0) {
         outExisting.status = await mergeOsmosisTotalsSafe(outExisting.status, mergedExisting, 'getProductById:existing-fallback');
       }
@@ -1411,7 +1429,7 @@ export const getProductById = async (req, res) => {
         const breakdownEx = await buildMergedVolumeBreakdown(tuyaDetailId, tuyaDetailId, null);
         if (breakdownEx) outExisting.merged_volume_breakdown = breakdownEx;
       }
-      return res.json(outExisting);
+      return res.json(withInferredApagadorProductType(outExisting));
     }
 
     if (isClientScopedProductAccess(accessCtx)) {
@@ -1443,7 +1461,9 @@ export const getProductById = async (req, res) => {
     const productData = {
       ...response.data,
       cliente: defaultCliente?.id,
-      product_type: productos_nivel.includes(response.data.id) ? 'Nivel' : 'Osmosis',
+      product_type: productos_nivel.includes(response.data.id)
+        ? 'Nivel'
+        : inferApagadorProductType(response.data.product_type || 'Osmosis', response.data.status),
       city: response.data.city || 'Hermosillo',
       state: response.data.state || 'Sonora',
     };
@@ -1456,7 +1476,9 @@ export const getProductById = async (req, res) => {
     devLog(`Product ${id} saved to Postgres.`);
     
     // ====== OBTENER VALORES DE PRODUCT LOGS SI SON 0 (SOLO OSMOSIS) ======
-    const isOsmosis = newProductModel.product_type === 'Osmosis' || newProductModel.product_type === 'osmosis';
+    const isOsmosis =
+      (newProductModel.product_type === 'Osmosis' || newProductModel.product_type === 'osmosis') &&
+      !statusHasSwitch1(newProductModel.status);
     const mergedNew = Array.isArray(newProductModel.merged_from_device_ids) ? newProductModel.merged_from_device_ids : [];
     if (isOsmosis && mergedNew.length > 0) {
       newProductModel.status = await mergeOsmosisTotalsSafe(newProductModel.status, mergedNew, 'getProductById:new-product');
@@ -1544,7 +1566,7 @@ export const getProductById = async (req, res) => {
       const breakdownNew = await buildMergedVolumeBreakdown(tidNew, tidNew, rawTuyaStatusNewProduct);
       if (breakdownNew) outNew.merged_volume_breakdown = breakdownNew;
     }
-    res.json(outNew);
+    res.json(withInferredApagadorProductType(outNew));
     
   } catch (error) {
     console.error('Error fetching product details:', error);
@@ -1552,7 +1574,9 @@ export const getProductById = async (req, res) => {
       const fallback = await ProductModel.findByDeviceId(req.params.id);
       if (fallback) {
         const mergedFallback = Array.isArray(fallback.merged_from_device_ids) ? fallback.merged_from_device_ids : [];
-        const isOsmosisFallback = String(fallback.product_type || 'Osmosis').toLowerCase() === 'osmosis';
+        const isOsmosisFallback =
+          String(fallback.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
+          !statusHasSwitch1(fallback.status);
         let out = { ...fallback };
         if (isOsmosisFallback && mergedFallback.length > 0) {
           out.status = await mergeOsmosisTotalsSafe(out.status, mergedFallback, 'getProductById:catch-fallback');
@@ -1577,7 +1601,7 @@ export const getProductById = async (req, res) => {
           const breakdownFb = await buildMergedVolumeBreakdown(tidFb, tidFb, null);
           if (breakdownFb) out.merged_volume_breakdown = breakdownFb;
         }
-        return res.json(out);
+        return res.json(withInferredApagadorProductType(out));
       }
     } catch (fallbackErr) {
       console.error('[getProductById][catch-fallback]', fallbackErr.message);
@@ -2093,7 +2117,7 @@ export const getProductMetrics = async (req, res) => {
       return res.status(500).json({ message: 'Failed to update product' });
     }
 
-    res.json(updated);
+    res.json(withInferredApagadorProductType(updated));
   } catch (error) {
     console.error('Error fetching product metrics:', error);
     res.status(500).json({ message: 'Error fetching product metrics' });
@@ -2120,6 +2144,19 @@ export const sendDeviceCommands = async (req, res) => {
       return res.status(400).json({ message: response.error, code: response.code });
     }
     devLog('response commands:', response);
+
+    const hasSwitchCmd = commands.some((c) => c && String(c.code) === 'switch_1');
+    if (hasSwitchCmd && productRow) {
+      const pt = String(productRow.product_type || '').toLowerCase();
+      if (pt === 'osmosis' || pt === '') {
+        try {
+          await ProductModel.setProductTypeByDeviceId(tuyaCmdId, 'Apagador');
+        } catch (e) {
+          devWarn(`[sendDeviceCommands] No se pudo persistir tipo Apagador: ${e.message}`);
+        }
+      }
+    }
+
     // await new Promise(resolve => setTimeout(resolve, 2000)); // Simulating delay
     // const response = { executed: true };
     const deviceData = await tuyaService.getDeviceDetail(tuyaCmdId);
