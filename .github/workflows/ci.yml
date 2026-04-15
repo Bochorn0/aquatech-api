@@ -1,11 +1,12 @@
 # Runs in the Aquatech API Git repository root (separate repo from the front).
+# Only on pull_request: pushes to main already run "Build and deploy Node.js app to Azure Web App"
+# (npm install, test, artifact, deploy). This avoids running the same tests twice on every merge.
 
 name: CI
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
