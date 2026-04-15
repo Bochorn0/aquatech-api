@@ -5,8 +5,11 @@ import crypto from 'crypto';
 import config from '../config/config.js';
 import { body, validationResult } from 'express-validator';
 import emailHelper from '../utils/email.helper.js';
+import { hashPassword } from '../config/password-policy.js';
+import { bodyLoginPassword, bodyNewPassword } from '../validators/password.validators.js';
 
 const SECRET_KEY = config.SECRET_KEY;
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h';
 
 // Build user response for frontend (matches previous MongoDB shape)
 function toUserResponse(user) {
@@ -31,7 +34,7 @@ function toUserResponse(user) {
 
 export const registerUser = [
   body('email').isEmail().withMessage('Email must be a valid email address'),
-  body('password').isLength({ min: 5 }).withMessage('Password must be at least 5 characters long'),
+  bodyNewPassword('password'),
   body('nombre').optional().isString().withMessage('Name must be a string'),
   body('empresa').optional().isString().withMessage('Company must be a string'),
   body('puesto').optional().isString().withMessage('Position must be a string'),
@@ -46,7 +49,7 @@ export const registerUser = [
       const existingUser = await UserModel.findByEmail(email);
       if (existingUser) return res.status(400).json({ message: 'Usuario ya registrado' });
 
-      const hash = await bcrypt.hash(password, 10);
+      const hash = await hashPassword(password);
       const clienteRoleId = await getClienteRoleId();
       const defaultClientId = await getDefaultClientId();
       if (!clienteRoleId || !defaultClientId) {
@@ -85,7 +88,7 @@ async function getDefaultClientId() {
 
 export const loginUser = [
   body('email').isEmail().withMessage('Correo electrónico debe ser una dirección de correo válida'),
-  body('password').isLength({ min: 5 }).withMessage('La contraseña debe tener al menos 5 caracteres'),
+  bodyLoginPassword(),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -102,7 +105,11 @@ export const loginUser = [
       const isMatch = await bcrypt.compare(trimmedPassword, user.password);
       if (!isMatch) return res.status(401).json({ message: 'Credenciales invalidas' });
 
-      const token = jwt.sign({ id: user.id, role: user.role_id }, SECRET_KEY, { expiresIn: '8h' });
+      const token = jwt.sign(
+        { id: user.id, role: user.role_id },
+        SECRET_KEY,
+        { expiresIn: JWT_EXPIRES_IN, algorithm: 'HS256' }
+      );
 
       const userResponse = toUserResponse({ ...user, role_id: user.role_id });
       res.json({ token, user: userResponse });
@@ -158,7 +165,8 @@ export const requestPasswordReset = [
       res.json({ success: true, message: 'Si el correo existe, se enviará un enlace de recuperación' });
     } catch (error) {
       console.error('[requestPasswordReset] Password Reset Request Error:', error);
-      res.status(500).json({ message: 'Server Error', error: error.message });
+      const isDev = process.env.NODE_ENV === 'development';
+      res.status(500).json({ message: 'Server Error', ...(isDev && { error: error.message }) });
     }
   },
 ];
@@ -194,7 +202,7 @@ export const verifyResetToken = [
 
 export const resetPassword = [
   body('token').notEmpty().withMessage('Token es requerido'),
-  body('password').isLength({ min: 5 }).withMessage('La contraseña debe tener al menos 5 caracteres'),
+  bodyNewPassword('password'),
 
   async (req, res) => {
     const errors = validationResult(req);
@@ -214,7 +222,7 @@ export const resetPassword = [
         return res.status(400).json({ message: 'Token inválido o expirado' });
       }
 
-      const hash = await bcrypt.hash(password, 10);
+      const hash = await hashPassword(password);
       await UserModel.update(user.id, {
         password: hash,
         resetToken: null,

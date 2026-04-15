@@ -1,7 +1,7 @@
 import UserModel from '../models/postgres/user.model.js';
 import ClientModel from '../models/postgres/client.model.js';
 import RoleModel from '../models/postgres/role.model.js';
-import bcrypt from 'bcrypt';
+import { validatePasswordPlaintext, hashPassword } from '../config/password-policy.js';
 
 export const getUsers = async (req, res) => {
   try {
@@ -62,7 +62,9 @@ export const updateUser = async (req, res) => {
     if (updatedUser.password && updatedUser.password.trim() !== '') {
       const isNewPassword = !updatedUser.password.startsWith('$2b$') && !updatedUser.password.startsWith('$2a$');
       if (isNewPassword) {
-        data.password = await bcrypt.hash(updatedUser.password, 10);
+        const check = validatePasswordPlaintext(updatedUser.password);
+        if (!check.ok) return res.status(400).json({ message: check.message });
+        data.password = await hashPassword(updatedUser.password);
         data.mqtt_zip_password = updatedUser.password;
       }
     }
@@ -117,9 +119,10 @@ export const addUser = async (req, res) => {
     if (existing) return res.status(409).json({ message: 'User already exists' });
 
     const password = userData.password?.trim() || '';
-    if (password.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    const check = validatePasswordPlaintext(password);
+    if (!check.ok) return res.status(400).json({ message: check.message });
 
-    const hash = await bcrypt.hash(password, 10);
+    const hash = await hashPassword(password);
     const mqttZip = userData.mqtt_zip_password || password;
 
     const { query } = await import('../config/postgres.config.js');

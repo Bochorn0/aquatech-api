@@ -118,7 +118,7 @@ export const validateTiWaterApiKeyOrAuth = (req, res, next) => {
 
   // Validate JWT token
   const SECRET_KEY = config.SECRET_KEY;
-  jwt.verify(token, SECRET_KEY, (err, decoded) => {
+  jwt.verify(token, SECRET_KEY, { algorithms: ['HS256'] }, (err, decoded) => {
     if (err) {
       return res.status(401).json({ 
         message: 'Invalid or expired token. Please provide a valid X-TIWater-API-Key or Authorization Bearer token.',

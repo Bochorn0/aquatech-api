@@ -7,6 +7,7 @@
 
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
+import { getBcryptRounds } from '../src/config/password-policy.js';
 import { query } from '../src/config/postgres.config.js';
 
 const ADMIN_EMAIL = 'admin@lcc.com.mx';
@@ -14,7 +15,7 @@ const ADMIN_PASSWORD = 'admin';
 
 async function seedAdminUser() {
   try {
-    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, getBcryptRounds());
 
     const roleRes = await query('SELECT id FROM roles WHERE LOWER(name) = $1', ['admin']);
     const clientRes = await query('SELECT id FROM clients ORDER BY id LIMIT 1');

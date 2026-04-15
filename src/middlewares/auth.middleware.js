@@ -13,7 +13,7 @@ export const authenticate = (req, res, next) => {
     return res.status(401).json({ message: 'Tu token es invalido o ha expirado' });
   }
 
-  jwt.verify(token, SECRET_KEY, (err, decoded) => {
+  jwt.verify(token, SECRET_KEY, { algorithms: ['HS256'] }, (err, decoded) => {
     if (err) {
       return res.status(401).json({ message: 'Tu token es invalido o ha expirado' });
     }
