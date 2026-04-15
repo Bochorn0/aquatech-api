@@ -33,10 +33,22 @@ describe('password-policy', () => {
     expect(getBcryptRounds()).toBe(14);
   });
 
-  it('validatePasswordPlaintext rejects short and accepts ok length', () => {
+  it('validatePasswordPlaintext rejects short, missing upper case, missing digit', () => {
     delete process.env.PASSWORD_MIN_LENGTH;
+    delete process.env.PASSWORD_REQUIRE_UPPERCASE;
+    delete process.env.PASSWORD_REQUIRE_DIGIT;
     expect(validatePasswordPlaintext('short').ok).toBe(false);
-    expect(validatePasswordPlaintext('longenough').ok).toBe(true);
+    expect(validatePasswordPlaintext('longenough').ok).toBe(false);
+    expect(validatePasswordPlaintext('Longenough').ok).toBe(false);
+    expect(validatePasswordPlaintext('longenough1').ok).toBe(false);
+    expect(validatePasswordPlaintext('Validpass1').ok).toBe(true);
+  });
+
+  it('validatePasswordPlaintext can skip upper/digit when env false', () => {
+    delete process.env.PASSWORD_MIN_LENGTH;
+    process.env.PASSWORD_REQUIRE_UPPERCASE = 'false';
+    process.env.PASSWORD_REQUIRE_DIGIT = 'false';
+    expect(validatePasswordPlaintext('abcdefgh').ok).toBe(true);
   });
 
   it('getPasswordMaxLength respects env bounds', () => {
