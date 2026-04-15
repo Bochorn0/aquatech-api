@@ -31,17 +31,23 @@ import regionRoutes from './routes/region.routes.js';
 import ciudadRoutes from './routes/ciudad.routes.js';
 import adminEventsRoutes from './routes/adminEvents.routes.js';
 import rateLimit from 'express-rate-limit';
+import { getCorsOptions, getHelmetOptions } from './config/http-security.js';
 import { authenticate, requirePermission } from './middlewares/auth.middleware.js';
 import mqttService from './services/mqtt.service.js';  // Import MQTT service
 import emailHelper from './utils/email.helper.js';  // Import email helper for test endpoint
 
 const app = express();
+if (process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
+
 app.use(bodyParser.json({ limit: '5mb' }));
 app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }));
 
-// Middleware
-app.use(cors());
-app.use(helmet());
+// Middleware — CORS: set CORS_ORIGINS in production for an explicit allowlist (see src/config/http-security.js)
+const corsOptions = getCorsOptions();
+app.use(corsOptions ? cors(corsOptions) : cors());
+app.use(helmet(getHelmetOptions()));
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -60,6 +66,17 @@ const apiLimiter = rateLimit({
 app.use('/api', apiLimiter);
 app.use('/api/v1.0', apiLimiter);
 app.use('/api/v2.0', apiLimiter);
+
+// Stricter limit for auth endpoints (login, register, password reset)
+const authRateLimitWindowMs = parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS || '900000', 10);
+const authRateLimitMax = parseInt(process.env.AUTH_RATE_LIMIT_MAX || '30', 10);
+const authLimiter = rateLimit({
+  windowMs: authRateLimitWindowMs,
+  max: authRateLimitMax,
+  message: { success: false, message: 'Demasiadas solicitudes de autenticación. Intente más tarde.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Routes
 app.get('/health', (req, res) => {
@@ -282,7 +299,7 @@ app.use('/api/v2.0/sensors', authenticate, requirePermission('/', '/dashboard', 
 app.use('/api/v2.0', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), sensorDataV2Routes);
 
 // Example: Protect the `/api/v1.0/users` route for 'admin' only
-app.use('/api/v1.0/auth', authRoutes);
+app.use('/api/v1.0/auth', authLimiter, authRoutes);
 
 // MQTT routes (certificado download, etc.)
 app.use('/api/v1.0/mqtt', mqttRoutes);
@@ -290,7 +307,11 @@ app.use('/api/v1.0/mqtt', mqttRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ message: 'Something went wrong!' });
+  const isDev = process.env.NODE_ENV === 'development';
+  res.status(500).json({
+    message: 'Something went wrong!',
+    ...(isDev && { error: err.message }),
+  });
 });
 
 // Database: PostgreSQL only (MongoDB removed)
