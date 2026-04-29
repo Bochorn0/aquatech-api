@@ -37,9 +37,20 @@ import mqttService from './services/mqtt.service.js';  // Import MQTT service
 import emailHelper from './utils/email.helper.js';  // Import email helper for test endpoint
 
 const app = express();
-if (process.env.TRUST_PROXY === '1') {
-  app.set('trust proxy', 1);
-}
+
+// Rate limits key off req.ip. Behind Azure/nginx you must trust the proxy so each user gets their own bucket.
+// Override: TRUST_PROXY=0|false to disable (local/raw Node). TRUST_PROXY=1|true forces on.
+(function configureTrustProxy() {
+  const raw = process.env.TRUST_PROXY;
+  if (raw === '0' || raw === 'false') return;
+  if (raw === '1' || raw === 'true') {
+    app.set('trust proxy', 1);
+    return;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+  }
+})();
 
 app.use(bodyParser.json({ limit: '5mb' }));
 app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }));
@@ -52,9 +63,10 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rate limiting: prevent connection pool exhaustion from bursts
-// Env: API_RATE_LIMIT_MAX (default 100), API_RATE_LIMIT_WINDOW_MS (default 60000 = 1 min)
-const rateLimitMax = parseInt(process.env.API_RATE_LIMIT_MAX || '100', 10);
+// Rate limiting: prevent connection pool exhaustion from bursts.
+// Use a single `/api` mount only — stacking app.use('/api', ...) AND app.use('/api/v1.0', ...) doubled counts per request.
+// Env: API_RATE_LIMIT_MAX (default 300), API_RATE_LIMIT_WINDOW_MS (default 60000 = 1 min)
+const rateLimitMax = parseInt(process.env.API_RATE_LIMIT_MAX || '300', 10);
 const rateLimitWindowMs = parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10);
 const apiLimiter = rateLimit({
   windowMs: rateLimitWindowMs,
@@ -64,8 +76,6 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 app.use('/api', apiLimiter);
-app.use('/api/v1.0', apiLimiter);
-app.use('/api/v2.0', apiLimiter);
 
 // Stricter limit for auth endpoints (login, register, password reset)
 const authRateLimitWindowMs = parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS || '900000', 10);
@@ -328,6 +338,9 @@ if ((process.env.MQTT_BROKER || '').includes('eventgrid.azure.net')) {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  console.log(
+    `[rate-limit] trust proxy=${app.get('trust proxy')}, api max=${rateLimitMax}/${rateLimitWindowMs}ms auth max=${authRateLimitMax}/${authRateLimitWindowMs}ms`,
+  );
 });
 
 // Graceful shutdown (SIGINT = Ctrl+C, SIGTERM = PM2/systemd kill)
