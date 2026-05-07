@@ -2047,7 +2047,8 @@ async function loadHistoricoSnapshotFromDatabase({ logDeviceIds, routeId, numeri
 
 /**
  * Histórico Osmosis (totales + TDS en product_logs).
- * Por defecto sólo lee la base (sin coste Tuya). Con refresh_tuya=1 descarga de Tuya, inserta y devuelve la misma ventana desde DB.
+ * Sin refresh_tuya: solo `loadHistoricoSnapshotFromDatabase` (no red Tuya, no inserts).
+ * Con refresh_tuya=1: descarga Tuya por código, inserta deduplicado, luego la misma lectura desde DB.
  */
 export const getProductHistoricoLogs = async (req, res) => {
   const tuyaWarnings = [];
@@ -2231,7 +2232,7 @@ export const getProductHistoricoLogs = async (req, res) => {
       skipped_duplicates: skippedDuplicates,
       refresh_tuya_performed: refreshTuya,
       tuya: {
-        warnings: tuyaWarnings,
+        warnings: refreshTuya ? tuyaWarnings : [],
         codes_queried: refreshTuya ? HISTORICO_DP_CODES : [],
       },
       meta: {
@@ -2240,6 +2241,8 @@ export const getProductHistoricoLogs = async (req, res) => {
         max_range_ms: HISTORICO_MAX_RANGE_MS,
         row_limit: limit,
         data_source: 'product_logs',
+        // true = este request ejecutó fetch/insert desde Tuya; false = sólo lectura product_logs.
+        tuya_api_called: refreshTuya,
         refresh_tuya_performed: refreshTuya,
       },
     });
