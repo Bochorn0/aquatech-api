@@ -222,6 +222,13 @@ class ProductModel {
     if (data.merged_from_device_ids !== undefined) {
       mergedUpdate = JSON.stringify(Array.isArray(data.merged_from_device_ids) ? data.merged_from_device_ids : []);
     }
+    /** Tuya sync omits this flag; toRow defaulted it to false and COALESCE(false,…) overwrote TRUE in DB. */
+    const tuyaLogsRoutineEnabledPatch = Object.prototype.hasOwnProperty.call(
+      data,
+      'tuya_logs_routine_enabled'
+    )
+      ? !!data.tuya_logs_routine_enabled
+      : null;
     const result = await query(`
       UPDATE products SET
         active_time = COALESCE($1, active_time), last_time_active = COALESCE($2, last_time_active), product_type = COALESCE($3, product_type),
@@ -235,7 +242,7 @@ class ProductModel {
         merged_from_device_ids = COALESCE($30::jsonb, merged_from_device_ids),
         updatedat = CURRENT_TIMESTAMP
       WHERE id = $29 RETURNING *
-    `, [row.active_time, row.last_time_active, row.product_type, row.biz_type, row.category, row.create_time, row.icon, row.ip, row.city, row.state, row.client_id, row.drive, row.lat, row.local_key, row.lon, row.model, row.name, row.online, row.owner_id, row.product_id, row.product_name, row.status, row.sub, row.time_zone, row.uid, row.update_time, row.uuid, row.tuya_logs_routine_enabled, numericId, mergedUpdate]);
+    `, [row.active_time, row.last_time_active, row.product_type, row.biz_type, row.category, row.create_time, row.icon, row.ip, row.city, row.state, row.client_id, row.drive, row.lat, row.local_key, row.lon, row.model, row.name, row.online, row.owner_id, row.product_id, row.product_name, row.status, row.sub, row.time_zone, row.uid, row.update_time, row.uuid, tuyaLogsRoutineEnabledPatch, numericId, mergedUpdate]);
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
