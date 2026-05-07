@@ -2133,7 +2133,8 @@ export const getProductHistoricoLogs = async (req, res) => {
       });
     }
 
-    if (numericEnd - numericStart > HISTORICO_MAX_RANGE_MS) {
+    // Límite de rango sólo para sync con Tuya (API externa). Lectura local de DB no debe restringirse por días.
+    if (refreshTuya && numericEnd - numericStart > HISTORICO_MAX_RANGE_MS) {
       return res.status(400).json({
         success: false,
         message: `El rango máximo permitido es ${HISTORICO_MAX_RANGE_MS / (24 * 60 * 60 * 1000)} días.`,
