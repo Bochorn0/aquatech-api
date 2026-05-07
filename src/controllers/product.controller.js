@@ -2343,6 +2343,72 @@ export const postHistoricoHubSummary = async (req, res) => {
   }
 };
 
+/**
+ * Detalle de "días con datos" para un equipo específico en hub de Histórico.
+ * GET /products/:id/logs/historico-days-summary
+ */
+export const getProductHistoricoDaysSummary = async (req, res) => {
+  try {
+    const routeId = String(req.params?.id ?? '');
+    if (!routeId) {
+      return res.status(400).json({ success: false, message: 'Missing required parameter: id' });
+    }
+
+    let id = routeId;
+    try {
+      id = decodeURIComponent(routeId);
+    } catch (_) {
+      id = routeId;
+    }
+
+    const accessCtx = await getProductAccessContext(req);
+    const product = await ProductModel.findByIdOrDeviceId(id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    if (!product.tuya_logs_routine_enabled) {
+      return res.status(403).json({
+        success: false,
+        message: 'El equipo no tiene rutina de logs activa para histórico Tuya.',
+        code: 'TUYA_HISTORICO_ROUTINE_DISABLED',
+      });
+    }
+    if (isClientScopedProductAccess(accessCtx)) {
+      const cid = normalizeClientIdFromProduct(product);
+      if (!clientIdInAllowedList(cid, accessCtx.allowedClientIds)) {
+        return res.status(403).json({ success: false, message: 'No tienes acceso a este equipo' });
+      }
+    }
+    const productType = String(product.product_type || 'Osmosis').toLowerCase();
+    if (productType !== 'osmosis') {
+      return res.status(400).json({
+        success: false,
+        message: 'El detalle diario de histórico aplica sólo a equipos Osmosis.',
+        code: 'TUYA_HISTORICO_OSMOSIS_ONLY',
+      });
+    }
+
+    const logDeviceIds = collectProductLogDeviceIds(id, product);
+    const rows = await ProductLogModel.getHistoricoDailyBreakdownForDeviceIds(logDeviceIds);
+
+    return res.json({
+      success: true,
+      product_id: routeId,
+      items: rows,
+      meta: {
+        total_days: rows.length,
+        total_logs: rows.reduce((acc, row) => acc + (Number(row.logs_count) || 0), 0),
+      },
+    });
+  } catch (error) {
+    console.error('[getProductHistoricoDaysSummary]', error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error al obtener el detalle diario del histórico',
+    });
+  }
+};
+
 function mapTuyaLogs(tuyaData) {
   const grouped = {};
 

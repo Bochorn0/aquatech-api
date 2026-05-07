@@ -267,6 +267,25 @@ class ProductLogModel {
     };
   }
 
+  /** Conteo por día calendario (UTC) para detectar huecos en histórico por equipo. */
+  static async getHistoricoDailyBreakdownForDeviceIds(deviceIds = []) {
+    const ids = [...new Set((deviceIds || []).filter(Boolean).map(String))];
+    if (ids.length === 0) return [];
+    const result = await query(
+      `SELECT date_trunc('day', date) AS day,
+              COUNT(*)::int AS logs_count
+       FROM product_logs
+       WHERE product_device_id = ANY($1::text[])
+       GROUP BY 1
+       ORDER BY 1 DESC`,
+      [ids]
+    );
+    return (result.rows || []).map((row) => ({
+      day: row.day,
+      logs_count: Number(row.logs_count) || 0,
+    }));
+  }
+
   static async getMaxVolumesByDeviceIds(deviceIds = []) {
     const ids = Array.from(new Set((deviceIds || []).filter(Boolean).map(String)));
     if (ids.length === 0) return new Map();
