@@ -2256,6 +2256,93 @@ export const getProductHistoricoLogs = async (req, res) => {
   }
 };
 
+/** Días calendario inclusivos entre dos marcas de tiempo (parte de fecha en UTC). */
+function inclusiveCalendarSpanDays(minDate, maxDate) {
+  if (!minDate || !maxDate) return 0;
+  const msPerDay = 86400000;
+  const s = new Date(minDate);
+  const e = new Date(maxDate);
+  const startDay = Date.UTC(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
+  const endDay = Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate());
+  return Math.floor((endDay - startDay) / msPerDay) + 1;
+}
+
+/**
+ * Resumen DB (product_logs) para la tabla Histórico Tuya hub.
+ * Body: { product_ids: string[] }
+ */
+export const postHistoricoHubSummary = async (req, res) => {
+  try {
+    const raw = req.body?.product_ids ?? req.body?.ids;
+    if (!Array.isArray(raw)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere product_ids (arreglo de ids de equipo)',
+      });
+    }
+    const unique = [
+      ...new Set(raw.map((x) => String(x ?? '').trim()).filter(Boolean)),
+    ].slice(0, 400);
+    if (unique.length === 0) {
+      return res.json({ success: true, items: [] });
+    }
+
+    const accessCtx = await getProductAccessContext(req);
+    const items = await Promise.all(
+      unique.map(async (routeId) => {
+        let id = routeId;
+        try {
+          id = decodeURIComponent(String(routeId || ''));
+        } catch (_) {
+          id = String(routeId || '');
+        }
+
+        const product = await ProductModel.findByIdOrDeviceId(id);
+        if (!product) {
+          return { product_id: routeId, eligible: false, reason: 'not_found' };
+        }
+        if (!product.tuya_logs_routine_enabled) {
+          return { product_id: routeId, eligible: false, reason: 'routine_disabled' };
+        }
+        if (isClientScopedProductAccess(accessCtx)) {
+          const cid = normalizeClientIdFromProduct(product);
+          if (!clientIdInAllowedList(cid, accessCtx.allowedClientIds)) {
+            return { product_id: routeId, eligible: false, reason: 'forbidden' };
+          }
+        }
+
+        const productType = String(product.product_type || 'Osmosis').toLowerCase();
+        if (productType !== 'osmosis') {
+          return { product_id: routeId, eligible: false, reason: 'not_osmosis' };
+        }
+
+        const logDeviceIds = collectProductLogDeviceIds(id, product);
+        const s = await ProductLogModel.getHistoricoSummaryForDeviceIds(logDeviceIds);
+        const calendarSpan =
+          s.log_count === 0 ? 0 : inclusiveCalendarSpanDays(s.min_date, s.max_date);
+
+        return {
+          product_id: routeId,
+          eligible: true,
+          log_count: s.log_count,
+          min_date: s.min_date,
+          max_date: s.max_date,
+          distinct_calendar_days: s.distinct_calendar_days,
+          calendar_span_days: calendarSpan,
+        };
+      })
+    );
+
+    return res.json({ success: true, items });
+  } catch (error) {
+    console.error('[postHistoricoHubSummary]', error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error al resumir histórico hub',
+    });
+  }
+};
+
 function mapTuyaLogs(tuyaData) {
   const grouped = {};
 

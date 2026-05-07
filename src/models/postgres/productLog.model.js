@@ -235,6 +235,38 @@ class ProductLogModel {
     return (result.rows || []).map(r => ({ id: r.id, date: r.date }));
   }
 
+  /**
+   * Métricas globales en product_logs para los device_id del equipo (histórico hub / resumen).
+   * @returns {{ log_count: number, min_date: Date|null, max_date: Date|null, distinct_calendar_days: number }}
+   */
+  static async getHistoricoSummaryForDeviceIds(deviceIds = []) {
+    const ids = [...new Set((deviceIds || []).filter(Boolean).map(String))];
+    if (ids.length === 0) {
+      return {
+        log_count: 0,
+        min_date: null,
+        max_date: null,
+        distinct_calendar_days: 0,
+      };
+    }
+    const result = await query(
+      `SELECT COUNT(*)::int AS log_count,
+              MIN(date) AS min_date,
+              MAX(date) AS max_date,
+              COUNT(DISTINCT date::date)::int AS distinct_calendar_days
+       FROM product_logs
+       WHERE product_device_id = ANY($1::text[])`,
+      [ids]
+    );
+    const row = result.rows?.[0];
+    return {
+      log_count: Number(row?.log_count) || 0,
+      min_date: row?.min_date ?? null,
+      max_date: row?.max_date ?? null,
+      distinct_calendar_days: Number(row?.distinct_calendar_days) || 0,
+    };
+  }
+
   static async getMaxVolumesByDeviceIds(deviceIds = []) {
     const ids = Array.from(new Set((deviceIds || []).filter(Boolean).map(String)));
     if (ids.length === 0) return new Map();
