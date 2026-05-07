@@ -1955,6 +1955,8 @@ export const getProductLogsById = async (req, res) => {
 const TUYA_QUOTA_HISTORICO_CODE = 28841004;
 const HISTORICO_DP_CODES = ['flowrate_total_1', 'flowrate_total_2', 'tds_out'];
 const HISTORICO_MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
+/** Si no envían start_date, ventana corta (alineada con UI) para evitar rate limits Tuya. */
+const HISTORICO_DEFAULT_WINDOW_MS = 20 * 60 * 1000;
 const HISTORICO_MAX_PAGES_PER_CODE = 40;
 
 async function fetchTuyaReportLogsPagedForHistorico(tuyaDeviceId, code, startMs, endMs, outWarnings) {
@@ -2015,9 +2017,37 @@ async function fetchTuyaReportLogsPagedForHistorico(tuyaDeviceId, code, startMs,
 }
 
 /**
- * Histórico Tuya: sólo DP codes acumulados + TDS, sólo equipos Osmosis con rutina de logs activa.
- * Inserta filas nuevas en product_logs con deduplicación por (device_ids, fecha exacta).
- * Cubre errores parciales por código y paginación best-effort (100 filas/página; Trial/dev puede truncar).
+ * Histórico volumen/TDS almacenado en product_logs para los device_id del producto (sin llamar a Tuya).
+ */
+async function loadHistoricoSnapshotFromDatabase({ logDeviceIds, routeId, numericStart, numericEnd, limit }) {
+  const rows = await ProductLogModel.find({
+    product_device_ids: logDeviceIds,
+    date: { $gte: new Date(numericStart), $lte: new Date(numericEnd) },
+    _limit: limit,
+    _sort: { date: -1 },
+  });
+  return rows.map((log) => {
+    const d = log.date instanceof Date ? log.date : new Date(log.date);
+    return {
+      _id: log._id != null ? String(log._id) : String(log.id ?? ''),
+      date: d,
+      createdAt: d,
+      source: log.source || 'database',
+      product_id: routeId,
+      tds: log.tds != null ? Number(log.tds) : null,
+      production_volume: log.production_volume != null ? Number(log.production_volume) : null,
+      rejected_volume: log.rejected_volume != null ? Number(log.rejected_volume) : null,
+      flujo_produccion: log.flujo_produccion != null ? Number(log.flujo_produccion) : null,
+      flujo_rechazo: log.flujo_rechazo != null ? Number(log.flujo_rechazo) : null,
+      tiempo_inicio: log.tiempo_inicio ?? null,
+      tiempo_fin: log.tiempo_fin ?? null,
+    };
+  });
+}
+
+/**
+ * Histórico Osmosis (totales + TDS en product_logs).
+ * Por defecto sólo lee la base (sin coste Tuya). Con refresh_tuya=1 descarga de Tuya, inserta y devuelve la misma ventana desde DB.
  */
 export const getProductHistoricoLogs = async (req, res) => {
   const tuyaWarnings = [];
@@ -2033,7 +2063,13 @@ export const getProductHistoricoLogs = async (req, res) => {
     const queryParams = req.query.params || req.query;
     const start_date = queryParams.start_date;
     const end_date = queryParams.end_date;
-    const limit = Math.min(parseInt(queryParams.limit ?? '500', 10) || 500, 1000);
+    const rawRefresh = queryParams.refresh_tuya;
+    const refreshTuya =
+      rawRefresh === true ||
+      rawRefresh === 'true' ||
+      rawRefresh === '1' ||
+      rawRefresh === 1;
+    const limit = Math.min(parseInt(queryParams.limit ?? '2000', 10) || 2000, 5000);
 
     if (!id) {
       return res.status(400).json({ message: 'Missing required parameter: id', success: false });
@@ -2077,7 +2113,7 @@ export const getProductHistoricoLogs = async (req, res) => {
     const logWriteDeviceId = tuyaLogId;
 
     const now = Date.now();
-    let numericStart = start_date ? Number(start_date) : now - HISTORICO_MAX_RANGE_MS;
+    let numericStart = start_date ? Number(start_date) : now - HISTORICO_DEFAULT_WINDOW_MS;
     let numericEnd = end_date ? Number(end_date) : now;
 
     if (numericEnd > now) numericEnd = now;
@@ -2099,148 +2135,112 @@ export const getProductHistoricoLogs = async (req, res) => {
     if (numericEnd - numericStart > HISTORICO_MAX_RANGE_MS) {
       return res.status(400).json({
         success: false,
-        message: `El rango máximo permitido es ${HISTORICO_MAX_RANGE_MS / (24 * 60 * 60 * 1000)} días para no saturar la API Tuya.`,
+        message: `El rango máximo permitido es ${HISTORICO_MAX_RANGE_MS / (24 * 60 * 60 * 1000)} días.`,
         meta: { max_range_ms: HISTORICO_MAX_RANGE_MS },
       });
     }
 
-    const applyHistoricoDisplay = (fieldName, value) => {
-      if (value == null || value === 0) return value;
-
-      const PRODUCTOS_ESPECIALES = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
-      const flujos_codes = ['flowrate_speed_1', 'flowrate_speed_2', 'flowrate_total_1', 'flowrate_total_2'];
-      const flujos_total_codes = ['flowrate_total_1', 'flowrate_total_2'];
-      const arrayCodes = ['flowrate_speed_1', 'flowrate_speed_2'];
-
-      let convertedValue = Number(value);
-
-      if (PRODUCTOS_ESPECIALES.includes(tuyaLogId) && flujos_codes.includes(fieldName)) {
-        convertedValue = convertedValue * 1.6;
-        if (flujos_total_codes.includes(fieldName)) {
-          convertedValue = convertedValue / 10;
-        }
-      }
-
-      if (arrayCodes.includes(fieldName) && convertedValue > 0) {
-        convertedValue = convertedValue / 10;
-      }
-
-      return parseFloat(convertedValue.toFixed(2));
-    };
-
-    let allChunks = [];
-
-    try {
-      for (const code of HISTORICO_DP_CODES) {
-        const chunk = await fetchTuyaReportLogsPagedForHistorico(
-          tuyaLogId,
-          code,
-          numericStart,
-          numericEnd,
-          tuyaWarnings
-        );
-        allChunks = allChunks.concat(chunk);
-        await new Promise((r) => setTimeout(r, 200));
-      }
-    } catch (err) {
-      if (err.quotaExceeded) {
-        return res.status(429).json({
-          success: false,
-          message: 'Cuota de la API Tuya agotada (modo Trial). Intente más tarde o reduzca el rango de fechas.',
-          code: err.tuyaCode ?? TUYA_QUOTA_HISTORICO_CODE,
-          tuya: { warnings: tuyaWarnings },
-        });
-      }
-      throw err;
-    }
-
-    const mapped = mapTuyaLogs(allChunks);
-    const hasValidData = (log) => {
-      const v = (x) => x != null && x !== 0;
-      return v(log.tds) || v(log.production_volume) || v(log.rejected_volume);
-    };
-
-    const logsWithData = mapped.filter(hasValidData);
-
     let insertedCount = 0;
     let skippedDuplicates = 0;
 
-    if (logsWithData.length > 0) {
-      const dates = logsWithData.map((l) => new Date(l.date));
-      const existing = await ProductLogModel.findByDatesForDeviceIds(logDeviceIds, dates);
-      const existingSet = new Set(
-        existing.map((e) => (e.date instanceof Date ? e.date : new Date(e.date)).getTime())
-      );
+    if (refreshTuya) {
+      let allChunks = [];
+      try {
+        for (const code of HISTORICO_DP_CODES) {
+          const chunk = await fetchTuyaReportLogsPagedForHistorico(
+            tuyaLogId,
+            code,
+            numericStart,
+            numericEnd,
+            tuyaWarnings
+          );
+          allChunks = allChunks.concat(chunk);
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      } catch (err) {
+        if (err.quotaExceeded) {
+          return res.status(429).json({
+            success: false,
+            message: 'Cuota de la API Tuya agotada (modo Trial). Intente más tarde o reduzca el rango de fechas.',
+            code: err.tuyaCode ?? TUYA_QUOTA_HISTORICO_CODE,
+            tuya: { warnings: tuyaWarnings },
+          });
+        }
+        throw err;
+      }
 
-      const toInsert = logsWithData
-        .filter((l) => !existingSet.has(new Date(l.date).getTime()))
-        .map((l) => {
-          const rawProd = l.production_volume != null ? Number(l.production_volume) : null;
-          const rawRej = l.rejected_volume != null ? Number(l.rejected_volume) : null;
-          const d = new Date(l.date);
-          return {
-            product_id: logWriteDeviceId,
-            product_device_id: logWriteDeviceId,
-            producto: product._id,
-            date: d,
-            tds: l.tds != null ? Number(l.tds) : undefined,
-            production_volume: rawProd != null ? rawProd / 10 : undefined,
-            rejected_volume: rawRej != null ? rawRej / 10 : undefined,
-            tiempo_inicio: Math.floor(d.getTime() / 1000),
-            tiempo_fin: Math.floor(d.getTime() / 1000),
-            source: 'tuya_historico',
-          };
-        });
+      const mapped = mapTuyaLogs(allChunks);
+      const hasValidData = (log) => {
+        const v = (x) => x != null && x !== 0;
+        return v(log.tds) || v(log.production_volume) || v(log.rejected_volume);
+      };
+      const logsWithData = mapped.filter(hasValidData);
 
-      skippedDuplicates = logsWithData.length - toInsert.length;
-
-      if (toInsert.length > 0) {
-        await ProductLogModel.insertMany(toInsert);
-        insertedCount = toInsert.length;
-        devLog(
-          `📥 [getProductHistoricoLogs] Insertados ${insertedCount} logs Tuya histórico (${skippedDuplicates} ya existían)`
+      if (logsWithData.length > 0) {
+        const dates = logsWithData.map((l) => new Date(l.date));
+        const existing = await ProductLogModel.findByDatesForDeviceIds(logDeviceIds, dates);
+        const existingSet = new Set(
+          existing.map((e) => (e.date instanceof Date ? e.date : new Date(e.date)).getTime())
         );
+
+        const toInsert = logsWithData
+          .filter((l) => !existingSet.has(new Date(l.date).getTime()))
+          .map((l) => {
+            const rawProd = l.production_volume != null ? Number(l.production_volume) : null;
+            const rawRej = l.rejected_volume != null ? Number(l.rejected_volume) : null;
+            const d = new Date(l.date);
+            return {
+              product_id: logWriteDeviceId,
+              product_device_id: logWriteDeviceId,
+              producto: product._id,
+              date: d,
+              tds: l.tds != null ? Number(l.tds) : undefined,
+              production_volume: rawProd != null ? rawProd / 10 : undefined,
+              rejected_volume: rawRej != null ? rawRej / 10 : undefined,
+              tiempo_inicio: Math.floor(d.getTime() / 1000),
+              tiempo_fin: Math.floor(d.getTime() / 1000),
+              source: 'tuya_historico',
+            };
+          });
+
+        skippedDuplicates = logsWithData.length - toInsert.length;
+
+        if (toInsert.length > 0) {
+          await ProductLogModel.insertMany(toInsert);
+          insertedCount = toInsert.length;
+          devLog(
+            `📥 [getProductHistoricoLogs] Insertados ${insertedCount} logs Tuya histórico (${skippedDuplicates} ya existían)`
+          );
+        }
       }
     }
 
-    const groupedArray = logsWithData
-      .map((log) => {
-        const d = new Date(log.date);
-        const rawProd = log.production_volume;
-        const rawRej = log.rejected_volume;
-        return {
-          date: d,
-          createdAt: d,
-          source: 'tuya',
-          product_id: id,
-          tds: log.tds != null ? Number(log.tds) : null,
-          production_volume:
-            rawProd != null ? applyHistoricoDisplay('flowrate_total_1', rawProd) : null,
-          rejected_volume: rawRej != null ? applyHistoricoDisplay('flowrate_total_2', rawRej) : null,
-          flujo_produccion: null,
-          flujo_rechazo: null,
-          tiempo_inicio: Math.floor(d.getTime() / 1000),
-          tiempo_fin: Math.floor(d.getTime() / 1000),
-        };
-      })
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, limit);
+    const groupedArray = await loadHistoricoSnapshotFromDatabase({
+      logDeviceIds,
+      routeId: id,
+      numericStart,
+      numericEnd,
+      limit,
+    });
 
     return res.json({
       success: true,
       data: groupedArray,
-      source: 'tuya_historico',
+      source: 'database',
       inserted_count: insertedCount,
       skipped_duplicates: skippedDuplicates,
+      refresh_tuya_performed: refreshTuya,
       tuya: {
         warnings: tuyaWarnings,
-        codes_queried: HISTORICO_DP_CODES,
+        codes_queried: refreshTuya ? HISTORICO_DP_CODES : [],
       },
       meta: {
         start_ms: numericStart,
         end_ms: numericEnd,
         max_range_ms: HISTORICO_MAX_RANGE_MS,
         row_limit: limit,
+        data_source: 'product_logs',
+        refresh_tuya_performed: refreshTuya,
       },
     });
   } catch (error) {
