@@ -1952,6 +1952,307 @@ export const getProductLogsById = async (req, res) => {
   }
 };
 
+const TUYA_QUOTA_HISTORICO_CODE = 28841004;
+const HISTORICO_DP_CODES = ['flowrate_total_1', 'flowrate_total_2', 'tds_out'];
+const HISTORICO_MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
+const HISTORICO_MAX_PAGES_PER_CODE = 40;
+
+async function fetchTuyaReportLogsPagedForHistorico(tuyaDeviceId, code, startMs, endMs, outWarnings) {
+  const collected = [];
+  let lastRowKey = null;
+
+  for (let page = 0; page < HISTORICO_MAX_PAGES_PER_CODE; page++) {
+    const filters = {
+      id: tuyaDeviceId,
+      start_date: startMs,
+      end_date: endMs,
+      fields: code,
+      size: 100,
+      last_row_key: lastRowKey || undefined,
+    };
+
+    let response;
+    try {
+      response = await tuyaService.getDeviceLogsForRoutine(filters);
+    } catch (err) {
+      outWarnings.push({ code, page, error: err.message || 'request_failed' });
+      break;
+    }
+
+    if (response.code === TUYA_QUOTA_HISTORICO_CODE) {
+      const e = new Error('Tuya trial quota exceeded');
+      e.quotaExceeded = true;
+      e.tuyaCode = response.code;
+      throw e;
+    }
+
+    if (!response.success) {
+      outWarnings.push({
+        code,
+        page,
+        error: response.error ?? response.msg ?? 'tuya_request_failed',
+        tuya_code: response.code,
+      });
+      break;
+    }
+
+    const data = response.data;
+    const logs = Array.isArray(data?.logs) ? data.logs : [];
+
+    collected.push(...logs);
+
+    const hasMore = Boolean(data?.has_more);
+    const lrk = data?.last_row_key;
+    if (!hasMore || lrk == null || logs.length === 0) {
+      break;
+    }
+
+    lastRowKey = lrk;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  return collected;
+}
+
+/**
+ * Histórico Tuya: sólo DP codes acumulados + TDS, sólo equipos Osmosis con rutina de logs activa.
+ * Inserta filas nuevas en product_logs con deduplicación por (device_ids, fecha exacta).
+ * Cubre errores parciales por código y paginación best-effort (100 filas/página; Trial/dev puede truncar).
+ */
+export const getProductHistoricoLogs = async (req, res) => {
+  const tuyaWarnings = [];
+
+  try {
+    let { id } = req.params;
+    try {
+      id = decodeURIComponent(String(id || ''));
+    } catch (_) {
+      id = String(req.params.id || '');
+    }
+
+    const queryParams = req.query.params || req.query;
+    const start_date = queryParams.start_date;
+    const end_date = queryParams.end_date;
+    const limit = Math.min(parseInt(queryParams.limit ?? '500', 10) || 500, 1000);
+
+    if (!id) {
+      return res.status(400).json({ message: 'Missing required parameter: id', success: false });
+    }
+
+    const accessCtx = await getProductAccessContext(req);
+    const product = await ProductModel.findByIdOrDeviceId(id);
+
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found', success: false });
+    }
+
+    if (isClientScopedProductAccess(accessCtx)) {
+      const cid = normalizeClientIdFromProduct(product);
+      if (!clientIdInAllowedList(cid, accessCtx.allowedClientIds)) {
+        return res.status(403).json({ message: 'No tienes acceso a este equipo', success: false });
+      }
+    }
+
+    if (!product.tuya_logs_routine_enabled) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'El histórico Tuya desde esta vista sólo está permitido cuando la rutina de logs está activa para el equipo. Actívala en Personalización → Productos rutina logs.',
+        code: 'TUYA_HISTORICO_ROUTINE_DISABLED',
+      });
+    }
+
+    const productType = String(product.product_type || 'Osmosis');
+    const isNivel = productType === 'Nivel' || productType === 'nivel';
+    if (isNivel) {
+      return res.status(400).json({
+        success: false,
+        message: 'El histórico Tuya (totales y TDS) aplica sólo a equipos Osmosis.',
+        code: 'TUYA_HISTORICO_OSMOSIS_ONLY',
+      });
+    }
+
+    const tuyaLogId = resolveTuyaLiveDeviceIdForTuyaApi(product) || id;
+    const logDeviceIds = collectProductLogDeviceIds(id, product);
+    const logWriteDeviceId = tuyaLogId;
+
+    const now = Date.now();
+    let numericStart = start_date ? Number(start_date) : now - HISTORICO_MAX_RANGE_MS;
+    let numericEnd = end_date ? Number(end_date) : now;
+
+    if (numericEnd > now) numericEnd = now;
+
+    if (Number.isNaN(numericStart) || Number.isNaN(numericEnd)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Parámetros de fecha inválidos (start_date / end_date en milisegundos UTC)',
+      });
+    }
+
+    if (numericStart >= numericEnd) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rango inválido: la fecha inicial debe ser anterior a la final',
+      });
+    }
+
+    if (numericEnd - numericStart > HISTORICO_MAX_RANGE_MS) {
+      return res.status(400).json({
+        success: false,
+        message: `El rango máximo permitido es ${HISTORICO_MAX_RANGE_MS / (24 * 60 * 60 * 1000)} días para no saturar la API Tuya.`,
+        meta: { max_range_ms: HISTORICO_MAX_RANGE_MS },
+      });
+    }
+
+    const applyHistoricoDisplay = (fieldName, value) => {
+      if (value == null || value === 0) return value;
+
+      const PRODUCTOS_ESPECIALES = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'];
+      const flujos_codes = ['flowrate_speed_1', 'flowrate_speed_2', 'flowrate_total_1', 'flowrate_total_2'];
+      const flujos_total_codes = ['flowrate_total_1', 'flowrate_total_2'];
+      const arrayCodes = ['flowrate_speed_1', 'flowrate_speed_2'];
+
+      let convertedValue = Number(value);
+
+      if (PRODUCTOS_ESPECIALES.includes(tuyaLogId) && flujos_codes.includes(fieldName)) {
+        convertedValue = convertedValue * 1.6;
+        if (flujos_total_codes.includes(fieldName)) {
+          convertedValue = convertedValue / 10;
+        }
+      }
+
+      if (arrayCodes.includes(fieldName) && convertedValue > 0) {
+        convertedValue = convertedValue / 10;
+      }
+
+      return parseFloat(convertedValue.toFixed(2));
+    };
+
+    let allChunks = [];
+
+    try {
+      for (const code of HISTORICO_DP_CODES) {
+        const chunk = await fetchTuyaReportLogsPagedForHistorico(
+          tuyaLogId,
+          code,
+          numericStart,
+          numericEnd,
+          tuyaWarnings
+        );
+        allChunks = allChunks.concat(chunk);
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    } catch (err) {
+      if (err.quotaExceeded) {
+        return res.status(429).json({
+          success: false,
+          message: 'Cuota de la API Tuya agotada (modo Trial). Intente más tarde o reduzca el rango de fechas.',
+          code: err.tuyaCode ?? TUYA_QUOTA_HISTORICO_CODE,
+          tuya: { warnings: tuyaWarnings },
+        });
+      }
+      throw err;
+    }
+
+    const mapped = mapTuyaLogs(allChunks);
+    const hasValidData = (log) => {
+      const v = (x) => x != null && x !== 0;
+      return v(log.tds) || v(log.production_volume) || v(log.rejected_volume);
+    };
+
+    const logsWithData = mapped.filter(hasValidData);
+
+    let insertedCount = 0;
+    let skippedDuplicates = 0;
+
+    if (logsWithData.length > 0) {
+      const dates = logsWithData.map((l) => new Date(l.date));
+      const existing = await ProductLogModel.findByDatesForDeviceIds(logDeviceIds, dates);
+      const existingSet = new Set(
+        existing.map((e) => (e.date instanceof Date ? e.date : new Date(e.date)).getTime())
+      );
+
+      const toInsert = logsWithData
+        .filter((l) => !existingSet.has(new Date(l.date).getTime()))
+        .map((l) => {
+          const rawProd = l.production_volume != null ? Number(l.production_volume) : null;
+          const rawRej = l.rejected_volume != null ? Number(l.rejected_volume) : null;
+          const d = new Date(l.date);
+          return {
+            product_id: logWriteDeviceId,
+            product_device_id: logWriteDeviceId,
+            producto: product._id,
+            date: d,
+            tds: l.tds != null ? Number(l.tds) : undefined,
+            production_volume: rawProd != null ? rawProd / 10 : undefined,
+            rejected_volume: rawRej != null ? rawRej / 10 : undefined,
+            tiempo_inicio: Math.floor(d.getTime() / 1000),
+            tiempo_fin: Math.floor(d.getTime() / 1000),
+            source: 'tuya_historico',
+          };
+        });
+
+      skippedDuplicates = logsWithData.length - toInsert.length;
+
+      if (toInsert.length > 0) {
+        await ProductLogModel.insertMany(toInsert);
+        insertedCount = toInsert.length;
+        devLog(
+          `📥 [getProductHistoricoLogs] Insertados ${insertedCount} logs Tuya histórico (${skippedDuplicates} ya existían)`
+        );
+      }
+    }
+
+    const groupedArray = logsWithData
+      .map((log) => {
+        const d = new Date(log.date);
+        const rawProd = log.production_volume;
+        const rawRej = log.rejected_volume;
+        return {
+          date: d,
+          createdAt: d,
+          source: 'tuya',
+          product_id: id,
+          tds: log.tds != null ? Number(log.tds) : null,
+          production_volume:
+            rawProd != null ? applyHistoricoDisplay('flowrate_total_1', rawProd) : null,
+          rejected_volume: rawRej != null ? applyHistoricoDisplay('flowrate_total_2', rawRej) : null,
+          flujo_produccion: null,
+          flujo_rechazo: null,
+          tiempo_inicio: Math.floor(d.getTime() / 1000),
+          tiempo_fin: Math.floor(d.getTime() / 1000),
+        };
+      })
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, limit);
+
+    return res.json({
+      success: true,
+      data: groupedArray,
+      source: 'tuya_historico',
+      inserted_count: insertedCount,
+      skipped_duplicates: skippedDuplicates,
+      tuya: {
+        warnings: tuyaWarnings,
+        codes_queried: HISTORICO_DP_CODES,
+      },
+      meta: {
+        start_ms: numericStart,
+        end_ms: numericEnd,
+        max_range_ms: HISTORICO_MAX_RANGE_MS,
+        row_limit: limit,
+      },
+    });
+  } catch (error) {
+    console.error('[getProductHistoricoLogs]', error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error al obtener histórico Tuya',
+      tuya: { warnings: tuyaWarnings },
+    });
+  }
+};
+
 function mapTuyaLogs(tuyaData) {
   const grouped = {};
 

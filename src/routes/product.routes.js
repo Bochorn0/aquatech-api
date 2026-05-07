@@ -1,6 +1,6 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, createProduct, updateProduct, deleteProduct, lockProducts, getMergedProductsList, getMergedProductDetail } from '../controllers/product.controller.js'; // Named imports
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductHistoricoLogs, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, createProduct, updateProduct, deleteProduct, lockProducts, getMergedProductsList, getMergedProductDetail } from '../controllers/product.controller.js'; // Named imports
 import { authenticate, requirePermission, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -56,6 +56,9 @@ router.patch('/:id', authenticate, updateProduct);
 
 // Delete product - admin only (Personalización v1 > Equipos tab)
 router.delete('/:id', authenticate, authorizeRoles('admin'), deleteProduct);
+
+// Historico Tuya (totales + TDS) — requires tuya_logs_routine_enabled on the product; must be registered before /:id/logs
+router.get('/:id/logs/historico', authenticate, getProductHistoricoLogs);
 
 // Get specific product logs by ID
 router.get('/:id/logs', authenticate, getProductLogsById);
