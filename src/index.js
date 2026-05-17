@@ -31,6 +31,7 @@ import regionRoutes from './routes/region.routes.js';
 import ciudadRoutes from './routes/ciudad.routes.js';
 import adminEventsRoutes from './routes/adminEvents.routes.js';
 import rateLimit from 'express-rate-limit';
+import tuyaProductAlertRoutes from './routes/tuyaProductAlert.routes.js';
 import { getCorsOptions, getHelmetOptions } from './config/http-security.js';
 import { authenticate, requirePermission } from './middlewares/auth.middleware.js';
 import mqttService from './services/mqtt.service.js';  // Import MQTT service
@@ -291,6 +292,7 @@ app.use('/api/v1.0/cities', authenticate, requirePermission('/'), cityRoutes);
 app.use('/api/v1.0/controllers', authenticate, requirePermission('/controladores'), controllerRoutes);
 app.use('/api/v1.0/puntoVentas', puntoVentaAuthOrCron, puntoVentaRoutes);
 app.use('/api/v1.0/sensor-data', authenticate, requirePermission('/'), sensorDataRoutes);
+app.use('/api/v1.0/tuya-product-alerts', tuyaProductAlertRoutes);
 
 // v2.0 API routes - PostgreSQL based (TI Water - no auth on these or add if needed)
 app.use('/api/v2.0/tiwater/products', tiwaterProductRoutes);

@@ -21,6 +21,14 @@ import {
   parseClientIdFromBody,
   clientIdInAllowedList,
 } from '../utils/user-clients.helper.js';
+import TuyaProductAlertNotificationService from '../services/tuyaProductAlertNotification.service.js';
+
+function fireTuyaProductAlertsAsync(productRow) {
+  if (!productRow || !Array.isArray(productRow.status)) return;
+  TuyaProductAlertNotificationService.evaluateFromProductRow(productRow).catch((err) => {
+    console.error('[TuyaProductAlerts]', err?.message || err);
+  });
+}
 
 // IDs de productos tipo "Nivel"
 const productos_nivel = [
@@ -1395,6 +1403,7 @@ export const getProductById = async (req, res) => {
           const breakdown = await buildMergedVolumeBreakdown(tuyaDetailId, tuyaDetailId, rawTuyaStatusForBreakdown);
           if (breakdown) out.merged_volume_breakdown = breakdown;
         }
+        fireTuyaProductAlertsAsync(out);
         return res.json(withInferredApagadorProductType(out));
       }
 
@@ -1566,6 +1575,7 @@ export const getProductById = async (req, res) => {
       const breakdownNew = await buildMergedVolumeBreakdown(tidNew, tidNew, rawTuyaStatusNewProduct);
       if (breakdownNew) outNew.merged_volume_breakdown = breakdownNew;
     }
+    fireTuyaProductAlertsAsync(outNew);
     res.json(withInferredApagadorProductType(outNew));
     
   } catch (error) {
@@ -2575,6 +2585,7 @@ export const getProductMetrics = async (req, res) => {
       return res.status(500).json({ message: 'Failed to update product' });
     }
 
+    fireTuyaProductAlertsAsync(updated);
     res.json(withInferredApagadorProductType(updated));
   } catch (error) {
     console.error('Error fetching product metrics:', error);
@@ -2782,7 +2793,7 @@ async function handleOsmosisProduct(product, data) {
     product.status = product.status.filter(s => s.code !== 'start_time');
   }
 
-  await ProductModel.update(product.id, product);
+  const persistedOsmosis = await ProductModel.update(product.id, product);
   devLog('💾 [Osmosis] Datos de osmosis actualizados correctamente');
 
   // Guardar log en ProductLog si hay datos relevantes
@@ -2835,7 +2846,7 @@ async function handleOsmosisProduct(product, data) {
     }
   }
 
-  return { success: true, message: 'Datos de osmosis actualizados', product };
+  return { success: true, message: 'Datos de osmosis actualizados', product: persistedOsmosis };
 }
 
 // ⚙️ — PRESIÓN
@@ -2946,9 +2957,9 @@ async function handleLevelProduct(product, data) {
     }
   }
 
-  await ProductModel.update(product.id, product);
+  const persistedNivel = await ProductModel.update(product.id, product);
   devLog('💾 [Nivel] Datos de nivel actualizados correctamente');
-  return { success: true, message: 'Datos de nivel actualizados', product };
+  return { success: true, message: 'Datos de nivel actualizados', product: persistedNivel };
 }
 
 /* ======================================================
@@ -3034,10 +3045,15 @@ export const componentInput = async (req, res) => {
         result = await handleLevelProduct(product, data);
         break;
 
-      default:
-        await ProductModel.update(product.id, product);
-        result = { success: true, message: 'Producto actualizado sin lógica especial', product };
+      default: {
+        const persistedDefault = await ProductModel.update(product.id, product);
+        result = { success: true, message: 'Producto actualizado sin lógica especial', product: persistedDefault };
         break;
+      }
+    }
+
+    if (result?.product) {
+      fireTuyaProductAlertsAsync(result.product);
     }
 
     return res.json(result);
