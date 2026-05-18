@@ -13,6 +13,9 @@ const isAzure = process.env.POSTGRES_SSL === 'true';
 const defaultDb = isAzure ? 'postgres' : 'tiwater_timeseries';
 const db = process.env.POSTGRES_DB || defaultDb;
 
+// Azure PostgreSQL TLS: default verify server cert; set POSTGRES_SSL_REJECT_UNAUTHORIZED=false only for local/dev.
+const pgSslRejectUnauthorized = process.env.POSTGRES_SSL_REJECT_UNAUTHORIZED !== 'false';
+
 // Create connection pool (default user = current OS user for local dev)
 const pool = new Pool({
   host: process.env.POSTGRES_HOST || 'localhost',
@@ -24,7 +27,7 @@ const pool = new Pool({
   idleTimeoutMillis: parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000'), // Close idle clients after 30 seconds
   connectionTimeoutMillis: parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '10000'), // 10s default (Azure cold start); use 2000 for local
   ssl: process.env.POSTGRES_SSL === 'true' ? {
-    rejectUnauthorized: false
+    rejectUnauthorized: pgSslRejectUnauthorized
   } : false
 });
 

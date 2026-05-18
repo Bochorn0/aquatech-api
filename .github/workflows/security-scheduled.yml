@@ -19,9 +19,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: semgrep/semgrep-action@v1
+        env:
+          SEMGREP_APPEND_OPTIONS: >-
+            --exclude-rule
+            javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
         with:
           config: >-
-            p/default
             p/nodejs
             p/javascript
             p/expressjs

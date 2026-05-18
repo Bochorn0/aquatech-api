@@ -13,6 +13,8 @@ const isAzure = process.env.POSTGRES_SSL === 'true';
 const defaultTiwaterDb = isAzure ? 'postgres' : 'ti_water';
 const tiwaterDb = process.env.POSTGRES_TIWATER_DB || defaultTiwaterDb;
 
+const pgSslRejectUnauthorized = process.env.POSTGRES_SSL_REJECT_UNAUTHORIZED !== 'false';
+
 // Create connection pool for TI_water database
 const pool = new Pool({
   host: process.env.POSTGRES_TIWATER_HOST || process.env.POSTGRES_HOST || 'localhost',
@@ -24,7 +26,7 @@ const pool = new Pool({
   idleTimeoutMillis: parseInt(process.env.POSTGRES_TIWATER_IDLE_TIMEOUT || process.env.POSTGRES_IDLE_TIMEOUT || '30000'),
   connectionTimeoutMillis: parseInt(process.env.POSTGRES_TIWATER_CONNECTION_TIMEOUT || process.env.POSTGRES_CONNECTION_TIMEOUT || '10000'),
   ssl: process.env.POSTGRES_TIWATER_SSL === 'true' || process.env.POSTGRES_SSL === 'true' ? {
-    rejectUnauthorized: false
+    rejectUnauthorized: pgSslRejectUnauthorized
   } : false
 });
 

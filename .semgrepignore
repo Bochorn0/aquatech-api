@@ -1,0 +1,5 @@
+# Local examples and dev scripts (not deployed to App Service)
+gateway_siemens2050_example.js
+test-mqtt.js
+test-mqtt-publisher.js
+scripts/
