@@ -1,4 +1,4 @@
-# Weekly dependency update PRs (npm). Triage and merge when CI passes.
+# Weekly dependency and Actions updates. Triage per SLA 45d (critical/high).
 
 version: 2
 updates:
@@ -6,4 +6,20 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
     open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - security
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
