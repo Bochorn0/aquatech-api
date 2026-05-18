@@ -94,9 +94,8 @@ class EmailHelper {
       connectionTimeout: 10000, // 10 seconds
       greetingTimeout: 10000,
       socketTimeout: 10000,
-      // Try to bypass some network restrictions
       tls: {
-        rejectUnauthorized: false // Only set to false if you trust the SMTP server
+        rejectUnauthorized: process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== 'false'
       }
     };
 
