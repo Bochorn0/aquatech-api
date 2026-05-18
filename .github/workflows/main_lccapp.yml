@@ -75,7 +75,7 @@ jobs:
           npm run migrate:deploy
 
       - name: Login to Azure
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_BC1C1C66E9DB4CE1AB2F96CD142C2F5D }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_F457D927D5B64BDD89B57B142BB42DC0 }}
