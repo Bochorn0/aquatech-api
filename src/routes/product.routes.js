@@ -1,6 +1,6 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductHistoricoLogs, getProductHistoricoDaysSummary, postHistoricoHubSummary, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, createProduct, updateProduct, deleteProduct, lockProducts, getMergedProductsList, getMergedProductDetail } from '../controllers/product.controller.js'; // Named imports
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductHistoricoLogs, getProductHistoricoDaysSummary, postHistoricoHubSummary, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, createProduct, updateProduct, deleteProduct, lockProducts, previewMergeDuplicateProducts, mergeDuplicateProducts, getMergedProductsList, getMergedProductDetail } from '../controllers/product.controller.js'; // Named imports
 import { authenticate, requirePermission, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -41,6 +41,10 @@ router.post('/logs/historico-hub-summary', authenticate, postHistoricoHubSummary
 
 // Admin: lock products (archive logs, `_` device_id + merged_from_device_ids)
 router.post('/lock', authenticate, authorizeRoles('admin'), lockProducts);
+
+// Admin: merge duplicate Tuya devices (OLD absorbed into NEW)
+router.post('/merge-duplicates/preview', authenticate, authorizeRoles('admin'), previewMergeDuplicateProducts);
+router.post('/merge-duplicates', authenticate, authorizeRoles('admin'), mergeDuplicateProducts);
 
 // Admin: merged canonical pairs (for Personalización V1)
 router.get('/merged', authenticate, authorizeRoles('admin'), getMergedProductsList);
