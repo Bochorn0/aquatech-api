@@ -15,6 +15,10 @@ import {
 } from '../utils/productApagadorType.js';
 import { getClient } from '../config/postgres.config.js';
 import {
+  buildMergeDuplicatePreview,
+  executeMergeDuplicateProducts,
+} from '../services/productMerge.service.js';
+import {
   getProductAccessContext,
   isClientScopedProductAccess,
   normalizeClientIdFromProduct,
@@ -294,9 +298,26 @@ export const getAllProducts = async (req, res) => {
 
     // Tuya may still list replaced devices; DB merge lists them under merged_from_device_ids — hide from equipos list
     const supersededDeviceIds = await ProductModel.getSupersededDeviceIdSet();
+    /** `_…` archive rows reference the live Tuya id in merged_from — that live id must stay visible */
+    const lockedCanonicalRowsForSuperseded = await ProductModel.findLockedCanonicalRowsForMergedPairs();
+    const isSupersededLiveDeviceWithLockedArchive = (deviceId) => {
+      const id = String(deviceId || '');
+      if (!id || !supersededDeviceIds.has(id)) return false;
+      return lockedCanonicalRowsForSuperseded.some((p) => {
+        const did = String(p.device_id ?? p.id ?? '');
+        if (!did.startsWith('_')) return false;
+        const merged = Array.isArray(p.merged_from_device_ids) ? p.merged_from_device_ids.map(String) : [];
+        return merged.includes(id);
+      });
+    };
+    const shouldSkipTuyaInsertAsSupersededDuplicate = (tuyaId) =>
+      supersededDeviceIds.has(String(tuyaId || '')) && !isSupersededLiveDeviceWithLockedArchive(tuyaId);
+
     const allTuyaList = Array.isArray(realProducts.data) ? realProducts.data : [];
-    /** After lock, live id stays in merged_from; hide Tuya duplicate only until a row with device_id = live id exists. */
-    let supersededIdsStillHidden = new Set(supersededDeviceIds);
+    /** Hide merged-away duplicates; exception: live hardware id paired with `_` lock row stays visible */
+    let supersededIdsStillHidden = new Set(
+      [...supersededDeviceIds].filter((sid) => !isSupersededLiveDeviceWithLockedArchive(sid))
+    );
     let tuyaDevicesVisible = [];
 
     const isLockedCanonRow = (p) =>
@@ -314,13 +335,18 @@ export const getAllProducts = async (req, res) => {
       let productosInsertados = 0;
       let productosConError = 0;
 
-      // Full Tuya list: superseded filter hid locked live ids from sync before, so no new row was ever inserted.
-      // Insert only when no row has device_id === Tuya id (canonical locked row uses _+id, not a match).
+      // Full Tuya list: merged-away duplicates stay out of Postgres (skip insert above); `_…` lock rows stay paired via merged_from.
       for (const tuyaProduct of allTuyaList.filter((p) => p && p.id)) {
         try {
           const existingProduct = await ProductModel.findByExactDeviceId(tuyaProduct.id);
           if (existingProduct) {
             productosActualizados++;
+            continue;
+          }
+          // Do not recreate DB rows for devices merged into another canonical row (Tuya still lists them).
+          // Otherwise the duplicate reappears in Equipos and breaks "one visible equipo" after merge.
+          if (shouldSkipTuyaInsertAsSupersededDuplicate(tuyaProduct.id)) {
+            devLog(`⏭️ [Sincronización] Omitido insert: device_id ${tuyaProduct.id} está en merged_from de otro equipo (duplicado absorbido)`);
             continue;
           }
           // Store Tuya product in DB only when it doesn't exist
@@ -349,19 +375,16 @@ export const getAllProducts = async (req, res) => {
       dbProducts = await ProductModel.find(findFilters);
       devLog(`📦 Found ${dbProducts.length} products in database`);
 
-      supersededIdsStillHidden = new Set(
-        [...supersededDeviceIds].filter(
-          (sid) => !dbProducts.some((p) => p && String(p.id) === String(sid))
-        )
-      );
       tuyaDevicesVisible = allTuyaList.filter(
-        (p) => p && p.id && !supersededIdsStillHidden.has(p.id)
+        (p) => p && p.id && !supersededIdsStillHidden.has(String(p.id))
       );
     } catch (dbErr) {
       devWarn('[getAllProducts] DB sync/query failed, using Tuya data only:', dbErr.message);
-      supersededIdsStillHidden = new Set(supersededDeviceIds);
+      supersededIdsStillHidden = new Set(
+        [...supersededDeviceIds].filter((sid) => !isSupersededLiveDeviceWithLockedArchive(sid))
+      );
       tuyaDevicesVisible = allTuyaList.filter(
-        (p) => p && p.id && !supersededIdsStillHidden.has(p.id)
+        (p) => p && p.id && !supersededIdsStillHidden.has(String(p.id))
       );
     }
 
@@ -640,9 +663,12 @@ export const getAllProducts = async (req, res) => {
     devLog(`🎯 Final products after filters: ${finalProducts.length}`);
 
     // 🔽 EXTRA: incluir productos sólo locales que no están en Tuya (visible list only)
-    const idsTuya = new Set(tuyaDevicesVisible.map(p => p.id));
+    const idsTuya = new Set(tuyaDevicesVisible.map((p) => String(p.id)));
     const productosLocales = dbProducts.filter(
-      (p) => !idsTuya.has(p.id) && !supersededIdsStillHidden.has(p.id) && !isLockedCanonRow(p)
+      (p) =>
+        !idsTuya.has(String(p.id)) &&
+        !supersededIdsStillHidden.has(String(p.id)) &&
+        !isLockedCanonRow(p)
     );
     const productosLocalesAdaptados = productosLocales.map((dbProduct) => ({
       ...dbProduct,
@@ -1010,6 +1036,42 @@ export const lockProducts = async (req, res) => {
   } catch (error) {
     console.error('lockProducts:', error);
     return res.status(500).json({ message: 'Error al bloquear productos', error: error.message });
+  }
+};
+
+/**
+ * Admin: preview merging duplicate Tuya devices (OLD → NEW canonical).
+ * Body: { oldDeviceId, newDeviceId }
+ */
+export const previewMergeDuplicateProducts = async (req, res) => {
+  try {
+    const { oldDeviceId, newDeviceId } = req.body || {};
+    const preview = await buildMergeDuplicatePreview(oldDeviceId, newDeviceId);
+    if (!preview.ok) {
+      return res.status(400).json({ message: 'No se puede previsualizar el merge', errors: preview.errors });
+    }
+    return res.status(200).json(preview);
+  } catch (error) {
+    console.error('[previewMergeDuplicateProducts]', error);
+    return res.status(500).json({ message: 'Error al previsualizar merge de productos', error: error.message });
+  }
+};
+
+/**
+ * Admin: merge duplicate Tuya devices — repoint logs, update puntoventa meta, set merged_from_device_ids, delete OLD row.
+ * Body: { oldDeviceId, newDeviceId }
+ */
+export const mergeDuplicateProducts = async (req, res) => {
+  try {
+    const { oldDeviceId, newDeviceId } = req.body || {};
+    const result = await executeMergeDuplicateProducts(oldDeviceId, newDeviceId);
+    if (!result.ok) {
+      return res.status(400).json({ message: 'No se pudo completar el merge', errors: result.errors });
+    }
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error('[mergeDuplicateProducts]', error);
+    return res.status(500).json({ message: 'Error al fusionar productos', error: error.message });
   }
 };
 
