@@ -1,0 +1,25 @@
+---
+description: Branch, verify, test policy, PR from chat context, session.json — Aquatech delivery
+alwaysApply: true
+---
+
+# Aquatech delivery workflow
+
+Follow `docs/DEVELOPMENT_WORKFLOW.md` in this repo (and the mirror in Aquatech_front when both are touched).
+
+## Required sequence
+
+1. **Branch**: From `main`, create `feat/<ref>-<slug>` (or `fix/...`) in **each** repo that will change. The slug must reflect what we are building.
+2. **Build locally**: Iterate until the feature works; fix lints on touched files.
+3. **Tests**: Add or run tests when they protect meaningful behavior; skip when the change is trivial and risk-free.
+4. **Push & PR**: Push branches; open PRs with body text **abstracted from the Cursor chat** (summary, test plan, risks). Use `gh pr create` when available. Do not merge without explicit user approval.
+5. **Close session**: After user merges, mark work complete and update session log.
+
+## Session memory (not in Git)
+
+- Write/update **`session/YYYY-MM-DD/session.json`** (today’s date folder) at this repo’s root.
+- Never commit `session/` (it is gitignored). For cross-repo work, duplicate the same JSON into the other repo’s `session/YYYY-MM-DD/session.json`.
+
+## Commits
+
+- Only create git commits when the user explicitly asks (see user rules).
