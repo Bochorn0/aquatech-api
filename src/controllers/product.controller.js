@@ -50,11 +50,23 @@ function upsertRawStatusValue(status, code, value) {
   return out;
 }
 
-/** Add legacy baseline from merged rows stored in products table (raw 0.1L). */
-async function mergeOsmosisTotalsWithProductTableBaseline(canonicalStatus, mergedFromDeviceIds) {
+/**
+ * Add baseline from merged device rows (products.status) and, for ids with no DB row (e.g. duplicate merge
+ * deleted the old row), from Tuya live status for that hardware id and/or product_logs.
+ *
+ * After merge-duplicates, logs are repointed to the canonical product_device_id, so log max by OLD id
+ * no longer works — Tuya full device list still includes merged-away ids; use that for counters.
+ *
+ * @param {object} [opts]
+ * @param {Map<string, object>} [opts.allTuyaById] - from full Tuya list (getAllProducts)
+ * @param {boolean} [opts.fetchMissingTuyaDetail] - per-id getDeviceDetail when not in map (getProductById)
+ */
+async function mergeOsmosisTotalsWithProductTableBaseline(canonicalStatus, mergedFromDeviceIds, opts = {}) {
   if (!Array.isArray(mergedFromDeviceIds) || mergedFromDeviceIds.length === 0) {
     return canonicalStatus;
   }
+  const { allTuyaById, fetchMissingTuyaDetail = false } = opts;
+
   const mergedRows = await ProductModel.findManyByExactDeviceIds(mergedFromDeviceIds);
   const foundIds = new Set(mergedRows.map((p) => String(p.id)));
   const missingIds = mergedFromDeviceIds.filter((id) => !foundIds.has(String(id)));
@@ -68,21 +80,45 @@ async function mergeOsmosisTotalsWithProductTableBaseline(canonicalStatus, merge
     0
   );
 
-  // If old merged rows were deleted from products table, fallback to product_logs max for those device ids.
-  // product_logs stores liters, so convert to Tuya raw (0.1L) by *10 for display merge.
+  // Missing product rows: Tuya live counters first, then product_logs by old device id (legacy / pre-merge).
+  // product_logs stores liters — convert to Tuya raw (0.1L) with *10.
   if (missingIds.length > 0) {
     const expandedForLogs = [
       ...new Set(missingIds.flatMap((id) => [String(id), `_${String(id)}`])),
     ];
     const historicalByMergedDeviceId = await ProductLogModel.getMaxVolumesByDeviceIds(expandedForLogs);
     for (const mid of missingIds) {
-      const a = historicalByMergedDeviceId.get(String(mid));
-      const b = historicalByMergedDeviceId.get(`_${String(mid)}`);
-      const prod = Math.max(Number(a?.production_volume) || 0, Number(b?.production_volume) || 0);
-      const rej = Math.max(Number(a?.rejected_volume) || 0, Number(b?.rejected_volume) || 0);
-      if (prod <= 0 && rej <= 0) continue;
-      baselineRawProd += prod * 10;
-      baselineRawRej += rej * 10;
+      let raw1 = 0;
+      let raw2 = 0;
+
+      const fromList = allTuyaById?.get(String(mid));
+      if (fromList?.status && Array.isArray(fromList.status)) {
+        raw1 = getRawStatusValue(fromList.status, 'flowrate_total_1');
+        raw2 = getRawStatusValue(fromList.status, 'flowrate_total_2');
+      } else if (fetchMissingTuyaDetail) {
+        try {
+          const det = await tuyaService.getDeviceDetail(mid);
+          if (det?.success && Array.isArray(det?.data?.status)) {
+            raw1 = getRawStatusValue(det.data.status, 'flowrate_total_1');
+            raw2 = getRawStatusValue(det.data.status, 'flowrate_total_2');
+          }
+        } catch (_) {
+          /* optional */
+        }
+      }
+
+      if (raw1 <= 0 && raw2 <= 0) {
+        const a = historicalByMergedDeviceId.get(String(mid));
+        const b = historicalByMergedDeviceId.get(`_${String(mid)}`);
+        const prod = Math.max(Number(a?.production_volume) || 0, Number(b?.production_volume) || 0);
+        const rej = Math.max(Number(a?.rejected_volume) || 0, Number(b?.rejected_volume) || 0);
+        if (prod <= 0 && rej <= 0) continue;
+        baselineRawProd += prod * 10;
+        baselineRawRej += rej * 10;
+      } else {
+        baselineRawProd += raw1;
+        baselineRawRej += raw2;
+      }
     }
   }
 
@@ -102,9 +138,9 @@ async function mergeOsmosisTotalsWithProductTableBaseline(canonicalStatus, merge
   return mergedStatus;
 }
 
-async function mergeOsmosisTotalsSafe(canonicalStatus, mergedFromDeviceIds, context = 'unknown') {
+async function mergeOsmosisTotalsSafe(canonicalStatus, mergedFromDeviceIds, context = 'unknown', opts = {}) {
   try {
-    return await mergeOsmosisTotalsWithProductTableBaseline(canonicalStatus, mergedFromDeviceIds);
+    return await mergeOsmosisTotalsWithProductTableBaseline(canonicalStatus, mergedFromDeviceIds, opts);
   } catch (err) {
     devWarn(`[mergeOsmosisTotalsSafe] ${context}: ${err.message}`);
     return canonicalStatus;
@@ -428,7 +464,9 @@ export const getAllProducts = async (req, res) => {
               let status = realProduct.status;
               let online = realProduct.online;
               if (merged.length > 0 && isOsmosisRow) {
-                status = await mergeOsmosisTotalsSafe(realProduct.status, merged, 'getAllProducts');
+                status = await mergeOsmosisTotalsSafe(realProduct.status, merged, 'getAllProducts', {
+                  allTuyaById,
+                });
                 online = anyMergedDeviceOnline(realProduct, merged, allTuyaList);
               }
               return {
@@ -479,7 +517,9 @@ export const getAllProducts = async (req, res) => {
           let status = liveTuya.status;
           let online = liveTuya.online;
           if (merged.length > 0 && isOsmosisRow) {
-            status = await mergeOsmosisTotalsSafe(liveTuya.status, merged, 'getAllProducts:locked');
+            status = await mergeOsmosisTotalsSafe(liveTuya.status, merged, 'getAllProducts:locked', {
+              allTuyaById,
+            });
             online = anyMergedDeviceOnline(liveTuya, merged, allTuyaList);
           }
           return {
@@ -1330,7 +1370,9 @@ export const getProductById = async (req, res) => {
             String(outFail.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
             !statusHasSwitch1(outFail.status);
           if (isOsmosisFail && mergedFail.length > 0) {
-            outFail.status = await mergeOsmosisTotalsSafe(outFail.status, mergedFail, 'getProductById:tuya-fail');
+            outFail.status = await mergeOsmosisTotalsSafe(outFail.status, mergedFail, 'getProductById:tuya-fail', {
+              fetchMissingTuyaDetail: true,
+            });
           }
           if (isOsmosisFail && outFail.status && Array.isArray(outFail.status)) {
             const lidFail = String(outFail.id || id || '');
@@ -1372,7 +1414,9 @@ export const getProductById = async (req, res) => {
           !statusHasSwitch1(product.status);
         const mergedCurrent = Array.isArray(product.merged_from_device_ids) ? product.merged_from_device_ids : [];
         if (isOsmosis && mergedCurrent.length > 0) {
-          product.status = await mergeOsmosisTotalsSafe(product.status, mergedCurrent, 'getProductById:tuya-success');
+          product.status = await mergeOsmosisTotalsSafe(product.status, mergedCurrent, 'getProductById:tuya-success', {
+            fetchMissingTuyaDetail: true,
+          });
         }
         devLog(`Product ${id} updated in MongoDB.`);
         
@@ -1469,7 +1513,9 @@ export const getProductById = async (req, res) => {
         String(outExisting.product_type || 'Osmosis').toLowerCase() === 'osmosis' &&
         !statusHasSwitch1(outExisting.status);
       if (isOsmosisExisting && mergedExisting.length > 0) {
-        outExisting.status = await mergeOsmosisTotalsSafe(outExisting.status, mergedExisting, 'getProductById:existing-fallback');
+        outExisting.status = await mergeOsmosisTotalsSafe(outExisting.status, mergedExisting, 'getProductById:existing-fallback', {
+          fetchMissingTuyaDetail: true,
+        });
       }
       if (isOsmosisExisting && outExisting.status && Array.isArray(outExisting.status)) {
         const lidEx = String(outExisting.id || id || '');
@@ -1543,7 +1589,9 @@ export const getProductById = async (req, res) => {
       !statusHasSwitch1(newProductModel.status);
     const mergedNew = Array.isArray(newProductModel.merged_from_device_ids) ? newProductModel.merged_from_device_ids : [];
     if (isOsmosis && mergedNew.length > 0) {
-      newProductModel.status = await mergeOsmosisTotalsSafe(newProductModel.status, mergedNew, 'getProductById:new-product');
+      newProductModel.status = await mergeOsmosisTotalsSafe(newProductModel.status, mergedNew, 'getProductById:new-product', {
+        fetchMissingTuyaDetail: true,
+      });
     }
     
     if (isOsmosis && newProductModel.status && Array.isArray(newProductModel.status)) {
@@ -1641,7 +1689,9 @@ export const getProductById = async (req, res) => {
           !statusHasSwitch1(fallback.status);
         let out = { ...fallback };
         if (isOsmosisFallback && mergedFallback.length > 0) {
-          out.status = await mergeOsmosisTotalsSafe(out.status, mergedFallback, 'getProductById:catch-fallback');
+          out.status = await mergeOsmosisTotalsSafe(out.status, mergedFallback, 'getProductById:catch-fallback', {
+            fetchMissingTuyaDetail: true,
+          });
         }
         if (isOsmosisFallback && out.status && Array.isArray(out.status)) {
           const lidFb = String(out.id || req.params.id || '');
