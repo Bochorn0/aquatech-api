@@ -42,12 +42,13 @@
     "dev-mode-data-gen": "DEV_MODE_USE_MQTT=true node scripts/run-dev-mode-data-generator.js"
   },
   "dependencies": {
+    "@mapbox/node-pre-gyp": "^2.0.3",
     "@tuya/tuya-connector-nodejs": "^2.1.2",
     "adm-zip": "^0.5.16",
     "archiver": "^7.0.1",
     "archiver-zip-encrypted": "^2.0.0",
     "axios": "^1.5.0",
-    "bcrypt": "^5.1.1",
+    "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.18.2",
@@ -61,7 +62,7 @@
     "morgan": "^1.10.0",
     "mqtt": "^5.3.0",
     "node-7z": "^3.0.0",
-    "nodemailer": "^6.9.7",
+    "nodemailer": "^8.0.9",
     "pg": "^8.11.3",
     "tuyapi": "github:codetheweb/tuyapi",
     "uuid": "^9.0.1",
