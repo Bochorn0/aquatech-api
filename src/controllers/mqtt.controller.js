@@ -1,12 +1,15 @@
 // src/controllers/mqtt.controller.js
 // Controlador para endpoints relacionados con MQTT
 
-import archiver from 'archiver';
+import { createRequire } from 'node:module';
 import mqttService from '../services/mqtt.service.js';
-import archiverZipEncrypted from 'archiver-zip-encrypted';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+const require = createRequire(import.meta.url);
+const archiver = require('archiver');
+const archiverZipEncrypted = require('archiver-zip-encrypted');
 import UserModel from '../models/postgres/user.model.js';
 
 const __filename = fileURLToPath(import.meta.url);
