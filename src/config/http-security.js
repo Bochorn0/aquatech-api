@@ -1,8 +1,5 @@
 /**
- * HTTP hardening helpers.
- * Note: Express finalhandler sets `Content-Security-Policy: default-src 'none'` on its
- * default HTML 404 — use explicit JSON 404 handlers in index.js instead (ZAP/FEMSA).
- * Env:
+ * HTTP hardening helpers. Env:
  * - CORS_ORIGINS: comma-separated allowed browser origins (e.g. https://app.example.com,http://localhost:5173).
  *   If unset, CORS stays permissive (backward compatible until you set this in production).
  * - CORS_CREDENTIALS: "true" to send Access-Control-Allow-Credentials (requires explicit origins).
