@@ -66,7 +66,7 @@
     "pg": "^8.21.0",
     "tuyapi": "github:codetheweb/tuyapi",
     "uuid": "^14.0.0",
-    "winston": "^3.10.0"
+    "winston": "^3.19.0"
   },
   "devDependencies": {
     "jest": "^30.4.2",
