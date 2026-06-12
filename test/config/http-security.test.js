@@ -43,6 +43,21 @@ describe('getCorsOptions', () => {
     const opts = getCorsOptions();
     expect(await corsAllow(opts, undefined)).toBe(true);
   });
+
+  it('normalizes trailing slashes in allowlist and Origin header', async () => {
+    process.env.CORS_ORIGINS = 'https://www.lcc.com.mx/,https://lcc.com.mx';
+    const opts = getCorsOptions();
+    expect(await corsAllow(opts, 'https://www.lcc.com.mx')).toBe(true);
+    expect(await corsAllow(opts, 'https://lcc.com.mx/')).toBe(true);
+  });
+
+  it('allows multiple production front origins (www + apex)', async () => {
+    process.env.CORS_ORIGINS = 'https://www.lcc.com.mx,https://lcc.com.mx';
+    const opts = getCorsOptions();
+    expect(await corsAllow(opts, 'https://www.lcc.com.mx')).toBe(true);
+    expect(await corsAllow(opts, 'https://lcc.com.mx')).toBe(true);
+    expect(await corsAllow(opts, 'https://evil.example')).toBe(false);
+  });
 });
 
 describe('getHelmetOptions', () => {

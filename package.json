@@ -45,7 +45,7 @@
     "@mapbox/node-pre-gyp": "^2.0.3",
     "@tuya/tuya-connector-nodejs": "^2.1.2",
     "adm-zip": "^0.5.17",
-    "archiver": "^7.0.1",
+    "archiver": "^8.0.0",
     "archiver-zip-encrypted": "^2.0.0",
     "axios": "^1.12.0",
     "bcrypt": "^6.0.0",
@@ -66,11 +66,11 @@
     "pg": "^8.21.0",
     "tuyapi": "github:codetheweb/tuyapi",
     "uuid": "^14.0.0",
-    "winston": "^3.10.0"
+    "winston": "^3.19.0"
   },
   "devDependencies": {
     "jest": "^30.4.2",
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.1.14"
   },
   "overrides": {
     "axios": "^1.12.0"

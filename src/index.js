@@ -93,6 +93,17 @@ app.get('/health', (req, res) => {
   res.json({ message: 'API Working' });
 });
 
+// Public surface — JSON/txt instead of Express finalhandler HTML 404 (avoids CSP: default-src 'none' ZAP finding)
+app.get('/', (req, res) => {
+  res.status(404).json({ success: false, message: 'Not found' });
+});
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send('User-agent: *\nDisallow: /\n');
+});
+app.get('/sitemap.xml', (req, res) => {
+  res.status(404).json({ success: false, message: 'Not found' });
+});
+
 // Test SMTP connection endpoint (for debugging) - supports both GET and POST
 const testSmtpHandler = async (req, res) => {
   try {
@@ -313,6 +324,11 @@ app.use('/api/v1.0/auth', authLimiter, authRoutes);
 
 // MQTT routes (certificado download, etc.)
 app.use('/api/v1.0/mqtt', mqttRoutes);
+
+// Unmatched routes — JSON 404 (do not rely on finalhandler CSP header)
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: 'Not found' });
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
