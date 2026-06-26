@@ -75,7 +75,4 @@
   "overrides": {
     "axios": "^1.12.0"
   },
-  "engines": {
-  "node": "20.x"
-  }
 }
