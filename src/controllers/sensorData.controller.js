@@ -27,19 +27,48 @@ export const getLatestSensorData = async (req, res) => {
       [codigoNorm]
     );
 
-    if (!result.rows || result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontraron datos de sensores'
+    if (result.rows?.length > 0) {
+      const row = result.rows[0];
+      return res.json({
+        success: true,
+        data: {
+          timestamp: row.timestamp,
+          codigo_tienda: row.codigo_tienda || codigoNorm,
+          hasData: true
+        }
       });
     }
 
-    const row = result.rows[0];
+    // Fallback: sensor_latest (detalle may have data there when sensores is empty)
+    try {
+      const latestResult = await query(
+        `SELECT MAX(COALESCE("timestamp", updated_at)) AS latest_timestamp
+         FROM sensor_latest
+         WHERE UPPER(TRIM(codigo_tienda)) = $1`,
+        [codigoNorm]
+      );
+      const latestTimestamp = latestResult.rows[0]?.latest_timestamp;
+      if (latestTimestamp) {
+        return res.json({
+          success: true,
+          data: {
+            timestamp: latestTimestamp,
+            codigo_tienda: codigoNorm,
+            hasData: true
+          }
+        });
+      }
+    } catch (fallbackErr) {
+      console.warn('[getLatestSensorData] sensor_latest fallback failed:', fallbackErr.message);
+    }
+
+    // No sensor data yet — return success with defaults so the UI does not break
     res.json({
       success: true,
       data: {
-        timestamp: row.timestamp,
-        codigo_tienda: row.codigo_tienda || codigoNorm
+        timestamp: null,
+        codigo_tienda: codigoNorm,
+        hasData: false
       }
     });
   } catch (error) {

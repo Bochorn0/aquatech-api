@@ -30,6 +30,97 @@ function todayYmdHermosillo() {
   return `${y}-${mo}-${d}`;
 }
 
+/** Placeholder TIWater readings when a punto venta has no sensor data yet (matches dev mock defaults). */
+function buildDefaultTiwaterOsmosisSystem() {
+  const entries = [
+    { code: 'flowrate_speed_1', label: 'Flujo Producción', value: 0.4, type: 'flujo_produccion' },
+    { code: 'flowrate_speed_2', label: 'Flujo Rechazo', value: 0.2, type: 'flujo_rechazo' },
+    { code: 'flowrate_recuperacion', label: 'Flujo Recuperación', value: 2.5, type: 'flujo_recuperacion' },
+    { code: 'electronivel_purificada', label: 'Nivel Purificada', value: 50, type: 'electronivel_purificada' },
+    { code: 'electronivel_cruda', label: 'Nivel Cruda', value: 60, type: 'electronivel_cruda' },
+    { code: 'electronivel_recuperada', label: 'Nivel Recuperada', value: 0, type: 'electronivel_recuperada' },
+    { code: 'caudal_cruda', label: 'Caudal Cruda', value: 2.0, type: 'caudal_cruda' },
+    { code: 'caudal_cruda_lmin', label: 'Caudal Cruda (L/min)', value: 24, type: 'caudal_cruda_lmin' },
+    { code: 'corriente_ch1', label: 'Corriente Canal 1', value: 2.6, type: 'corriente_ch1' },
+    { code: 'corriente_ch2', label: 'Corriente Canal 2', value: 2.9, type: 'corriente_ch2' },
+    { code: 'corriente_ch3', label: 'Corriente Canal 3', value: 1.1, type: 'corriente_ch3' },
+    { code: 'corriente_ch4', label: 'Corriente Canal 4', value: 2.3, type: 'corriente_ch4' },
+    { code: 'presion_co2', label: 'Presión CO2', value: 300, type: 'presion_co2' },
+    { code: 'eficiencia', label: 'Eficiencia', value: 51, type: 'eficiencia' },
+    { code: 'vida', label: 'Vida del Sistema', value: 80, type: 'vida' },
+  ];
+  const status = entries.map(({ code, label, value, type }) => ({
+    code,
+    label,
+    value,
+    unit: getUnitForSensor(code) || getUnitForSensor(type) || '',
+    timestamp: null,
+  }));
+  return {
+    resourceId: 'tiwater-system',
+    resourceType: 'tiwater',
+    status,
+    online: false,
+    lastUpdate: null,
+    isDefault: true,
+  };
+}
+
+/** Default tiwater sensor payload for GET /sensors/tiwater when no readings exist. */
+function buildDefaultTiwaterSensorData(codigoTienda) {
+  const system = buildDefaultTiwaterOsmosisSystem();
+  const byCode = Object.fromEntries((system.status || []).map((s) => [s.code, s.value]));
+  return {
+    codigoTienda: (codigoTienda || '').toString().trim().toUpperCase(),
+    timestamp: null,
+    online: false,
+    isDefault: true,
+    caudales: {
+      purificada: byCode.flowrate_speed_1 ?? null,
+      recuperacion: byCode.flowrate_recuperacion ?? null,
+      rechazo: byCode.flowrate_speed_2 ?? null,
+      cruda: byCode.caudal_cruda ?? null,
+      cruda_lmin: byCode.caudal_cruda_lmin ?? null,
+    },
+    niveles: {
+      purificada_absoluto: null,
+      purificada_porcentaje: byCode.electronivel_purificada ?? null,
+      cruda_absoluto: null,
+      cruda_porcentaje: byCode.electronivel_cruda ?? null,
+    },
+    acumulados: { cruda: 2000 },
+    presiones: { co2: byCode.presion_co2 ?? null },
+    sistema: {
+      eficiencia: byCode.eficiencia ?? null,
+      vida: byCode.vida ?? null,
+    },
+    corrientes: {
+      ch1: byCode.corriente_ch1 ?? null,
+      ch2: byCode.corriente_ch2 ?? null,
+      ch3: byCode.corriente_ch3 ?? null,
+      ch4: byCode.corriente_ch4 ?? null,
+      total: null,
+    },
+    raw: {
+      'Flujo Producción': byCode.flowrate_speed_1,
+      'Flujo Rechazo': byCode.flowrate_speed_2,
+      'Flujo Recuperación': byCode.flowrate_recuperacion,
+      'Nivel Purificada': byCode.electronivel_purificada,
+      'Nivel Cruda (%)': byCode.electronivel_cruda,
+      'Nivel Recuperada': byCode.electronivel_recuperada,
+      'Caudal Cruda': byCode.caudal_cruda,
+      'Caudal Cruda (L/min)': byCode.caudal_cruda_lmin,
+      'PRESION CO2': byCode.presion_co2,
+      ch1: byCode.corriente_ch1,
+      ch2: byCode.corriente_ch2,
+      ch3: byCode.corriente_ch3,
+      ch4: byCode.corriente_ch4,
+      Eficiencia: byCode.eficiencia,
+      Vida: byCode.vida,
+    },
+  };
+}
+
 /** Local calendar day in Hermosillo → UTC [start inclusive, end exclusive). */
 function hermosilloDayBoundsUtc(dateStr) {
   const [y, mo, d] = dateStr.split('-').map(Number);
@@ -1534,6 +1625,11 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       }
     }
 
+    if (osmosisSystems.length === 0) {
+      console.log(`[SensorDataV2] No sensor data for ${codigoTiendaNorm}; returning default TIWater placeholders`);
+      osmosisSystems.push(buildDefaultTiwaterOsmosisSystem());
+    }
+
     // If no osmosis/tiwater systems found, still return punto data
     // Map osmosis/tiwater systems to products format
     const productos = punto.productos || [];
@@ -2010,8 +2106,8 @@ export const getTiwaterSensorData = async (req, res) => {
     if (!latestTimestamp) {
       return res.json({
         success: true,
-        data: null,
-        message: 'No sensor data found for this punto de venta'
+        data: buildDefaultTiwaterSensorData(codigoTienda),
+        message: 'No sensor data found for this punto de venta; returning defaults'
       });
     }
 
