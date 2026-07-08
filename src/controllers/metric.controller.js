@@ -24,7 +24,9 @@ export const getMetrics = async (req, res) => {
     const user = req.user;
     const userData = await UserModel.findById(user.id);
     const filtros = {};
-    if (userData?.client_id && userData.clienteName && userData.clienteName !== 'All') {
+    if (req.query.cliente != null || req.query.client_id != null) {
+      filtros.client_id = req.query.cliente ?? req.query.client_id;
+    } else if (userData?.client_id && userData.clienteName && userData.clienteName !== 'All') {
       const client = clientes.find(c => c.name === userData.clienteName);
       if (client) filtros.client_id = client.id;
     }
