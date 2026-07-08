@@ -105,7 +105,8 @@ export async function generateProductLogsReport(product_id, date, product = null
       const flujos_total_codes = ["flowrate_total_1", "flowrate_total_2"];
       const arrayCodes = ["flowrate_speed_1", "flowrate_speed_2"];
 
-      let convertedValue = value;
+      let convertedValue = Number(value);
+      if (!Number.isFinite(convertedValue)) return 0;
 
       // 1. Si es producto especial y es código de flujo: multiplicar por 1.6
       if (PRODUCTOS_ESPECIALES.includes(product_id) && flujos_codes.includes(fieldName)) {
@@ -123,7 +124,7 @@ export async function generateProductLogsReport(product_id, date, product = null
         convertedValue = convertedValue / 10;
       }
       
-      return parseFloat(convertedValue.toFixed(2));
+      return parseFloat(Number(convertedValue).toFixed(2));
     };
 
     // ====== CALCULAR RANGO DE FECHA ======
@@ -494,12 +495,26 @@ export async function generateProductLogsReport(product_id, date, product = null
           ? (hourData.flujo_rechazo_agrupado.reduce((sum, item) => sum + item.flujo_rechazo, 0) / hourData.flujo_rechazo_agrupado.length).toFixed(2)
           : 0;
 
+        // Cumulative meter readings: use last sample in the hour (not sum)
+        const lastByTs = (arr) => {
+          if (!arr?.length) return 0;
+          const sorted = [...arr].filter((i) => i.timestamp).sort((a, b) =>
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          );
+          const top = sorted[0] || arr[arr.length - 1];
+          return top.production_volume ?? top.rejected_volume ?? 0;
+        };
         const totalProductionVolume = hourData.production_volume_agrupado?.length > 0
-          ? hourData.production_volume_agrupado.reduce((sum, item) => sum + item.production_volume, 0).toFixed(2)
+          ? Number(lastByTs(hourData.production_volume_agrupado)).toFixed(2)
           : 0;
 
         const totalRejectedVolume = hourData.rejected_volume_agrupado?.length > 0
-          ? hourData.rejected_volume_agrupado.reduce((sum, item) => sum + item.rejected_volume, 0).toFixed(2)
+          ? (() => {
+              const sorted = [...hourData.rejected_volume_agrupado].filter((i) => i.timestamp)
+                .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+              const top = sorted[0] || hourData.rejected_volume_agrupado[hourData.rejected_volume_agrupado.length - 1];
+              return Number(top.rejected_volume).toFixed(2);
+            })()
           : 0;
 
         return {
@@ -624,8 +639,15 @@ export const reporteMensual = async (req, res) => {
     // Reporte mensual is V1: scope by punto's assigned products only. Load puntoventa_v1 (V1 detalle sends puntoventa_v1.id).
     const idNum = parseInt(String(puntoVentaId).trim(), 10);
     let punto = !Number.isNaN(idNum) ? await PuntoVentaV1Model.findById(idNum) : null;
+    if (!punto && !Number.isNaN(idNum)) {
+      punto = await PuntoVentaV1Model.findByPuntoventaId(idNum);
+    }
     if (!punto) {
       punto = await PuntoVentaModel.findById(parseInt(puntoVentaId, 10)) ?? await PuntoVentaModel.findByCode(puntoVentaId);
+    }
+    if (punto && !punto.meta?.product_ids && !Number.isNaN(idNum)) {
+      const v1Shadow = await PuntoVentaV1Model.findByPuntoventaId(idNum);
+      if (v1Shadow?.meta) punto = v1Shadow;
     }
     if (!punto) {
       return res.status(404).json({

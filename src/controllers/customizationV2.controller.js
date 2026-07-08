@@ -15,6 +15,11 @@ import RegionMetricModel from '../models/postgres/regionMetric.model.js';
 import RegionMetricAlertModel from '../models/postgres/regionMetricAlert.model.js';
 import { query } from '../config/postgres.config.js';
 import mqttService from '../services/mqtt.service.js';
+import {
+  applySourceConfigOnSave,
+  normalizeSourceType,
+  resolveProductsForPunto,
+} from '../services/puntoVentaSource.service.js';
 import { buildTiwaterTopic } from '../utils/mqttTopic.js';
 import { REGIONS, buildMockTiwaterPayload, buildMockTiwaterPayloadSlice, MOCK_PAYLOAD_KEYS, pickRandom } from '../utils/mockPuntosVentaMqtt.js';
 
@@ -1350,10 +1355,43 @@ export const addPuntoVentaV2 = async (req, res) => {
     if (puntoVentaData.codigo_tienda) {
       puntoVentaData.code = puntoVentaData.codigo_tienda;
     }
-    
-    const newPuntoVenta = await PuntoVentaModel.getOrCreate(puntoVentaData);
-    
-    res.status(201).json(newPuntoVenta);
+
+    // Dual-source config (optional — default mqtt preserves existing behavior)
+    puntoVentaData.source_type = normalizeSourceType(puntoVentaData.source_type);
+    if ((puntoVentaData.source_type === 'mqtt' || puntoVentaData.source_type === 'hybrid')
+        && !puntoVentaData.codigo_tienda) {
+      return res.status(400).json({
+        success: false,
+        message: 'codigo_tienda is required for MQTT source type',
+      });
+    }
+    if (puntoVentaData.source_type === 'tuya' && !puntoVentaData.codigo_tienda) {
+      puntoVentaData.codigo_tienda = `TUYA-${Date.now()}`;
+      puntoVentaData.code = puntoVentaData.codigo_tienda;
+    }
+
+    const newPuntoVenta = await PuntoVentaModel.create(puntoVentaData);
+
+    try {
+      const sourceFields = await applySourceConfigOnSave(newPuntoVenta, puntoVentaData);
+      if (sourceFields.source_type || sourceFields.codigo_tienda) {
+        const patched = await PuntoVentaModel.update(parseInt(newPuntoVenta.id, 10), sourceFields);
+        if (patched) Object.assign(newPuntoVenta, patched);
+      }
+    } catch (sourceErr) {
+      const statusCode = sourceErr.statusCode || 400;
+      return res.status(statusCode).json({
+        success: false,
+        message: sourceErr.message || 'Invalid source configuration',
+      });
+    }
+
+    const { products } = await resolveProductsForPunto(newPuntoVenta.id);
+    res.status(201).json({
+      ...newPuntoVenta,
+      productos: products,
+      products_count: products.length,
+    });
   } catch (error) {
     console.error('Error creating punto de venta in PostgreSQL (v2.0):', error);
     res.status(500).json({ 
@@ -1468,6 +1506,27 @@ export const updatePuntoVentaV2 = async (req, res) => {
     if (puntoVentaData.codigo_tienda) {
       puntoVentaData.code = puntoVentaData.codigo_tienda;
     }
+
+    const existingBeforeUpdate = await PuntoVentaModel.findById(parseInt(id, 10));
+    if (!existingBeforeUpdate) {
+      return res.status(404).json({
+        success: false,
+        message: 'Punto de venta no encontrado',
+      });
+    }
+
+    if (puntoVentaData.source_type !== undefined || puntoVentaData.productos !== undefined) {
+      try {
+        const sourceFields = await applySourceConfigOnSave(existingBeforeUpdate, puntoVentaData);
+        Object.assign(puntoVentaData, sourceFields);
+      } catch (sourceErr) {
+        const statusCode = sourceErr.statusCode || 400;
+        return res.status(statusCode).json({
+          success: false,
+          message: sourceErr.message || 'Invalid source configuration',
+        });
+      }
+    }
     
     const updatedPuntoVenta = await PuntoVentaModel.update(parseInt(id, 10), puntoVentaData);
     
@@ -1492,7 +1551,12 @@ export const updatePuntoVentaV2 = async (req, res) => {
       }
     }
     
-    res.json(updatedPuntoVenta);
+    const { products } = await resolveProductsForPunto(updatedPuntoVenta.id);
+    res.json({
+      ...updatedPuntoVenta,
+      productos: products,
+      products_count: products.length,
+    });
   } catch (error) {
     console.error('Error updating punto de venta in PostgreSQL (v2.0):', error);
     res.status(500).json({ 

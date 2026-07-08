@@ -670,10 +670,23 @@ export const getPuntosVentaV2 = async (req, res) => {
     } catch (_) {}
 
     // Build response: use online set + counts + last_reading_at + metric_status, fetch client/region/city per punto
+    const puntoIds = puntosPG.map((p) => p.id);
+    const v1ShadowMap = await (await import('../services/puntoVentaSource.service.js')).loadV1ShadowByPuntoIds(puntoIds);
+    const tuyaOnlineMap = await (await import('../services/puntoVentaSource.service.js')).batchTuyaOnlineByPuntoIds(v1ShadowMap);
+
     const puntosConEstado = await Promise.all(
       puntosPG.map(async (pv) => {
         const codigoTienda = (pv.codigo_tienda || pv.code || '').toString().trim().toUpperCase();
-        const online = codigoTienda ? onlineCodigoTiendas.has(codigoTienda) : false;
+        const sourceType = (pv.source_type || 'mqtt').toString().toLowerCase();
+        const v1Shadow = v1ShadowMap.get(String(pv.id));
+        const products_count = v1Shadow?.productIds?.length ?? 0;
+        let online = codigoTienda ? onlineCodigoTiendas.has(codigoTienda) : false;
+        const tuyaOnline = tuyaOnlineMap.get(String(pv.id)) === true;
+        if (sourceType === 'tuya') {
+          online = tuyaOnline;
+        } else if (sourceType === 'hybrid') {
+          online = online || tuyaOnline;
+        }
         const sensors_count = countsByPuntoId[String(pv.id)] ?? 0;
         const last_reading_at = codigoTienda ? (lastUpdatedByCode[codigoTienda] || null) : null;
 
@@ -843,9 +856,11 @@ export const getPuntosVentaV2 = async (req, res) => {
             lon: pv.long || null
           })),
           address: addressObj || null,
-          productos: [], // Products would need to be queried separately if needed
+          productos: [], // Hydrated on detail; list exposes products_count
           controladores: [], // Controllers would need to be queried separately if needed
           online,
+          source_type: sourceType,
+          products_count,
           status: pv.status || 'active',
           sensors_count,
           last_reading_at: last_reading_at ? (last_reading_at instanceof Date ? last_reading_at.toISOString() : String(last_reading_at)) : null,
@@ -891,6 +906,68 @@ export const getPuntoVentaHistoricoV2 = async (req, res) => {
     const { id } = req.params;
     const type = (req.query.type || 'purificada').toLowerCase();
     const resourceId = req.query.resourceId || 'tiwater-system';
+    const productId = req.query.productId;
+    const historicoRange = (req.query.range || req.query.historicoRange || '24h').toString().toLowerCase();
+
+    // Tuya historico via product_logs (Osmosis + Nivel). productId may be DB id or Tuya device_id.
+    if (productId != null && String(productId).trim() !== '') {
+      const ProductModel = (await import('../models/postgres/product.model.js')).default;
+      const { generateProductLogsReport } = await import('./report.controller.js');
+      const moment = (await import('moment')).default;
+      const pidRaw = String(productId).trim();
+      const pidNum = parseInt(pidRaw, 10);
+      let product = null;
+      if (!Number.isNaN(pidNum) && String(pidNum) === pidRaw) {
+        product = await ProductModel.findById(pidNum);
+      }
+      if (!product) {
+        product = await ProductModel.findByDeviceId(pidRaw);
+      }
+      if (!product) {
+        return res.status(404).json({ success: false, message: 'Producto no encontrado' });
+      }
+      let startDate;
+      let endDate;
+      if (historicoRange === '7d') {
+        startDate = moment().subtract(7, 'days').toISOString();
+        endDate = moment().toISOString();
+      } else if (historicoRange === '30d') {
+        startDate = moment().subtract(30, 'days').toISOString();
+        endDate = moment().toISOString();
+      } else {
+        startDate = moment().subtract(24, 'hours').toISOString();
+        endDate = moment().toISOString();
+      }
+      const productType = (product.product_type || 'Osmosis').toString();
+      const useLastValue = productType === 'Nivel' || productType === 'nivel';
+      // Prefer numeric DB id for report lookup; fall back to device_id (product.id)
+      const reportProductId = product._id ?? product.id;
+      const result = await generateProductLogsReport(
+        reportProductId,
+        endDate,
+        product,
+        useLastValue,
+        startDate,
+        endDate
+      );
+      if (!result?.success) {
+        console.warn('[getPuntoVentaHistoricoV2] generateProductLogsReport failed:', result?.error);
+      }
+      const hours = result?.success && result?.data?.hours_with_data?.length
+        ? result.data.hours_with_data
+        : [];
+      return res.json({
+        success: true,
+        data: {
+          historico: hours.length ? { hours_with_data: hours } : null,
+          range: historicoRange,
+          productId: String(product._id ?? product.id),
+          product_type: productType,
+          source: 'tuya',
+          error: result?.success === false ? result.error : undefined,
+        },
+      });
+    }
 
     if (req.query.date != null && String(req.query.date).trim() !== '' && !isValidYmd(String(req.query.date).trim())) {
       return res.status(400).json({ success: false, message: 'Invalid date; use YYYY-MM-DD (America/Hermosillo)' });
@@ -1113,6 +1190,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       dev_mode: puntoFromPG.dev_mode === true,
       region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name, color: regionData.color || null } : null,
       ciudad: ciudadData ? { id: String(ciudadData.id), name: ciudadData.name, regionId: ciudadData.regionId } : null,
+      source_type: (puntoFromPG.source_type || 'mqtt').toString().toLowerCase(),
       toObject: function() {
         return {
           _id: this._id,
@@ -1142,7 +1220,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     };
 
     // Get osmosis systems from PostgreSQL (including tiwater systems)
-    const osmosisSystems = [];
+    let osmosisSystems = [];
 
     // Normalize codigo so we match sensores regardless of stored case (same as simulate handlers)
     const codigoTiendaNorm = (codigoTienda || '').toString().trim().toUpperCase();
@@ -1626,7 +1704,19 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     }
 
     if (osmosisSystems.length === 0) {
-      console.log(`[SensorDataV2] No sensor data for ${codigoTiendaNorm}; returning default TIWater placeholders`);
+      console.log(`[SensorDataV2] No sensor data for ${codigoTiendaNorm}; checking Tuya source before default placeholders`);
+    }
+
+    const { enrichDetalleWithTuya } = await import('../services/puntoVentaSource.service.js');
+    const tuyaEnrichment = await enrichDetalleWithTuya({
+      puntoFromPG,
+      osmosisSystems,
+      skipDefaultPlaceholder: osmosisSystems.length > 0,
+    });
+    osmosisSystems = tuyaEnrichment.osmosisSystems;
+
+    if (osmosisSystems.length === 0 && !tuyaEnrichment.skipDefaultPlaceholder) {
+      console.log(`[SensorDataV2] No sensor/Tuya data for ${codigoTiendaNorm}; returning default TIWater placeholders`);
       osmosisSystems.push(buildDefaultTiwaterOsmosisSystem());
     }
 
@@ -1635,10 +1725,16 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     const productos = punto.productos || [];
     const osmosisProducts = await Promise.all(osmosisSystems.map(async (osmosis, index) => {
       // Find matching product or create new structure
-      const matchingProduct = productos.find((p) => p.product_type === 'Osmosis' || p.product_type === 'TIWater');
+      const matchingProduct = productos.find((p) =>
+        p.device_id === osmosis.resourceId
+        || p.id === osmosis.resourceId
+        || String(p._id) === String(osmosis.productDbId)
+        || ((p.product_type === 'Osmosis' || p.product_type === 'TIWater') && !osmosis.source)
+      );
       
-      // Determine product type based on resourceType
-      const productType = osmosis.resourceType === 'tiwater' ? 'TIWater' : 'Osmosis';
+      // Determine product type based on resourceType / Tuya enrichment
+      const productType = osmosis.product_type
+        || (osmosis.resourceType === 'tiwater' ? 'TIWater' : 'Osmosis');
       const defaultName = osmosis.resourceType === 'tiwater' 
         ? `Sistema TIWater ${index + 1}` 
         : `Sistema Osmosis ${index + 1}`;
@@ -1728,13 +1824,16 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       }
       
       return {
-        _id: matchingProduct?._id || `${productType.toLowerCase()}-${index}`,
-        id: osmosis.resourceId || `${productType.toLowerCase()}-${index}`,
-        name: matchingProduct?.name || defaultName,
+        // Tuya: productDbId = products.id (numeric), id/resourceId = device_id
+        _id: osmosis.productDbId || matchingProduct?._id || `${productType.toLowerCase()}-${index}`,
+        id: osmosis.productDeviceId || osmosis.resourceId || matchingProduct?.id || `${productType.toLowerCase()}-${index}`,
+        device_id: osmosis.productDeviceId || osmosis.resourceId || matchingProduct?.device_id || null,
+        name: osmosis.name || matchingProduct?.name || defaultName,
         product_type: productType,
         status: osmosis.status || [],
         online: osmosis.online || false,
         lastUpdate: osmosis.lastUpdate,
+        source: osmosis.source || matchingProduct?.source || null,
         historico: historicoHora || osmosis.historico || null,
         historico_diario: historicoDiario || osmosis.historico_diario || null,
         historico_recuperada: historicoHoraRecuperada || osmosis.historico_recuperada || null,
@@ -1912,6 +2011,13 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     }
 
     // Combine all products
+    if (tuyaEnrichment.tuyaProductos?.length) {
+      for (const p of tuyaEnrichment.tuyaProductos) {
+        const t = (p.product_type || '').toString();
+        if (t === 'Nivel') nivelProducts.push(p);
+      }
+    }
+
     const allProductos = [
       ...productos.filter((p) => p.product_type !== 'Osmosis' && p.product_type !== 'Nivel' && p.product_type !== 'Metrica'),
       ...osmosisProducts,
@@ -1985,7 +2091,10 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       ...punto.toObject(),
       productos: allProductos,
       osmosisSystems,
-      online: isOnline,
+      online: tuyaEnrichment.source_type === 'tuya'
+        ? tuyaEnrichment.onlineFromTuya
+        : (isOnline || tuyaEnrichment.onlineFromTuya),
+      source_type: tuyaEnrichment.source_type,
       latestSensorTimestamp: latestSensorTimestamp || undefined
     };
 

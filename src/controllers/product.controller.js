@@ -3408,13 +3408,11 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
     devLog(`   - Timestamps: ${startTime} a ${now}`);
 
     // ====== CÓDIGOS DE LOGS POR TIPO DE PRODUCTO ======
+    // Osmosis routine: only volumen producción/rechazo (totals). Speeds + TDS skipped to save Tuya Dev quota.
     const logCodesByType = {
       'Osmosis': [
-        'flowrate_speed_1',
-        'flowrate_speed_2',
-        'flowrate_total_1',
-        'flowrate_total_2',
-        'tds_out'
+        'flowrate_total_1', // volumen producción
+        'flowrate_total_2', // volumen rechazo
       ],
       'Nivel': [
         'liquid_depth',
