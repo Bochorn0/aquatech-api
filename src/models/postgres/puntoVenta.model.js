@@ -166,7 +166,8 @@ class PuntoVentaModel {
       address,
       contactId,
       meta,
-      ciudad_id
+      ciudad_id,
+      source_type
     } = data;
 
     // Check if already exists (double-check before insert)
@@ -180,11 +181,16 @@ class PuntoVentaModel {
     const insertQuery = `
       INSERT INTO puntoventa (
         name, code, codigo_tienda, owner, clientid, status,
-        lat, long, address, contactid, meta, ciudad_id
+        lat, long, address, contactid, meta, ciudad_id, source_type
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
       ) RETURNING *
     `;
+
+    const normalizedSourceType = (source_type || 'mqtt').toString().toLowerCase();
+    const validSourceType = ['mqtt', 'tuya', 'hybrid'].includes(normalizedSourceType)
+      ? normalizedSourceType
+      : 'mqtt';
 
     const values = [
       name || null,
@@ -198,7 +204,8 @@ class PuntoVentaModel {
       address || null,
       contactId || null,
       meta ? JSON.stringify(meta) : null,
-      ciudad_id || null
+      ciudad_id || null,
+      validSourceType
     ];
 
     try {
@@ -239,12 +246,42 @@ class PuntoVentaModel {
       contactId,
       meta,
       dev_mode,
-      ciudad_id
+      ciudad_id,
+      source_type,
+      codigo_tienda,
+      code
     } = data;
 
     const hasCiudadId = data.hasOwnProperty('ciudad_id');
-    const ciudadSet = hasCiudadId ? 'ciudad_id = $11,' : '';
-    const idParam = hasCiudadId ? 12 : 11;
+    const hasSourceType = data.hasOwnProperty('source_type');
+    const hasCodigo = data.hasOwnProperty('codigo_tienda') || data.hasOwnProperty('code');
+    let paramIndex = 11;
+    const extraSets = [];
+    const extraValues = [];
+
+    if (hasCiudadId) {
+      extraSets.push(`ciudad_id = $${paramIndex}`);
+      extraValues.push(ciudad_id);
+      paramIndex++;
+    }
+    if (hasSourceType) {
+      const normalizedSourceType = (source_type || 'mqtt').toString().toLowerCase();
+      extraSets.push(`source_type = $${paramIndex}`);
+      extraValues.push(['mqtt', 'tuya', 'hybrid'].includes(normalizedSourceType) ? normalizedSourceType : 'mqtt');
+      paramIndex++;
+    }
+    if (hasCodigo) {
+      const storeCode = (codigo_tienda || code || '').toString().trim().toUpperCase() || null;
+      extraSets.push(`codigo_tienda = COALESCE($${paramIndex}, codigo_tienda)`);
+      extraValues.push(storeCode);
+      paramIndex++;
+      extraSets.push(`code = COALESCE($${paramIndex}, code)`);
+      extraValues.push(storeCode);
+      paramIndex++;
+    }
+
+    const idParam = paramIndex;
+    const extraSetSql = extraSets.length > 0 ? `${extraSets.join(',\n        ')},` : '';
 
     const updateQuery = `
       UPDATE puntoventa
@@ -259,7 +296,7 @@ class PuntoVentaModel {
         contactid = COALESCE($8, contactid),
         meta = COALESCE($9, meta),
         dev_mode = COALESCE($10, dev_mode),
-        ${ciudadSet}
+        ${extraSetSql}
         updatedat = CURRENT_TIMESTAMP
       WHERE id = $${idParam}
       RETURNING *
@@ -275,10 +312,10 @@ class PuntoVentaModel {
       address || null,
       contactId || null,
       meta ? JSON.stringify(meta) : null,
-      dev_mode !== undefined ? !!dev_mode : null
+      dev_mode !== undefined ? !!dev_mode : null,
+      ...extraValues,
+      id
     ];
-    if (hasCiudadId) values.push(ciudad_id);
-    values.push(id);
 
     try {
       const result = await query(updateQuery, values);
@@ -390,7 +427,8 @@ class PuntoVentaModel {
       contactId: row.contactid || row.contactId || null,
       meta: row.meta ? (typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta) : null,
       dev_mode: row.dev_mode === true,
-      ciudadId: row.ciudad_id ? String(row.ciudad_id) : null
+      ciudadId: row.ciudad_id ? String(row.ciudad_id) : null,
+      source_type: row.source_type || 'mqtt'
     };
   }
 }
