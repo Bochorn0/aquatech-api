@@ -6,6 +6,20 @@ import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaV1Model from '../models/postgres/puntoVentaV1.model.js';
 import moment from 'moment';
 
+const REPORT_TZ = 'America/Hermosillo';
+
+/** Hourly bucket in America/Hermosillo without moment-timezone (.tz is not on base moment). */
+function hermosilloHourBucket(date) {
+  const d = new Date(date);
+  const dayKey = d.toLocaleDateString('en-CA', { timeZone: REPORT_TZ });
+  const hour = d.toLocaleString('en-US', { timeZone: REPORT_TZ, hour: '2-digit', hour12: false });
+  const hourPadded = String(Number(hour)).padStart(2, '0');
+  return {
+    key: `${dayKey}_${hourPadded}`,
+    horaLabel: `${dayKey} ${hourPadded}:00`,
+  };
+}
+
 async function getMergedProductLogsWithFallback(product, startOfDay, endOfDay) {
   const queryByDate = { date: { $gte: startOfDay, $lte: endOfDay }, _sort: { date: 1 }, _limit: 100000 };
   const canonicalLogs = await ProductLogModel.find({ ...queryByDate, product_id: product.id });
@@ -149,15 +163,12 @@ export async function generateProductLogsReport(product_id, date, product = null
     const mergedLogs = await getMergedProductLogsWithFallback(product, startOfDay, endOfDay);
 
     // ====== NIVEL + RANGO (V1): agregar por hora (Postgres) ======
-    const REPORT_TZ = 'America/Hermosillo';
     if (productType === 'Nivel' && useLastValue && useRangeMode) {
       const logs = mergedLogs;
       const bucketsMap = {};
       logs.sort((a, b) => new Date(a.date) - new Date(b.date));
       for (const log of logs) {
-        const d = moment(log.date).tz(REPORT_TZ);
-        const key = d.format('YYYY-MM-DD_HH');
-        const horaLabel = d.format('YYYY-MM-DD HH:00');
+        const { key, horaLabel } = hermosilloHourBucket(log.date);
         if (!bucketsMap[key]) bucketsMap[key] = { hora: horaLabel, total_logs: 0, lastRechazo: null, lastProd: null };
         bucketsMap[key].total_logs++;
         if (log.flujo_rechazo != null && log.flujo_rechazo !== 0) bucketsMap[key].lastRechazo = log.flujo_rechazo;
@@ -194,9 +205,7 @@ export async function generateProductLogsReport(product_id, date, product = null
         const osmLogs = mergedLogs;
         const osmBucketsMap = {};
         for (const log of osmLogs) {
-          const d = moment(log.date).tz('America/Hermosillo');
-          const key = d.format('YYYY-MM-DD_HH');
-          const horaLabel = d.format('YYYY-MM-DD HH:00');
+          const { key, horaLabel } = hermosilloHourBucket(log.date);
           if (!osmBucketsMap[key]) osmBucketsMap[key] = { hora: horaLabel, total_logs: 0, tds: [], flujoProd: [], flujoRech: [], prodVol: 0, rejVol: 0 };
           osmBucketsMap[key].total_logs++;
           if (log.tds != null && log.tds !== 0) osmBucketsMap[key].tds.push(log.tds);
@@ -313,12 +322,28 @@ export async function generateProductLogsReport(product_id, date, product = null
 
     // Agrupar logs por hora según tipo de producto
     logs.forEach(log => {
-      const logDate = moment(log.date);
-      const hour = logDate.format('HH'); // Hora en formato 00-23
-      const hourMinute = logDate.format('HH:mm'); // Hora:Minuto
-      // En range mode: una entrada por (fecha, hora) para que el histórico muestre varias horas
-      const bucketKey = useRangeMode ? `${logDate.format('YYYY-MM-DD')}_${hour}` : hour;
-      const horaLabel = useRangeMode ? `${logDate.format('YYYY-MM-DD')} ${hour}:00` : `${hour}:00`;
+      let bucketKey;
+      let horaLabel;
+      let hour;
+      let hourMinute;
+      if (useRangeMode) {
+        const bucket = hermosilloHourBucket(log.date);
+        bucketKey = bucket.key;
+        horaLabel = bucket.horaLabel;
+        hour = bucket.key.split('_')[1];
+        hourMinute = new Date(log.date).toLocaleTimeString('en-US', {
+          timeZone: REPORT_TZ,
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      } else {
+        const logDate = moment(log.date);
+        hour = logDate.format('HH');
+        hourMinute = logDate.format('HH:mm');
+        bucketKey = hour;
+        horaLabel = `${hour}:00`;
+      }
       ensureHourBucket(bucketKey, horaLabel);
 
       if (hoursMap[bucketKey]) {
