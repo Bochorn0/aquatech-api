@@ -942,13 +942,18 @@ export const getPuntoVentaHistoricoV2 = async (req, res) => {
       const useLastValue = productType === 'Nivel' || productType === 'nivel';
       // Prefer numeric DB id for report lookup; fall back to device_id (product.id)
       const reportProductId = product._id ?? product.id;
+      const includeDetail =
+        req.query.detail === '1' ||
+        req.query.detail === 'true' ||
+        req.query.detail === true;
       const result = await generateProductLogsReport(
         reportProductId,
         endDate,
         product,
         useLastValue,
         startDate,
-        endDate
+        endDate,
+        { detail: includeDetail }
       );
       if (!result?.success) {
         console.warn('[getPuntoVentaHistoricoV2] generateProductLogsReport failed:', result?.error);

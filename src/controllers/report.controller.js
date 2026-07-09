@@ -88,9 +88,18 @@ export const getReports = async (req, res) => {
  * @param {Object} product - Objeto del producto (opcional)
  * @param {boolean} useLastValue - Si es true, usa el último valor de cada hora en lugar del promedio (solo para tipo Nivel)
  */
-export async function generateProductLogsReport(product_id, date, product = null, useLastValue = false, startDate = null, endDate = null) {
+export async function generateProductLogsReport(
+  product_id,
+  date,
+  product = null,
+  useLastValue = false,
+  startDate = null,
+  endDate = null,
+  options = {}
+) {
   try {
-    console.log('📊 [generateProductLogsReport] Generando reporte para:', { product_id, date, startDate, endDate });
+    const { detail = false } = options;
+    console.log('📊 [generateProductLogsReport] Generando reporte para:', { product_id, date, startDate, endDate, detail });
 
     // Verificar que el producto existe (si no se pasó)
     if (!product) {
@@ -197,7 +206,8 @@ export async function generateProductLogsReport(product_id, date, product = null
     }
 
     // ====== OSMOSIS (V1): agregar por hora en Postgres cuando hay muchos logs ======
-    const USE_AGGREGATION_THRESHOLD = 2000;
+    // detail=true keeps per-sample *_agrupado arrays for CSV export (7d/30d historico).
+    const USE_AGGREGATION_THRESHOLD = detail ? Number.POSITIVE_INFINITY : 2000;
     if (productType !== 'Nivel') {
       const count = mergedLogs.length;
       if (count >= USE_AGGREGATION_THRESHOLD) {
