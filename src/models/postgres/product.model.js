@@ -325,8 +325,44 @@ class ProductModel {
       update_time: row.update_time,
       uuid: row.uuid,
       tuya_logs_routine_enabled: row.tuya_logs_routine_enabled ?? false,
+      tuya_logs_routine_config: ProductModel._parseLogsRoutineConfig(row.tuya_logs_routine_config),
       merged_from_device_ids: ProductModel._parseMergedFrom(row.merged_from_device_ids)
     };
+  }
+
+  static _parseLogsRoutineConfig(raw) {
+    if (raw == null) return null;
+    if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const p = JSON.parse(raw);
+        return p && typeof p === 'object' && !Array.isArray(p) ? p : null;
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Update only tuya_logs_routine_config for a product (by numeric id or device_id).
+   */
+  static async updateLogsRoutineConfig(id, config) {
+    let numericId = id;
+    if (typeof id === 'string' && !/^\d+$/.test(id)) {
+      const existing = await this.findByDeviceId(id);
+      if (!existing) return null;
+      numericId = parseInt(existing._id, 10);
+    }
+    const payload = config == null ? null : JSON.stringify(config);
+    const result = await query(
+      `UPDATE products
+       SET tuya_logs_routine_config = $1::jsonb, updatedat = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING *`,
+      [payload, numericId]
+    );
+    return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
   static _parseMergedFrom(raw) {

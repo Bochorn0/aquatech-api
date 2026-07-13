@@ -20,6 +20,95 @@ function hermosilloHourBucket(date) {
   };
 }
 
+/** Finite number including 0 / negatives (for custom derived fields). */
+function isFiniteNumber(n) {
+  return typeof n === 'number' && Number.isFinite(n);
+}
+
+function trackLastFinite(state, value, date) {
+  if (!isFiniteNumber(value)) return;
+  const ts = new Date(date).getTime();
+  if (Number.isNaN(ts)) return;
+  if (state.lastTs == null || ts >= state.lastTs) {
+    state.lastTs = ts;
+    state.lastVal = value;
+  }
+}
+
+function avgFinite(values) {
+  const nums = (values || []).filter(isFiniteNumber);
+  if (!nums.length) return null;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+/** Labels for campo_personalizado_* from per-product routine rules. */
+function getCustomFieldLabels(product) {
+  const labels = {
+    campo_personalizado_1: 'Campo personalizado 1',
+    campo_personalizado_2: 'Campo personalizado 2',
+  };
+  const rules = product?.tuya_logs_routine_config?.custom_rules;
+  if (!Array.isArray(rules)) return labels;
+  for (const r of rules) {
+    if (r?.db_column === 'campo_personalizado_1' || r?.db_column === 'campo_personalizado_2') {
+      const name = String(r.name || r.store_as || '').trim();
+      if (name) labels[r.db_column] = name;
+    }
+  }
+  return labels;
+}
+
+function hasCustomFieldData(product) {
+  const rules = product?.tuya_logs_routine_config?.custom_rules;
+  return Array.isArray(rules) && rules.some(
+    (r) =>
+      r?.enabled !== false &&
+      (r.db_column === 'campo_personalizado_1' || r.db_column === 'campo_personalizado_2')
+  );
+}
+
+/** Finite positive sample for cumulative meters / rates (rejects null, NaN, Inf, 0). */
+function isPositiveFinite(n) {
+  return typeof n === 'number' && Number.isFinite(n) && n > 0;
+}
+
+function avgPositive(values) {
+  const nums = (values || []).filter(isPositiveFinite);
+  if (!nums.length) return 0;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+/**
+ * Keep last cumulative meter reading in an hour (do NOT sum — volumes only increase).
+ * Tracks max timestamp so out-of-order inserts still pick the end-of-hour value.
+ */
+function trackLastMeter(state, value, date) {
+  if (!isPositiveFinite(value)) return;
+  const ts = new Date(date).getTime();
+  if (Number.isNaN(ts)) return;
+  if (state.lastTs == null || ts >= state.lastTs) {
+    state.lastTs = ts;
+    state.lastVal = value;
+  }
+}
+
+/** product_logs volumes: match applySpecialProductLogic (special: *1.6/10; else keep DB units). */
+function convertOsmosisVolumeLiters(raw, isSpecial) {
+  let v = Number(raw);
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  if (isSpecial) v = (v * 1.6) / 10;
+  return parseFloat(v.toFixed(2));
+}
+
+/** Tuya flowrate_speed_* → L/min display (always ÷10; special also ×1.6). */
+function convertOsmosisFlowLmin(raw, isSpecial) {
+  let v = Number(raw);
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  if (isSpecial) v *= 1.6;
+  v /= 10;
+  return parseFloat(v.toFixed(2));
+}
+
 async function getMergedProductLogsWithFallback(product, startOfDay, endOfDay) {
   const queryByDate = { date: { $gte: startOfDay, $lte: endOfDay }, _sort: { date: 1 }, _limit: 100000 };
   const canonicalLogs = await ProductLogModel.find({ ...queryByDate, product_id: product.id });
@@ -115,6 +204,8 @@ export async function generateProductLogsReport(
     // Determinar tipo de producto
     const productType = product.product_type || 'Osmosis';
 
+    const deviceId = String(product?.id ?? product_id ?? '');
+
     // ====== FUNCIÓN PARA APLICAR CONVERSIONES (igual que en reporte mensual) ======
     const applySpecialProductLogic = (fieldName, value) => {
       if (value == null || value === 0) return value;
@@ -131,18 +222,16 @@ export async function generateProductLogsReport(
       let convertedValue = Number(value);
       if (!Number.isFinite(convertedValue)) return 0;
 
-      // 1. Si es producto especial y es código de flujo: multiplicar por 1.6
-      if (PRODUCTOS_ESPECIALES.includes(product_id) && flujos_codes.includes(fieldName)) {
+      if (PRODUCTOS_ESPECIALES.includes(deviceId) && flujos_codes.includes(fieldName)) {
         convertedValue = convertedValue * 1.6;
-        
-        // 2. Si es total (flowrate_total_1 o flowrate_total_2): dividir por 10
-        if (flujos_total_codes.includes(fieldName)) {
-          convertedValue = convertedValue / 10;
-        }
       }
 
-      // 3. Si es flowrate_speed_1 o flowrate_speed_2: siempre dividir por 10 (conversión a L/s)
-      // Esto se aplica después de la conversión especial si aplica
+      // Tuya flowrate_total_* are 0.1 L units → liters (all products)
+      if (flujos_total_codes.includes(fieldName) && convertedValue > 0) {
+        convertedValue = convertedValue / 10;
+      }
+
+      // flowrate_speed_* → L/min
       if (arrayCodes.includes(fieldName) && convertedValue > 0) {
         convertedValue = convertedValue / 10;
       }
@@ -211,59 +300,85 @@ export async function generateProductLogsReport(
     if (productType !== 'Nivel') {
       const count = mergedLogs.length;
       if (count >= USE_AGGREGATION_THRESHOLD) {
-        const isSpecial = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'].includes(product_id);
-        const osmLogs = mergedLogs;
+        const isSpecial = ['ebf9738480d78e0132gnru', 'ebea4ffa2ab1483940nrqn'].includes(String(product_id));
         const osmBucketsMap = {};
-        for (const log of osmLogs) {
+        for (const log of mergedLogs) {
           const { key, horaLabel } = hermosilloHourBucket(log.date);
-          if (!osmBucketsMap[key]) osmBucketsMap[key] = { hora: horaLabel, total_logs: 0, tds: [], flujoProd: [], flujoRech: [], prodVol: 0, rejVol: 0 };
-          osmBucketsMap[key].total_logs++;
-          if (log.tds != null && log.tds !== 0) osmBucketsMap[key].tds.push(log.tds);
-          if (log.flujo_produccion != null && log.flujo_produccion !== 0) osmBucketsMap[key].flujoProd.push(log.flujo_produccion);
-          if (log.flujo_rechazo != null && log.flujo_rechazo !== 0) osmBucketsMap[key].flujoRech.push(log.flujo_rechazo);
-          if (log.production_volume != null && log.production_volume > 0) osmBucketsMap[key].prodVol += log.production_volume;
-          if (log.rejected_volume != null && log.rejected_volume > 0) osmBucketsMap[key].rejVol += log.rejected_volume;
-        }
-        const buckets = Object.entries(osmBucketsMap).map(([k, v]) => {
-          const avgTds = v.tds.length ? v.tds.reduce((a, b) => a + b, 0) / v.tds.length : 0;
-          const avgFlujoProd = v.flujoProd.length ? v.flujoProd.reduce((a, b) => a + b, 0) / v.flujoProd.length : 0;
-          const avgFlujoRech = v.flujoRech.length ? v.flujoRech.reduce((a, b) => a + b, 0) / v.flujoRech.length : 0;
-          return {
-            hora: v.hora,
-            total_logs: v.total_logs,
-            raw: { avgTds, avgFlujoProd, avgFlujoRech, sumProdVol: v.prodVol, sumRejVol: v.rejVol },
-          };
-        }).sort((a, b) => a.hora.localeCompare(b.hora));
-        const hoursWithStats = buckets.map((b) => {
-          const r = b.raw || b;
-          let flujoProd = r.avgFlujoProd;
-          let flujoRech = r.avgFlujoRech;
-          let prodVol = r.sumProdVol;
-          let rejVol = r.sumRejVol;
-          if (isSpecial) {
-            flujoProd = flujoProd * 1.6; flujoRech = flujoRech * 1.6;
-            prodVol = prodVol * 1.6 / 10; rejVol = rejVol * 1.6 / 10;
+          if (!osmBucketsMap[key]) {
+            osmBucketsMap[key] = {
+              hora: horaLabel,
+              total_logs: 0,
+              tds: [],
+              flujoProd: [],
+              flujoRech: [],
+              // Cumulative meters: keep last reading in the hour (never sum)
+              prodVol: { lastTs: null, lastVal: null },
+              rejVol: { lastTs: null, lastVal: null },
+              c1: { lastTs: null, lastVal: null, samples: [] },
+              c2: { lastTs: null, lastVal: null, samples: [] },
+            };
           }
-          flujoProd = flujoProd > 0 ? flujoProd / 10 : 0;
-          flujoRech = flujoRech > 0 ? flujoRech / 10 : 0;
-          return {
-            hora: b.hora,
-            total_logs: b.total_logs,
-            estadisticas: {
-              tds_promedio: parseFloat(Number(r.avgTds).toFixed(2)),
-              flujo_produccion_promedio: parseFloat(Number(flujoProd).toFixed(2)),
-              flujo_rechazo_promedio: parseFloat(Number(flujoRech).toFixed(2)),
-              production_volume_total: parseFloat(Number(prodVol).toFixed(2)),
-              rejected_volume_total: parseFloat(Number(rejVol).toFixed(2)),
-            },
-          };
-        });
-        const totalLogs = buckets.reduce((sum, b) => sum + (b.total_logs || 0), 0);
-        console.log(`📊 [generateProductLogsReport] Osmosis agregado por hora: ${buckets.length} buckets, ${totalLogs} logs (sin cargar en memoria)`);
+          const bucket = osmBucketsMap[key];
+          bucket.total_logs++;
+          const tds = Number(log.tds);
+          if (isPositiveFinite(tds) && tds <= 2000) bucket.tds.push(tds);
+          const fp = Number(log.flujo_produccion);
+          if (isPositiveFinite(fp)) bucket.flujoProd.push(fp);
+          const fr = Number(log.flujo_rechazo);
+          if (isPositiveFinite(fr)) bucket.flujoRech.push(fr);
+          trackLastMeter(bucket.prodVol, Number(log.production_volume), log.date);
+          trackLastMeter(bucket.rejVol, Number(log.rejected_volume), log.date);
+          const c1 = Number(log.campo_personalizado_1);
+          if (isFiniteNumber(c1)) {
+            bucket.c1.samples.push(c1);
+            trackLastFinite(bucket.c1, c1, log.date);
+          }
+          const c2 = Number(log.campo_personalizado_2);
+          if (isFiniteNumber(c2)) {
+            bucket.c2.samples.push(c2);
+            trackLastFinite(bucket.c2, c2, log.date);
+          }
+        }
+        const customLabels = getCustomFieldLabels(product);
+        const hoursWithStats = Object.values(osmBucketsMap)
+          .map((v) => {
+            const c1Avg = avgFinite(v.c1.samples);
+            const c2Avg = avgFinite(v.c2.samples);
+            return {
+              hora: v.hora,
+              total_logs: v.total_logs,
+              estadisticas: {
+                // TDS is roughly stable — mean of valid samples (0/NaN excluded)
+                tds_promedio: parseFloat(avgPositive(v.tds).toFixed(2)),
+                flujo_produccion_promedio: convertOsmosisFlowLmin(avgPositive(v.flujoProd), isSpecial),
+                flujo_rechazo_promedio: convertOsmosisFlowLmin(avgPositive(v.flujoRech), isSpecial),
+                // End-of-hour cumulative meter reading (not sum of samples)
+                production_volume_total: convertOsmosisVolumeLiters(v.prodVol.lastVal, isSpecial),
+                rejected_volume_total: convertOsmosisVolumeLiters(v.rejVol.lastVal, isSpecial),
+                campo_personalizado_1_promedio:
+                  c1Avg != null ? parseFloat(c1Avg.toFixed(2)) : null,
+                campo_personalizado_1_ultimo:
+                  v.c1.lastVal != null ? parseFloat(Number(v.c1.lastVal).toFixed(2)) : null,
+                campo_personalizado_2_promedio:
+                  c2Avg != null ? parseFloat(c2Avg.toFixed(2)) : null,
+                campo_personalizado_2_ultimo:
+                  v.c2.lastVal != null ? parseFloat(Number(v.c2.lastVal).toFixed(2)) : null,
+              },
+            };
+          })
+          .sort((a, b) => a.hora.localeCompare(b.hora));
+        const totalLogs = hoursWithStats.reduce((sum, b) => sum + (b.total_logs || 0), 0);
+        console.log(`📊 [generateProductLogsReport] Osmosis agregado por hora: ${hoursWithStats.length} buckets, ${totalLogs} logs (last meter / avg TDS)`);
         return {
           success: true,
           data: {
-            product: { id: product.id, name: product.name, product_type: productType },
+            product: {
+              id: product.id,
+              name: product.name,
+              product_type: productType,
+              custom_field_labels: customLabels,
+              has_custom_fields: hasCustomFieldData(product),
+            },
             date: useRangeMode ? (startDate && endDate ? `${startDate} a ${endDate}` : date) : date,
             ...(useRangeMode && startDate && endDate ? { start_date: startDate, end_date: endDate } : {}),
             total_logs: totalLogs,
@@ -317,6 +432,8 @@ export async function generateProductLogsReport(
           flujo_rechazo_agrupado: [],
           production_volume_agrupado: [],
           rejected_volume_agrupado: [],
+          campo_personalizado_1_agrupado: [],
+          campo_personalizado_2_agrupado: [],
           total_logs: 0,
         };
       }
@@ -428,6 +545,23 @@ export async function generateProductLogsReport(
               timestamp: log.date,
             });
           }
+
+          const c1Val = Number(log.campo_personalizado_1);
+          if (isFiniteNumber(c1Val)) {
+            hoursMap[bucketKey].campo_personalizado_1_agrupado.push({
+              campo_personalizado_1: c1Val,
+              hora: hourMinute,
+              timestamp: log.date,
+            });
+          }
+          const c2Val = Number(log.campo_personalizado_2);
+          if (isFiniteNumber(c2Val)) {
+            hoursMap[bucketKey].campo_personalizado_2_agrupado.push({
+              campo_personalizado_2: c2Val,
+              hora: hourMinute,
+              timestamp: log.date,
+            });
+          }
         }
 
         hoursMap[bucketKey].total_logs++;
@@ -518,8 +652,11 @@ export async function generateProductLogsReport(
         };
       } else {
         // Estadísticas para productos tipo Osmosis
-        const avgTds = hourData.tds_agrupado?.length > 0
-          ? (hourData.tds_agrupado.reduce((sum, item) => sum + item.tds, 0) / hourData.tds_agrupado.length).toFixed(2)
+        const tdsSamples = (hourData.tds_agrupado || [])
+          .map((item) => Number(item.tds))
+          .filter((n) => Number.isFinite(n) && n > 0 && n <= 2000);
+        const avgTds = tdsSamples.length
+          ? (tdsSamples.reduce((sum, n) => sum + n, 0) / tdsSamples.length).toFixed(2)
           : 0;
 
         const avgFlujoProduccion = hourData.flujo_produccion_agrupado?.length > 0
@@ -530,27 +667,38 @@ export async function generateProductLogsReport(
           ? (hourData.flujo_rechazo_agrupado.reduce((sum, item) => sum + item.flujo_rechazo, 0) / hourData.flujo_rechazo_agrupado.length).toFixed(2)
           : 0;
 
-        // Cumulative meter readings: use last sample in the hour (not sum)
-        const lastByTs = (arr) => {
+        // Cumulative meters: last sample in the hour (never sum)
+        const lastMeterValue = (arr, key) => {
           if (!arr?.length) return 0;
           const sorted = [...arr].filter((i) => i.timestamp).sort((a, b) =>
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
           );
           const top = sorted[0] || arr[arr.length - 1];
-          return top.production_volume ?? top.rejected_volume ?? 0;
+          const n = Number(top?.[key]);
+          return Number.isFinite(n) && n > 0 ? n : 0;
         };
         const totalProductionVolume = hourData.production_volume_agrupado?.length > 0
-          ? Number(lastByTs(hourData.production_volume_agrupado)).toFixed(2)
+          ? Number(lastMeterValue(hourData.production_volume_agrupado, 'production_volume')).toFixed(2)
           : 0;
 
         const totalRejectedVolume = hourData.rejected_volume_agrupado?.length > 0
-          ? (() => {
-              const sorted = [...hourData.rejected_volume_agrupado].filter((i) => i.timestamp)
-                .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-              const top = sorted[0] || hourData.rejected_volume_agrupado[hourData.rejected_volume_agrupado.length - 1];
-              return Number(top.rejected_volume).toFixed(2);
-            })()
+          ? Number(lastMeterValue(hourData.rejected_volume_agrupado, 'rejected_volume')).toFixed(2)
           : 0;
+
+        const lastCustomValue = (arr, key) => {
+          if (!arr?.length) return null;
+          const sorted = [...arr].filter((i) => i.timestamp).sort((a, b) =>
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          );
+          const top = sorted[0] || arr[arr.length - 1];
+          const n = Number(top?.[key]);
+          return Number.isFinite(n) ? parseFloat(n.toFixed(2)) : null;
+        };
+        const avgCustom = (arr, key) => {
+          const nums = (arr || []).map((i) => Number(i[key])).filter(isFiniteNumber);
+          if (!nums.length) return null;
+          return parseFloat((nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(2));
+        };
 
         return {
           ...hourData,
@@ -560,6 +708,10 @@ export async function generateProductLogsReport(
             flujo_rechazo_promedio: parseFloat(avgFlujoRechazo),
             production_volume_total: parseFloat(totalProductionVolume),
             rejected_volume_total: parseFloat(totalRejectedVolume),
+            campo_personalizado_1_promedio: avgCustom(hourData.campo_personalizado_1_agrupado, 'campo_personalizado_1'),
+            campo_personalizado_1_ultimo: lastCustomValue(hourData.campo_personalizado_1_agrupado, 'campo_personalizado_1'),
+            campo_personalizado_2_promedio: avgCustom(hourData.campo_personalizado_2_agrupado, 'campo_personalizado_2'),
+            campo_personalizado_2_ultimo: lastCustomValue(hourData.campo_personalizado_2_agrupado, 'campo_personalizado_2'),
           },
         };
       }
@@ -575,6 +727,8 @@ export async function generateProductLogsReport(
           id: product.id,
           name: product.name,
           product_type: productType,
+          custom_field_labels: getCustomFieldLabels(product),
+          has_custom_fields: hasCustomFieldData(product),
         },
         date: date,
         total_logs: logs.length,

@@ -4,6 +4,7 @@ import UserModel from '../models/postgres/user.model.js';
 import ClientModel from '../models/postgres/client.model.js';
 import ControllerModel from '../models/postgres/controller.model.js';
 import ProductLogModel from '../models/postgres/productLog.model.js';
+import TuyaLogsRoutineConfigModel from '../models/postgres/tuyaLogsRoutineConfig.model.js';
 import * as tuyaService from '../services/tuya.service.js';
 import config from '../config/config.js';
 import moment from 'moment';
@@ -2065,7 +2066,13 @@ export const getProductLogsById = async (req, res) => {
 };
 
 const TUYA_QUOTA_HISTORICO_CODE = 28841004;
-const HISTORICO_DP_CODES = ['flowrate_total_1', 'flowrate_total_2', 'tds_out'];
+const HISTORICO_DP_CODES = [
+  'flowrate_total_1',
+  'flowrate_total_2',
+  'flowrate_speed_1',
+  'flowrate_speed_2',
+  'tds_out',
+];
 const HISTORICO_MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
 /** Si no envían start_date, ventana corta (alineada con UI) para evitar rate limits Tuya. */
 const HISTORICO_DEFAULT_WINDOW_MS = 20 * 60 * 1000;
@@ -2158,7 +2165,7 @@ async function loadHistoricoSnapshotFromDatabase({ logDeviceIds, routeId, numeri
 }
 
 /**
- * Histórico Osmosis (totales + TDS en product_logs).
+ * Histórico Osmosis (totales, flujos speed y TDS en product_logs).
  * Sin refresh_tuya: solo `loadHistoricoSnapshotFromDatabase` (no red Tuya, no inserts).
  * Con refresh_tuya=1: descarga Tuya por código, inserta deduplicado, luego la misma lectura desde DB.
  */
@@ -2216,7 +2223,7 @@ export const getProductHistoricoLogs = async (req, res) => {
     if (isNivel) {
       return res.status(400).json({
         success: false,
-        message: 'El histórico Tuya (totales y TDS) aplica sólo a equipos Osmosis.',
+        message: 'El histórico Tuya (totales, flujos y TDS) aplica sólo a equipos Osmosis.',
         code: 'TUYA_HISTORICO_OSMOSIS_ONLY',
       });
     }
@@ -2286,7 +2293,13 @@ export const getProductHistoricoLogs = async (req, res) => {
       const mapped = mapTuyaLogs(allChunks);
       const hasValidData = (log) => {
         const v = (x) => x != null && x !== 0;
-        return v(log.tds) || v(log.production_volume) || v(log.rejected_volume);
+        return (
+          v(log.tds) ||
+          v(log.production_volume) ||
+          v(log.rejected_volume) ||
+          v(log.flujo_produccion) ||
+          v(log.flujo_rechazo)
+        );
       };
       const logsWithData = mapped.filter(hasValidData);
 
@@ -2297,25 +2310,50 @@ export const getProductHistoricoLogs = async (req, res) => {
           existing.map((e) => (e.date instanceof Date ? e.date : new Date(e.date)).getTime())
         );
 
-        const toInsert = logsWithData
-          .filter((l) => !existingSet.has(new Date(l.date).getTime()))
-          .map((l) => {
-            const rawProd = l.production_volume != null ? Number(l.production_volume) : null;
-            const rawRej = l.rejected_volume != null ? Number(l.rejected_volume) : null;
-            const d = new Date(l.date);
-            return {
-              product_id: logWriteDeviceId,
-              product_device_id: logWriteDeviceId,
-              producto: product._id,
-              date: d,
-              tds: l.tds != null ? Number(l.tds) : undefined,
-              production_volume: rawProd != null ? rawProd / 10 : undefined,
-              rejected_volume: rawRej != null ? rawRej / 10 : undefined,
-              tiempo_inicio: Math.floor(d.getTime() / 1000),
-              tiempo_fin: Math.floor(d.getTime() / 1000),
-              source: 'tuya_historico',
-            };
+        const toInsert = [];
+        let patchedFlujos = 0;
+
+        for (const l of logsWithData) {
+          const d = new Date(l.date);
+          const ts = d.getTime();
+          const rawProd = l.production_volume != null ? Number(l.production_volume) : null;
+          const rawRej = l.rejected_volume != null ? Number(l.rejected_volume) : null;
+          const flujoProd = l.flujo_produccion != null ? Number(l.flujo_produccion) : null;
+          const flujoRech = l.flujo_rechazo != null ? Number(l.flujo_rechazo) : null;
+
+          if (existingSet.has(ts)) {
+            // Filas ya guardadas (p.ej. solo totales) pueden carecer de caudales: completarlas.
+            if (
+              (flujoProd != null && flujoProd !== 0) ||
+              (flujoRech != null && flujoRech !== 0)
+            ) {
+              const n = await ProductLogModel.fillMissingFlujos(
+                logDeviceIds,
+                d,
+                flujoProd,
+                flujoRech
+              );
+              if (n > 0) patchedFlujos += n;
+            }
+            continue;
+          }
+
+          toInsert.push({
+            product_id: logWriteDeviceId,
+            product_device_id: logWriteDeviceId,
+            producto: product._id,
+            date: d,
+            tds: l.tds != null ? Number(l.tds) : undefined,
+            production_volume: rawProd != null ? rawProd / 10 : undefined,
+            rejected_volume: rawRej != null ? rawRej / 10 : undefined,
+            // Velocidades en crudo (misma escala que la rutina scale:1); PV convierte ÷10 → L/min.
+            flujo_produccion: flujoProd != null && flujoProd !== 0 ? flujoProd : undefined,
+            flujo_rechazo: flujoRech != null && flujoRech !== 0 ? flujoRech : undefined,
+            tiempo_inicio: Math.floor(d.getTime() / 1000),
+            tiempo_fin: Math.floor(d.getTime() / 1000),
+            source: 'tuya_historico',
           });
+        }
 
         skippedDuplicates = logsWithData.length - toInsert.length;
 
@@ -2323,7 +2361,13 @@ export const getProductHistoricoLogs = async (req, res) => {
           await ProductLogModel.insertMany(toInsert);
           insertedCount = toInsert.length;
           devLog(
-            `📥 [getProductHistoricoLogs] Insertados ${insertedCount} logs Tuya histórico (${skippedDuplicates} ya existían)`
+            `📥 [getProductHistoricoLogs] Insertados ${insertedCount} logs Tuya histórico (${skippedDuplicates} ya existían${
+              patchedFlujos ? `, ${patchedFlujos} con flujos actualizados` : ''
+            })`
+          );
+        } else if (patchedFlujos > 0) {
+          devLog(
+            `📥 [getProductHistoricoLogs] Sin inserts nuevos; ${patchedFlujos} filas existentes actualizadas con flujos`
           );
         }
       }
@@ -3344,45 +3388,135 @@ function getRandomCoordinateInMexico(mexicoCities) {
    🔄 RUTINA DE LOGS - Fetch logs from Tuya and save to DB
    ====================================================== */
 
-/**
- * Runs the actual logs fetch in the background (no HTTP response).
- * Used so the API can return 202 immediately and not block login/other requests.
- */
-async function runFetchLogsRoutineInBackground() {
-  // Re-fetch product list for this run
+const TUYA_QUOTA_EXCEEDED_CODE = 28841004;
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
+/** Fallback mapping when a code has no config entry (legacy Osmosis/Nivel). */
+const FALLBACK_CODE_TO_COLUMN = {
+  flowrate_speed_1: { db_column: 'flujo_produccion', scale: 1 },
+  flowrate_speed_2: { db_column: 'flujo_rechazo', scale: 1 },
+  flowrate_total_1: { db_column: 'production_volume', scale: 0.1 },
+  flowrate_total_2: { db_column: 'rejected_volume', scale: 0.1 },
+  tds_out: { db_column: 'tds', scale: 1 },
+  liquid_depth: { db_column: 'flujo_produccion', scale: 1 },
+  liquid_level_percent: { db_column: 'flujo_rechazo', scale: 1 },
+};
+
+function applyTuyaCodeToLogRow(row, code, rawValue, fieldMapping) {
+  const mapped = fieldMapping[code];
+  const cfg = mapped || FALLBACK_CODE_TO_COLUMN[code];
+  if (!cfg) return;
+  const scale = cfg.scale != null && Number.isFinite(Number(cfg.scale)) ? Number(cfg.scale) : 1;
+  const scaled = (Number(rawValue) || 0) * scale;
+  if (!row._raw_by_code) row._raw_by_code = {};
+  if (!row._scaled_by_code) row._scaled_by_code = {};
+  row._raw_by_code[code] = Number(rawValue) || 0;
+  row._scaled_by_code[code] = scaled;
+  // Write standard columns only when the field is enabled (disabled codes may still be fetched for custom_rules)
+  const writeColumn = Boolean(cfg.db_column) && (mapped ? mapped.enabled !== false : true);
+  if (writeColumn) {
+    row[cfg.db_column] = scaled;
+  }
+}
+
+function resolveOperandValue(operand, currentRow, previousHourRow, fieldMapping) {
+  if (!operand?.code) return 0;
+  const code = operand.code;
+  if (operand.source === 'previous_hour') {
+    if (!previousHourRow) return 0;
+    if (previousHourRow._scaled_by_code?.[code] != null) {
+      return Number(previousHourRow._scaled_by_code[code]) || 0;
+    }
+    const cfg = fieldMapping[code] || FALLBACK_CODE_TO_COLUMN[code];
+    if (cfg?.db_column && previousHourRow[cfg.db_column] != null) {
+      return Number(previousHourRow[cfg.db_column]) || 0;
+    }
+    if (previousHourRow.custom_metrics?.[code] != null) {
+      return Number(previousHourRow.custom_metrics[code]) || 0;
+    }
+    return 0;
+  }
+  // current
+  if (currentRow._scaled_by_code?.[code] != null) {
+    return Number(currentRow._scaled_by_code[code]) || 0;
+  }
+  const cfg = fieldMapping[code] || FALLBACK_CODE_TO_COLUMN[code];
+  if (cfg?.db_column && currentRow[cfg.db_column] != null) {
+    return Number(currentRow[cfg.db_column]) || 0;
+  }
+  return 0;
+}
+
+function applyCustomRulesToLogRow(row, customRules, previousHourRow, fieldMapping) {
+  if (!customRules?.length) return;
+  const customMetrics = { ...(row.custom_metrics || {}) };
+  for (const rule of customRules) {
+    const left = resolveOperandValue(rule.left, row, previousHourRow, fieldMapping);
+    const right = resolveOperandValue(rule.right, row, previousHourRow, fieldMapping);
+    let result = 0;
+    switch (rule.op) {
+      case 'add':
+        result = left + right;
+        break;
+      case 'multiply':
+        result = left * right;
+        break;
+      case 'divide':
+        result = right !== 0 ? left / right : 0;
+        break;
+      case 'subtract':
+      default:
+        result = left - right;
+        break;
+    }
+    const extraScale =
+      rule.scale != null && Number.isFinite(Number(rule.scale)) ? Number(rule.scale) : 1;
+    result = result * (extraScale === 1 ? 1 : extraScale);
+    const key = rule.store_as || rule.name;
+    customMetrics[key] = result;
+    const slot =
+      rule.db_column === 'campo_personalizado_1' || rule.db_column === 'campo_personalizado_2'
+        ? rule.db_column
+        : null;
+    if (slot) {
+      row[slot] = result;
+    }
+  }
+  row.custom_metrics = customMetrics;
+}
+
+function stripInternalLogFields(logData) {
+  const { _raw_by_code, _scaled_by_code, ...rest } = logData;
+  return rest;
+}
+
+/* ---------- BACKUP: previous hardcoded routine (fetchLogsRoutine_old) ---------- */
+
+async function runFetchLogsRoutineInBackground_old() {
   const enabledProducts = await ProductModel.find({ tuya_logs_routine_enabled: true });
   const productosWhitelist = (enabledProducts || []).map((p) => ({
     id: p.id,
     type: p.product_type || 'Osmosis',
   }));
   if (!productosWhitelist || productosWhitelist.length === 0) {
-    devWarn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
+    devWarn('⚠️ [fetchLogsRoutine_old] No hay productos con rutina de logs habilitada');
     return;
   }
-  devLog('🔄 [fetchLogsRoutine] Iniciando rutina en segundo plano...');
-  devLog(`📋 [fetchLogsRoutine] Procesando ${productosWhitelist.length} productos...`);
-  await doFetchLogsRoutineWork(productosWhitelist);
+  devLog('🔄 [fetchLogsRoutine_old] Iniciando rutina en segundo plano...');
+  devLog(`📋 [fetchLogsRoutine_old] Procesando ${productosWhitelist.length} productos...`);
+  await doFetchLogsRoutineWork_old(productosWhitelist);
 }
 
 /**
- * Core work for fetchLogsRoutine (shared by background and optional sync path).
- * Safe to run at any cron interval (e.g. every 5, 15, or 30 min): each run fetches the last 1 hour
- * from Tuya and skips inserts for (product_id, date) that already exist, so no data is missed.
+ * Legacy core work (hardcoded codes). Kept for rollback via POST /fetchLogsRoutine_old.
  */
-async function doFetchLogsRoutineWork(productosWhitelist) {
+async function doFetchLogsRoutineWork_old(productosWhitelist) {
   try {
-    // ====== CONFIGURACIÓN DE TIEMPO ======
     const now = Date.now();
-    // Ventana de búsqueda: 1 hora. Tuya (cuenta dev) solo devuelve máx 100 registros por código,
-    // así que una ventana corta asegura que pedimos "lo más reciente" y no cambia la cantidad.
-    const timeRangeMs = 60 * 60 * 1000; // 1 hora
+    const timeRangeMs = ONE_HOUR_MS;
     const startTime = now - timeRangeMs;
-    
-    // Crear objetos Date
     const nowDate = new Date(now);
     const startDate = new Date(startTime);
-    
-    // Formatear para zona horaria de Hermosillo
     const formatOptions = {
       timeZone: 'America/Hermosillo',
       year: 'numeric',
@@ -3391,125 +3525,67 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      hour12: false
+      hour12: false,
     };
-    
     const nowLocal = nowDate.toLocaleString('es-MX', formatOptions);
     const startLocal = startDate.toLocaleString('es-MX', formatOptions);
-    
-    devLog(`⏰ [fetchLogsRoutine] Hora actual del servidor:`);
-    devLog(`   - Hermosillo: ${nowLocal}`);
-    devLog(`   - UTC: ${nowDate.toISOString()}`);
-    devLog(`   - Timestamp: ${now}`);
-    
-    devLog(`⏰ [fetchLogsRoutine] Rango de búsqueda (última 1 hora, Tuya dev limit 100/código):`);
-    devLog(`   - Desde (Hermosillo): ${startLocal}`);
-    devLog(`   - Hasta (Hermosillo): ${nowLocal}`);
-    devLog(`   - Timestamps: ${startTime} a ${now}`);
 
-    // ====== CÓDIGOS DE LOGS POR TIPO DE PRODUCTO ======
-    // Osmosis routine: only volumen producción/rechazo (totals). Speeds + TDS skipped to save Tuya Dev quota.
+    devLog(`⏰ [fetchLogsRoutine_old] Rango (última 1 hora): ${startLocal} → ${nowLocal}`);
+
     const logCodesByType = {
-      'Osmosis': [
-        'flowrate_total_1', // volumen producción
-        'flowrate_total_2', // volumen rechazo
-      ],
-      'Nivel': [
-        'liquid_depth',
-        'liquid_level_percent'
-      ]
+      Osmosis: ['flowrate_total_1', 'flowrate_total_2'],
+      Nivel: ['liquid_depth', 'liquid_level_percent'],
     };
 
-    const results = {
-      success: [],
-      errors: [],
-      totalLogsInserted: 0,
-    };
-
-    /** Tuya error 28841004 = "Trial Edition quota used up". Abort routine immediately to avoid blocking login/API for minutes. */
-    const TUYA_QUOTA_EXCEEDED_CODE = 28841004;
+    const results = { success: [], errors: [], totalLogsInserted: 0 };
     let tuyaQuotaExceeded = false;
 
-    // ====== PROCESAR CADA PRODUCTO ======
     for (const productConfig of productosWhitelist) {
       if (tuyaQuotaExceeded) break;
       const productId = productConfig.id;
       const productType = productConfig.type;
-      const logCodes = logCodesByType[productType] || logCodesByType['Osmosis'];
+      const logCodes = logCodesByType[productType] || logCodesByType.Osmosis;
       try {
-        devLog(`\n📦 [fetchLogsRoutine] Procesando producto: ${productId} (Tipo: ${productType})`);
-
-        // Verificar que el producto existe en la BD
         const product = await ProductModel.findByDeviceId(productId);
         if (!product) {
-          devWarn(`⚠️ [fetchLogsRoutine] Producto ${productId} no encontrado en BD`);
-          results.errors.push({
-            productId,
-            error: 'Product not found in database',
-          });
+          results.errors.push({ productId, error: 'Product not found in database' });
           continue;
         }
-
         const tuyaDeviceId = resolveTuyaLiveDeviceIdForTuyaApi(product) || productId;
-
-        // ====== OBTENER LOGS DE TUYA POR CADA CÓDIGO (SEPARADO) ======
-        // Es importante hacer consultas separadas ya que cada una tiene límite de 100 registros
         const allTuyaLogs = [];
         let totalLogsFetched = 0;
 
         for (const code of logCodes) {
           try {
-            devLog(`🔍 [fetchLogsRoutine] Obteniendo logs de código '${code}' para ${tuyaDeviceId} (fila ${productId})...`);
-            
-            const filters = {
+            const response = await tuyaService.getDeviceLogsForRoutine({
               id: tuyaDeviceId,
               start_date: startTime,
               end_date: now,
-              fields: code, // ⚠️ IMPORTANTE: Solo un código a la vez
-              size: 100, // Últimos 100 logs por código
-            };
-
-            const response = await tuyaService.getDeviceLogsForRoutine(filters);
-
+              fields: code,
+              size: 100,
+            });
             if (response.code === TUYA_QUOTA_EXCEEDED_CODE) {
               tuyaQuotaExceeded = true;
-              devWarn(`⚠️ [fetchLogsRoutine] Tuya Trial quota exceeded (${TUYA_QUOTA_EXCEEDED_CODE}). Aborting routine to avoid blocking API/login.`);
               break;
             }
-            if (response.success && response.data && response.data.logs && response.data.logs.length > 0) {
-              const codeLogs = response.data.logs;
-              allTuyaLogs.push(...codeLogs);
-              totalLogsFetched += codeLogs.length;
-              devLog(`  ✅ ${codeLogs.length} logs obtenidos para código '${code}'`);
-            } else {
-              devLog(`  ⚠️ No se encontraron logs para código '${code}'`);
+            if (response.success && response.data?.logs?.length > 0) {
+              allTuyaLogs.push(...response.data.logs);
+              totalLogsFetched += response.data.logs.length;
             }
-
-            // Pequeña pausa entre requests para no saturar la API
-            await new Promise(resolve => setTimeout(resolve, 200));
-
+            await new Promise((resolve) => setTimeout(resolve, 200));
           } catch (codeError) {
-            console.error(`  ❌ Error obteniendo logs para código '${code}':`, codeError.message);
+            console.error(`  ❌ [fetchLogsRoutine_old] Error código '${code}':`, codeError.message);
           }
         }
 
         if (allTuyaLogs.length === 0) {
-          devWarn(`⚠️ [fetchLogsRoutine] No se encontraron logs en Tuya para ${productId}`);
-          results.errors.push({
-            productId,
-            error: 'No logs found in Tuya',
-          });
+          results.errors.push({ productId, error: 'No logs found in Tuya' });
           continue;
         }
 
-        devLog(`✅ [fetchLogsRoutine] Total ${totalLogsFetched} logs obtenidos de Tuya para ${productId} (${logCodes.length} códigos)`);
-
-        // ====== AGRUPAR LOGS POR TIMESTAMP ======
         const groupedLogs = {};
-
-        allTuyaLogs.forEach(log => {
+        allTuyaLogs.forEach((log) => {
           const timestamp = log.event_time;
-          
           if (!groupedLogs[timestamp]) {
             groupedLogs[timestamp] = {
               product_id: tuyaDeviceId,
@@ -3517,7 +3593,6 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
               producto: product._id,
               date: new Date(timestamp),
               source: 'tuya',
-              // Valores por defecto
               tds: 0,
               production_volume: 0,
               rejected_volume: 0,
@@ -3528,8 +3603,6 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
               tiempo_fin: Math.floor(timestamp / 1000),
             };
           }
-
-          // Mapear cada código según el tipo de producto
           if (productType === 'Osmosis') {
             switch (log.code) {
               case 'flowrate_speed_1':
@@ -3539,7 +3612,6 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
                 groupedLogs[timestamp].flujo_rechazo = Number(log.value) || 0;
                 break;
               case 'flowrate_total_1':
-                // Tuya reports totals in 0.1 L steps; store liters like API display / reporte mensual
                 groupedLogs[timestamp].production_volume = (Number(log.value) || 0) / 10;
                 break;
               case 'flowrate_total_2':
@@ -3550,104 +3622,329 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
                 break;
             }
           } else if (productType === 'Nivel') {
-            // Para productos tipo Nivel, mapear a campos disponibles
             switch (log.code) {
               case 'liquid_depth':
-                // Mapear liquid_depth a flujo_produccion temporalmente
                 groupedLogs[timestamp].flujo_produccion = Number(log.value) || 0;
                 break;
               case 'liquid_level_percent':
-                // Mapear liquid_level_percent a flujo_rechazo temporalmente
                 groupedLogs[timestamp].flujo_rechazo = Number(log.value) || 0;
                 break;
             }
           }
         });
 
-        // ====== FILTRAR LOGS CON VALORES EN 0 ======
-        const logsToSave = Object.values(groupedLogs).filter(log => {
-          // Verificar que al menos un valor sea diferente de 0
-          const hasValidData = 
-            (log.tds !== 0) ||
-            (log.production_volume !== 0) ||
-            (log.rejected_volume !== 0) ||
-            (log.flujo_produccion !== 0) ||
-            (log.flujo_rechazo !== 0);
-          
-          return hasValidData;
-        });
-
-        devLog(`💾 [fetchLogsRoutine] ${logsToSave.length} logs con datos válidos para guardar (de ${Object.values(groupedLogs).length} totales)`);
+        const logsToSave = Object.values(groupedLogs).filter(
+          (log) =>
+            log.tds !== 0 ||
+            log.production_volume !== 0 ||
+            log.rejected_volume !== 0 ||
+            log.flujo_produccion !== 0 ||
+            log.flujo_rechazo !== 0
+        );
 
         let insertedCount = 0;
-        let duplicateCount = 0;
-        let skippedZeros = Object.values(groupedLogs).length - logsToSave.length;
-
         for (const logData of logsToSave) {
           try {
-            // Verificar si ya existe un log similar (evitar duplicados)
             const existingLog = await ProductLogModel.findOne({
               product_id: tuyaDeviceId,
               date: logData.date,
             });
-
             if (!existingLog) {
               await ProductLogModel.create(logData);
               insertedCount++;
-            } else {
-              duplicateCount++;
             }
           } catch (saveError) {
-            console.error(`❌ [fetchLogsRoutine] Error guardando log individual:`, saveError.message);
+            console.error(`❌ [fetchLogsRoutine_old] Error guardando:`, saveError.message);
           }
         }
 
-        if (skippedZeros > 0) {
-          devLog(`⏭️ [fetchLogsRoutine] ${skippedZeros} logs omitidos por tener todos los valores en 0`);
-        }
-        if (duplicateCount > 0) {
-          devLog(`⏭️ [fetchLogsRoutine] ${duplicateCount} logs ya existían (duplicados omitidos) para ${productId}`);
-        }
-
-        devLog(`✅ [fetchLogsRoutine] ${insertedCount} logs insertados para ${productId}`);
-        
         results.success.push({
           productId,
           logsInserted: insertedCount,
           totalLogsFromTuya: totalLogsFetched,
           codesFetched: logCodes.length,
         });
-
         results.totalLogsInserted += insertedCount;
-
       } catch (productError) {
-        console.error(`❌ [fetchLogsRoutine] Error procesando producto ${productId}:`, productError.message);
-        results.errors.push({
-          productId,
-          error: productError.message,
-        });
+        results.errors.push({ productId, error: productError.message });
       }
     }
 
     if (tuyaQuotaExceeded) {
-      devLog('✅ [fetchLogsRoutine] Rutina abortada por cuota Tuya agotada');
+      devLog('✅ [fetchLogsRoutine_old] Abortada por cuota Tuya');
       return;
     }
-
-    // ====== FIN ======
-    devLog('✅ [fetchLogsRoutine] Rutina completada');
-    devLog(`📊 [fetchLogsRoutine] Resumen: ${results.success.length} exitosos, ${results.errors.length} errores`);
-    devLog(`📊 [fetchLogsRoutine] Total logs insertados: ${results.totalLogsInserted}`);
+    devLog(
+      `✅ [fetchLogsRoutine_old] Completada: ${results.success.length} ok, ${results.errors.length} err, ${results.totalLogsInserted} inserts`
+    );
   } catch (error) {
-    console.error('❌ [fetchLogsRoutine] Error general en rutina:', error);
+    console.error('❌ [fetchLogsRoutine_old] Error general:', error);
     throw error;
   }
 }
 
 /**
- * Routine para obtener logs de productos whitelist y guardarlos en la BD.
- * Responde 202 de inmediato y ejecuta la rutina en segundo plano para no bloquear login/otros requests.
- * Se puede llamar manualmente o por cron.
+ * Legacy endpoint — hardcoded field set (pre-config). For rollback / comparison.
+ */
+export const fetchLogsRoutine_old = async (req, res) => {
+  try {
+    const enabledProducts = await ProductModel.find({ tuya_logs_routine_enabled: true });
+    const productosWhitelist = (enabledProducts || []).map((p) => ({
+      id: p.id,
+      type: p.product_type || 'Osmosis',
+    }));
+    if (!productosWhitelist?.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'No products with Tuya logs routine enabled.',
+      });
+    }
+    res.status(202).json({
+      success: true,
+      message: 'Legacy logs routine (old) started in background.',
+      startedAt: new Date().toISOString(),
+      productsQueued: productosWhitelist.length,
+    });
+    setImmediate(() => {
+      runFetchLogsRoutineInBackground_old().catch((err) => {
+        console.error('❌ [fetchLogsRoutine_old] Background run failed:', err.message);
+      });
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error executing legacy logs routine',
+      error: error.message,
+    });
+  }
+};
+
+/* ---------- NEW: config-driven routine (fetchLogsRoutine) ---------- */
+
+async function runFetchLogsRoutineInBackground() {
+  const enabledProducts = await ProductModel.find({ tuya_logs_routine_enabled: true });
+  const productosWhitelist = (enabledProducts || []).map((p) => ({
+    id: p.id,
+    type: p.product_type || 'Osmosis',
+  }));
+  if (!productosWhitelist?.length) {
+    devWarn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
+    return;
+  }
+  devLog(`[fetchLogsRoutine] starting for ${productosWhitelist.length} product(s)`);
+  await doFetchLogsRoutineWork(productosWhitelist);
+}
+
+/**
+ * Config-driven core work: reads per-product enabled Tuya DP codes + custom_rules.
+ */
+async function doFetchLogsRoutineWork(productosWhitelist) {
+  try {
+    const now = Date.now();
+    const startTime = now - ONE_HOUR_MS;
+    const nowDate = new Date(now);
+    const startDate = new Date(startTime);
+    const formatOptions = {
+      timeZone: 'America/Hermosillo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    };
+    const nowLocal = nowDate.toLocaleString('es-MX', formatOptions);
+    const startLocal = startDate.toLocaleString('es-MX', formatOptions);
+
+    devLog(`[fetchLogsRoutine] range ${startLocal} → ${nowLocal}`);
+
+    const results = { success: [], errors: [], totalLogsInserted: 0 };
+    let tuyaQuotaExceeded = false;
+
+    for (const productConfig of productosWhitelist) {
+      if (tuyaQuotaExceeded) break;
+      const productId = productConfig.id;
+      const productType = productConfig.type;
+
+      try {
+        const product = await ProductModel.findByDeviceId(productId);
+        if (!product) {
+          results.errors.push({ productId, error: 'Product not found in database' });
+          continue;
+        }
+
+        const routineConfig = TuyaLogsRoutineConfigModel.resolveForProduct(product);
+        const fieldMapping = TuyaLogsRoutineConfigModel.getFieldMapping(routineConfig);
+        let logCodes = TuyaLogsRoutineConfigModel.getEnabledCodes(routineConfig);
+        const customRules = TuyaLogsRoutineConfigModel.getCustomRules(routineConfig);
+
+        // Ensure codes referenced by custom rules are also fetched
+        for (const rule of customRules) {
+          for (const side of [rule.left, rule.right]) {
+            if (side?.code && !logCodes.includes(side.code)) {
+              logCodes = [...logCodes, side.code];
+            }
+          }
+        }
+
+        if (!logCodes.length) {
+          results.errors.push({
+            productId,
+            error: `No enabled log codes for product (type ${productType})`,
+          });
+          continue;
+        }
+
+        const tuyaDeviceId = resolveTuyaLiveDeviceIdForTuyaApi(product) || productId;
+        const allTuyaLogs = [];
+        let totalLogsFetched = 0;
+
+        for (const code of logCodes) {
+          try {
+            const response = await tuyaService.getDeviceLogsForRoutine({
+              id: tuyaDeviceId,
+              start_date: startTime,
+              end_date: now,
+              fields: code,
+              size: 100,
+            });
+            if (response.code === TUYA_QUOTA_EXCEEDED_CODE) {
+              tuyaQuotaExceeded = true;
+              devWarn(`[fetchLogsRoutine] Tuya Trial quota exceeded. Aborting.`);
+              break;
+            }
+            if (response.success && response.data?.logs?.length > 0) {
+              allTuyaLogs.push(...response.data.logs);
+              totalLogsFetched += response.data.logs.length;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          } catch (codeError) {
+            console.error(`[fetchLogsRoutine] Error fetching '${code}' for ${productId}:`, codeError.message);
+          }
+        }
+
+        if (allTuyaLogs.length === 0) {
+          results.errors.push({ productId, error: 'No logs found in Tuya' });
+          continue;
+        }
+
+        const groupedLogs = {};
+        allTuyaLogs.forEach((log) => {
+          const timestamp = log.event_time;
+          if (!groupedLogs[timestamp]) {
+            groupedLogs[timestamp] = {
+              product_id: tuyaDeviceId,
+              product_device_id: tuyaDeviceId,
+              producto: product._id,
+              date: new Date(timestamp),
+              source: 'tuya',
+              tds: 0,
+              production_volume: 0,
+              rejected_volume: 0,
+              temperature: 0,
+              flujo_produccion: 0,
+              flujo_rechazo: 0,
+              tiempo_inicio: Math.floor(timestamp / 1000),
+              tiempo_fin: Math.floor(timestamp / 1000),
+              custom_metrics: {},
+              campo_personalizado_1: null,
+              campo_personalizado_2: null,
+              _raw_by_code: {},
+              _scaled_by_code: {},
+            };
+          }
+          applyTuyaCodeToLogRow(groupedLogs[timestamp], log.code, log.value, fieldMapping);
+        });
+
+        const sortedTimestamps = Object.keys(groupedLogs)
+          .map(Number)
+          .sort((a, b) => a - b);
+        let cachedPreviousHour = null;
+        let cachedPreviousHourKey = null;
+
+        for (const ts of sortedTimestamps) {
+          const row = groupedLogs[ts];
+          const needsPreviousHour = customRules.some(
+            (r) => r.left?.source === 'previous_hour' || r.right?.source === 'previous_hour'
+          );
+          if (needsPreviousHour) {
+            const beforeMs = ts - ONE_HOUR_MS;
+            const cacheKey = `${tuyaDeviceId}:${beforeMs}`;
+            if (cachedPreviousHourKey !== cacheKey) {
+              cachedPreviousHour = await ProductLogModel.findLatestBefore(
+                tuyaDeviceId,
+                new Date(beforeMs)
+              );
+              cachedPreviousHourKey = cacheKey;
+            }
+            applyCustomRulesToLogRow(row, customRules, cachedPreviousHour, fieldMapping);
+          } else if (customRules.length) {
+            applyCustomRulesToLogRow(row, customRules, null, fieldMapping);
+          }
+        }
+
+        const logsToSave = Object.values(groupedLogs).filter((log) => {
+          const hasColumnData =
+            log.tds !== 0 ||
+            log.production_volume !== 0 ||
+            log.rejected_volume !== 0 ||
+            log.flujo_produccion !== 0 ||
+            log.flujo_rechazo !== 0 ||
+            (log.campo_personalizado_1 != null && Number(log.campo_personalizado_1) !== 0) ||
+            (log.campo_personalizado_2 != null && Number(log.campo_personalizado_2) !== 0);
+          const hasCustom =
+            log.custom_metrics &&
+            Object.values(log.custom_metrics).some((v) => Number(v) !== 0);
+          return hasColumnData || hasCustom;
+        });
+
+        let insertedCount = 0;
+        for (const logData of logsToSave) {
+          try {
+            const existingLog = await ProductLogModel.findOne({
+              product_id: tuyaDeviceId,
+              date: logData.date,
+            });
+            if (!existingLog) {
+              await ProductLogModel.create(stripInternalLogFields(logData));
+              insertedCount++;
+            }
+          } catch (saveError) {
+            console.error(`[fetchLogsRoutine] Error saving log for ${productId}:`, saveError.message);
+          }
+        }
+
+        results.success.push({
+          productId,
+          logsInserted: insertedCount,
+          totalLogsFromTuya: totalLogsFetched,
+          codesFetched: logCodes.length,
+        });
+        results.totalLogsInserted += insertedCount;
+      } catch (productError) {
+        console.error(`[fetchLogsRoutine] Error product ${productId}:`, productError.message);
+        results.errors.push({ productId, error: productError.message });
+      }
+    }
+
+    if (tuyaQuotaExceeded) {
+      results.tuyaQuotaExceeded = true;
+      return results;
+    }
+    devLog(
+      `[fetchLogsRoutine] done: ${results.success.length} ok, ${results.errors.length} err, ${results.totalLogsInserted} inserts`
+    );
+    return results;
+  } catch (error) {
+    console.error('[fetchLogsRoutine] Error general en rutina:', error);
+    throw error;
+  }
+}
+
+/**
+ * Routine para obtener logs según config (Personalización > Reglas rutina logs).
+ * Responde 202 de inmediato y ejecuta en segundo plano.
  */
 export const fetchLogsRoutine = async (req, res) => {
   try {
@@ -3661,7 +3958,8 @@ export const fetchLogsRoutine = async (req, res) => {
       devWarn('⚠️ [fetchLogsRoutine] No hay productos con rutina de logs habilitada');
       return res.status(400).json({
         success: false,
-        message: 'No products with Tuya logs routine enabled. Enable them in Personalización > Productos rutina logs.',
+        message:
+          'No products with Tuya logs routine enabled. Enable them in Personalización > Productos rutina logs.',
       });
     }
 
@@ -3674,14 +3972,152 @@ export const fetchLogsRoutine = async (req, res) => {
 
     setImmediate(() => {
       runFetchLogsRoutineInBackground().catch((err) => {
-        console.error('❌ [fetchLogsRoutine] Background run failed:', err.message);
+        console.error('[fetchLogsRoutine] Background run failed:', err.message);
       });
     });
   } catch (error) {
-    console.error('❌ [fetchLogsRoutine] Error starting routine:', error);
+    console.error('[fetchLogsRoutine] Error starting routine:', error);
     return res.status(500).json({
       success: false,
       message: 'Error executing logs routine',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Per-product GET/PUT for Tuya DP codes + custom derived rules used by fetchLogsRoutine.
+ */
+export const getTuyaLogsRoutineConfig = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = await ProductModel.findByIdOrDeviceId(id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    const config = TuyaLogsRoutineConfigModel.resolveForProduct(product);
+    const isCustom = product.tuya_logs_routine_config != null;
+    return res.status(200).json({
+      success: true,
+      product_id: product.id,
+      product_type: product.product_type || 'Osmosis',
+      is_custom: isCustom,
+      config,
+    });
+  } catch (error) {
+    console.error('[getTuyaLogsRoutineConfig]', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error loading product Tuya logs routine config',
+      error: error.message,
+    });
+  }
+};
+
+export const updateTuyaLogsRoutineConfig = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = await ProductModel.findByIdOrDeviceId(id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    const rawConfig = req.body?.config ?? req.body;
+    if (!rawConfig || typeof rawConfig !== 'object') {
+      return res.status(400).json({ success: false, message: 'config object is required' });
+    }
+    const productType = product.product_type || 'Osmosis';
+    const sanitized = TuyaLogsRoutineConfigModel.sanitizeProductConfig(rawConfig, productType);
+    const updated = await ProductModel.updateLogsRoutineConfig(id, sanitized);
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    return res.status(200).json({
+      success: true,
+      message: 'Product Tuya logs routine config updated',
+      product_id: updated.id,
+      product_type: updated.product_type || 'Osmosis',
+      is_custom: true,
+      config: TuyaLogsRoutineConfigModel.resolveForProduct(updated),
+    });
+  } catch (error) {
+    console.error('[updateTuyaLogsRoutineConfig]', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error updating product Tuya logs routine config',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Admin test helper: run the same fetchLogsRoutine logic for ONE product (sync).
+ * Uses that product's tuya_logs_routine_config (fields + custom rules → campo_personalizado_1/2).
+ * Unlike Histórico Tuya, this applies per-product rules.
+ *
+ * POST /products/:id/run-logs-routine
+ */
+export const runLogsRoutineForProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = await ProductModel.findByIdOrDeviceId(id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    const deviceId = product.id || product.device_id;
+    const productType = product.product_type || 'Osmosis';
+    const config = TuyaLogsRoutineConfigModel.resolveForProduct(product);
+
+    const results = await doFetchLogsRoutineWork([
+      { id: deviceId, type: productType },
+    ]);
+
+    const recentLogs = await ProductLogModel.find({
+      product_device_id: deviceId,
+      _limit: 5,
+    });
+
+    const sample = (recentLogs || []).slice(0, 5).map((log) => ({
+      date: log.date,
+      production_volume: log.production_volume,
+      rejected_volume: log.rejected_volume,
+      tds: log.tds,
+      flujo_produccion: log.flujo_produccion,
+      flujo_rechazo: log.flujo_rechazo,
+      campo_personalizado_1: log.campo_personalizado_1,
+      campo_personalizado_2: log.campo_personalizado_2,
+      custom_metrics: log.custom_metrics,
+      source: log.source,
+    }));
+
+    const productResult =
+      results?.success?.find((s) => s.productId === deviceId) || null;
+    const productError =
+      results?.errors?.find((e) => e.productId === deviceId) || null;
+
+    return res.status(200).json({
+      success: !productError && !results?.tuyaQuotaExceeded,
+      message: results?.tuyaQuotaExceeded
+        ? 'Rutina abortada: cuota Tuya agotada'
+        : productError
+          ? `Error: ${productError.error}`
+          : `Rutina ejecutada para ${product.name || deviceId}`,
+      product_id: deviceId,
+      product_type: productType,
+      config_used: {
+        enabled_codes: TuyaLogsRoutineConfigModel.getEnabledCodes(config),
+        custom_rules: TuyaLogsRoutineConfigModel.getCustomRules(config),
+      },
+      routine_result: productResult,
+      error: productError || null,
+      tuya_quota_exceeded: Boolean(results?.tuyaQuotaExceeded),
+      recent_logs: sample,
+    });
+  } catch (error) {
+    console.error('[runLogsRoutineForProduct]', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error running logs routine for product',
       error: error.message,
     });
   }

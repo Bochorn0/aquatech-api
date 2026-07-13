@@ -242,8 +242,6 @@ export async function getDeviceLogsForRoutine(query) {
   const path = `/v2.0/cloud/thing/${id}/report-logs?codes=${encodedFields}&start_time=${safeStart}&end_time=${safeEnd}&size=${size}` +
                 (last_row_key ? `&last_row_key=${encodeURIComponent(String(last_row_key))}` : '');
 
-  console.log('[getDeviceLogsForRoutine] path', path);
-
   try {
     const response = await context.request({ method: 'GET', path });
     const responseData = handleResponse(response);

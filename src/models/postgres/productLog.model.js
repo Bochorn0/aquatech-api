@@ -13,24 +13,102 @@ class ProductLogModel {
       const r = await q('SELECT id FROM products WHERE device_id = $1 LIMIT 1', [deviceId]);
       productId = r.rows?.[0]?.id ?? null;
     }
-    const result = await query(`
-      INSERT INTO product_logs (product_id, product_device_id, tds, production_volume, rejected_volume, temperature, flujo_produccion, flujo_rechazo, tiempo_inicio, tiempo_fin, source, date)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING *
-    `, [
-      productId,
-      deviceId,
-      data.tds ?? null,
-      data.production_volume ?? null,
-      data.rejected_volume ?? null,
-      data.temperature ?? null,
-      data.flujo_produccion ?? null,
-      data.flujo_rechazo ?? null,
-      data.tiempo_inicio ?? null,
-      data.tiempo_fin ?? null,
-      data.source ?? 'esp32',
-      data.date ?? new Date()
-    ]);
+    const customMetrics =
+      data.custom_metrics != null
+        ? typeof data.custom_metrics === 'string'
+          ? data.custom_metrics
+          : JSON.stringify(data.custom_metrics)
+        : null;
+    try {
+      const result = await query(`
+        INSERT INTO product_logs (
+          product_id, product_device_id, tds, production_volume, rejected_volume, temperature,
+          flujo_produccion, flujo_rechazo, tiempo_inicio, tiempo_fin, source, date,
+          custom_metrics, campo_personalizado_1, campo_personalizado_2
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15)
+        RETURNING *
+      `, [
+        productId,
+        deviceId,
+        data.tds ?? null,
+        data.production_volume ?? null,
+        data.rejected_volume ?? null,
+        data.temperature ?? null,
+        data.flujo_produccion ?? null,
+        data.flujo_rechazo ?? null,
+        data.tiempo_inicio ?? null,
+        data.tiempo_fin ?? null,
+        data.source ?? 'esp32',
+        data.date ?? new Date(),
+        customMetrics,
+        data.campo_personalizado_1 ?? null,
+        data.campo_personalizado_2 ?? null,
+      ]);
+      return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+    } catch (err) {
+      // Fallback if migrations 048/050 not applied yet
+      if (err?.message?.includes('campo_personalizado') || err?.message?.includes('custom_metrics')) {
+        try {
+          const result = await query(`
+            INSERT INTO product_logs (product_id, product_device_id, tds, production_volume, rejected_volume, temperature, flujo_produccion, flujo_rechazo, tiempo_inicio, tiempo_fin, source, date, custom_metrics)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
+            RETURNING *
+          `, [
+            productId,
+            deviceId,
+            data.tds ?? null,
+            data.production_volume ?? null,
+            data.rejected_volume ?? null,
+            data.temperature ?? null,
+            data.flujo_produccion ?? null,
+            data.flujo_rechazo ?? null,
+            data.tiempo_inicio ?? null,
+            data.tiempo_fin ?? null,
+            data.source ?? 'esp32',
+            data.date ?? new Date(),
+            customMetrics,
+          ]);
+          return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+        } catch (err2) {
+          if (err2?.message?.includes('custom_metrics')) {
+            const result = await query(`
+              INSERT INTO product_logs (product_id, product_device_id, tds, production_volume, rejected_volume, temperature, flujo_produccion, flujo_rechazo, tiempo_inicio, tiempo_fin, source, date)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+              RETURNING *
+            `, [
+              productId,
+              deviceId,
+              data.tds ?? null,
+              data.production_volume ?? null,
+              data.rejected_volume ?? null,
+              data.temperature ?? null,
+              data.flujo_produccion ?? null,
+              data.flujo_rechazo ?? null,
+              data.tiempo_inicio ?? null,
+              data.tiempo_fin ?? null,
+              data.source ?? 'esp32',
+              data.date ?? new Date(),
+            ]);
+            return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+          }
+          throw err2;
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Latest log for a device at or before a given date (for delta / previous_hour rules).
+   */
+  static async findLatestBefore(productDeviceId, beforeDate) {
+    const result = await query(
+      `SELECT * FROM product_logs
+       WHERE product_device_id = $1 AND date <= $2
+       ORDER BY date DESC LIMIT 1`,
+      [productDeviceId, beforeDate instanceof Date ? beforeDate : new Date(beforeDate)]
+    );
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
@@ -236,6 +314,44 @@ class ProductLogModel {
   }
 
   /**
+   * Completa flujo_produccion / flujo_rechazo en una fila existente si estaban vacíos.
+   * Usado por histórico Tuya cuando ya había totales/TDS en el mismo timestamp.
+   * @returns {number} filas actualizadas
+   */
+  static async fillMissingFlujos(deviceIds, date, flujoProduccion, flujoRechazo) {
+    if (!deviceIds?.length || !date) return 0;
+    const hasProd = flujoProduccion != null && Number(flujoProduccion) !== 0;
+    const hasRech = flujoRechazo != null && Number(flujoRechazo) !== 0;
+    if (!hasProd && !hasRech) return 0;
+    const ids = [...new Set(deviceIds.filter(Boolean).map(String))];
+    const d = date instanceof Date ? date : new Date(date);
+    const result = await query(
+      `UPDATE product_logs
+       SET flujo_produccion = CASE
+             WHEN $3::numeric IS NOT NULL
+              AND (flujo_produccion IS NULL OR flujo_produccion = 0)
+             THEN $3 ELSE flujo_produccion END,
+           flujo_rechazo = CASE
+             WHEN $4::numeric IS NOT NULL
+              AND (flujo_rechazo IS NULL OR flujo_rechazo = 0)
+             THEN $4 ELSE flujo_rechazo END
+       WHERE product_device_id = ANY($1::text[])
+         AND date = $2
+         AND (
+           ($3::numeric IS NOT NULL AND (flujo_produccion IS NULL OR flujo_produccion = 0))
+           OR ($4::numeric IS NOT NULL AND (flujo_rechazo IS NULL OR flujo_rechazo = 0))
+         )`,
+      [
+        ids,
+        d,
+        hasProd ? Number(flujoProduccion) : null,
+        hasRech ? Number(flujoRechazo) : null,
+      ]
+    );
+    return result.rowCount || 0;
+  }
+
+  /**
    * Métricas globales en product_logs para los device_id del equipo (histórico hub / resumen).
    * @returns {{ log_count: number, min_date: Date|null, max_date: Date|null, distinct_calendar_days: number }}
    */
@@ -338,6 +454,14 @@ class ProductLogModel {
 
   static parseRow(row) {
     if (!row) return null;
+    let customMetrics = row.custom_metrics ?? null;
+    if (typeof customMetrics === 'string') {
+      try {
+        customMetrics = JSON.parse(customMetrics);
+      } catch {
+        customMetrics = null;
+      }
+    }
     return {
       id: row.id,
       _id: String(row.id),
@@ -353,7 +477,10 @@ class ProductLogModel {
       tiempo_inicio: row.tiempo_inicio,
       tiempo_fin: row.tiempo_fin,
       source: row.source ?? 'esp32',
-      date: row.date
+      date: row.date,
+      custom_metrics: customMetrics,
+      campo_personalizado_1: row.campo_personalizado_1 ?? null,
+      campo_personalizado_2: row.campo_personalizado_2 ?? null,
     };
   }
 }

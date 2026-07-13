@@ -4,6 +4,7 @@ node_modules/
 certs/
 *.pem
 *.key
+logs/
 
 # Cursor / local session memory (dated folders; never commit)
 session/
