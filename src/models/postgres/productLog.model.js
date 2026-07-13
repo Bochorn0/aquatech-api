@@ -112,6 +112,19 @@ class ProductLogModel {
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
+  /** Same as findLatestBefore but across locked + live device_id strings. */
+  static async findLatestBeforeAmong(deviceIds = [], beforeDate) {
+    const ids = [...new Set((deviceIds || []).filter(Boolean).map(String))];
+    if (ids.length === 0) return null;
+    const result = await query(
+      `SELECT * FROM product_logs
+       WHERE product_device_id = ANY($1::text[]) AND date <= $2
+       ORDER BY date DESC LIMIT 1`,
+      [ids, beforeDate instanceof Date ? beforeDate : new Date(beforeDate)]
+    );
+    return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+  }
+
   static async findOne(filters = {}) {
     const where = [];
     const values = [];
@@ -142,7 +155,9 @@ class ProductLogModel {
           i++;
         }
       } else if (!(typeof d === 'object' && d.$in)) {
-        where.push(`date::date = $${i}::date`);
+        // Exact timestamp match (NOT date::date). Day-level match was blocking the hourly
+        // Tuya logs routine: once 1 row existed for that UTC day, all later inserts were skipped.
+        where.push(`date = $${i}`);
         values.push(d instanceof Date ? d : new Date(d));
         i++;
       }
@@ -383,12 +398,12 @@ class ProductLogModel {
     };
   }
 
-  /** Conteo por día calendario (UTC) para detectar huecos en histórico por equipo. */
+  /** Conteo por día calendario en America/Hermosillo (evita que la tarde local cuente como “día UTC siguiente”). */
   static async getHistoricoDailyBreakdownForDeviceIds(deviceIds = []) {
     const ids = [...new Set((deviceIds || []).filter(Boolean).map(String))];
     if (ids.length === 0) return [];
     const result = await query(
-      `SELECT date_trunc('day', date) AS day,
+      `SELECT (timezone('America/Hermosillo', date))::date AS day,
               COUNT(*)::int AS logs_count
        FROM product_logs
        WHERE product_device_id = ANY($1::text[])
