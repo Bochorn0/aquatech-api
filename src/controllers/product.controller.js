@@ -3857,11 +3857,14 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
           applyTuyaCodeToLogRow(groupedLogs[timestamp], log.code, log.value, fieldMapping);
         });
 
+        const logDeviceIdsForPrev = collectProductLogDeviceIds(productId, product);
         const sortedTimestamps = Object.keys(groupedLogs)
           .map(Number)
           .sort((a, b) => a - b);
         let cachedPreviousHour = null;
         let cachedPreviousHourKey = null;
+        let previousHourHits = 0;
+        let previousHourMisses = 0;
 
         for (const ts of sortedTimestamps) {
           const row = groupedLogs[ts];
@@ -3870,14 +3873,16 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
           );
           if (needsPreviousHour) {
             const beforeMs = ts - ONE_HOUR_MS;
-            const cacheKey = `${tuyaDeviceId}:${beforeMs}`;
+            const cacheKey = `${logDeviceIdsForPrev.join(',')}:${beforeMs}`;
             if (cachedPreviousHourKey !== cacheKey) {
-              cachedPreviousHour = await ProductLogModel.findLatestBefore(
-                tuyaDeviceId,
+              cachedPreviousHour = await ProductLogModel.findLatestBeforeAmong(
+                logDeviceIdsForPrev,
                 new Date(beforeMs)
               );
               cachedPreviousHourKey = cacheKey;
             }
+            if (cachedPreviousHour) previousHourHits += 1;
+            else previousHourMisses += 1;
             applyCustomRulesToLogRow(row, customRules, cachedPreviousHour, fieldMapping);
           } else if (customRules.length) {
             applyCustomRulesToLogRow(row, customRules, null, fieldMapping);
@@ -3900,6 +3905,7 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
         });
 
         let insertedCount = 0;
+        let skippedDuplicates = 0;
         for (const logData of logsToSave) {
           try {
             const existingLog = await ProductLogModel.findOne({
@@ -3909,6 +3915,8 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
             if (!existingLog) {
               await ProductLogModel.create(stripInternalLogFields(logData));
               insertedCount++;
+            } else {
+              skippedDuplicates++;
             }
           } catch (saveError) {
             console.error(`[fetchLogsRoutine] Error saving log for ${productId}:`, saveError.message);
@@ -3918,8 +3926,13 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
         results.success.push({
           productId,
           logsInserted: insertedCount,
+          logsSkippedDuplicates: skippedDuplicates,
+          logsGrouped: Object.keys(groupedLogs).length,
+          logsToSave: logsToSave.length,
           totalLogsFromTuya: totalLogsFetched,
           codesFetched: logCodes.length,
+          previous_hour_hits: previousHourHits,
+          previous_hour_misses: previousHourMisses,
         });
         results.totalLogsInserted += insertedCount;
       } catch (productError) {

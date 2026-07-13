@@ -93,6 +93,9 @@ class MQTTService {
     this._tiwaterQueue = [];
     this._tiwaterRunning = 0;
     this._tiwaterDropped = 0;
+    this._authRejectCount = 0;
+    this._authDiagLogged = false;
+    this._connecting = false;
   }
 
   /** Enqueue a tiwater save job; runs up to MQTT_TIWATER_SAVE_CONCURRENCY at a time. */
@@ -125,6 +128,46 @@ class MQTTService {
     }
   }
 
+  _authDiagnostics(isEventGrid) {
+    const hasCertB64 = !!(MQTT_CLIENT_CERT_B64 && MQTT_CLIENT_KEY_B64);
+    const hasCertFiles = !!(
+      MQTT_CLIENT_CERT_PATH &&
+      MQTT_CLIENT_KEY_PATH &&
+      fs.existsSync(MQTT_CLIENT_CERT_PATH) &&
+      fs.existsSync(MQTT_CLIENT_KEY_PATH)
+    );
+    return {
+      broker: MQTT_BROKER,
+      port: MQTT_PORT,
+      useTLS: MQTT_USE_TLS,
+      isEventGrid,
+      hasUsername: Boolean(MQTT_USERNAME),
+      // Password must NOT be sent to Event Grid; flag only for App Service misconfig checks
+      passwordEnvSet: Boolean(MQTT_PASSWORD),
+      hasClientCert: hasCertB64 || hasCertFiles,
+      certSource: hasCertB64 ? 'env_b64' : hasCertFiles ? 'files' : 'none',
+      clientId: MQTT_CLIENT_ID,
+    };
+  }
+
+  /** Log once: Event Grid rejected the client (TLS ok, auth failed). */
+  _logNotAuthorizedOnce(isEventGrid) {
+    if (this._authDiagLogged) return;
+    this._authDiagLogged = true;
+    const d = this._authDiagnostics(isEventGrid);
+    console.error('[MQTT] ❌ Not authorized — Event Grid / broker rejected this client (not a network outage).');
+    console.error('[MQTT] Auth diagnostics (no secrets):', JSON.stringify(d));
+    if (isEventGrid) {
+      console.error(
+        '[MQTT] Checklist: (1) MQTT_CLIENT_CERT_B64 thumbprint matches Azure Client Primary thumbprint; ' +
+          '(2) MQTT_USERNAME equals Client authentication name; ' +
+          '(3) remove MQTT_PASSWORD on App Service for Event Grid; ' +
+          '(4) only ONE session per auth name (API + mocker + mqtt-consumer cannot share the same client); ' +
+          '(5) Client still Enabled in Event Grid → MQTT broker → Clients.'
+      );
+    }
+  }
+
   /** Diagnostic info for MQTT status endpoint (no secrets) */
   getStatus() {
     const isEventGrid = (MQTT_BROKER || '').includes('eventgrid.azure.net');
@@ -141,8 +184,10 @@ class MQTTService {
       isEventGrid,
       hasCert: hasCertB64 || hasCertFiles,
       certSource: hasCertB64 ? 'env (base64)' : hasCertFiles ? 'files' : 'none',
+      passwordEnvSet: Boolean(MQTT_PASSWORD),
       isConnected: this.isConnected,
       lastError: this.lastError ? String(this.lastError) : null,
+      authRejectCount: this._authRejectCount,
       tiwaterQueue: {
         queued: this._tiwaterQueue.length,
         running: this._tiwaterRunning,
@@ -172,21 +217,51 @@ class MQTTService {
 
   // Conectar al broker MQTT
   connect() {
+    // Idempotent: avoid a second mqtt.connect() with the same Event Grid auth name
+    // (maximumClientSessionsPerAuthenticationName=1 → "Not authorized" storms).
+    if (this.client) {
+      if (this.isConnected) {
+        console.log('[MQTT] Already connected; skip connect()');
+        return this.client;
+      }
+      if (this._connecting) {
+        console.log('[MQTT] Connect already in progress; skip duplicate connect()');
+        return this.client;
+      }
+      console.warn('[MQTT] Replacing existing client before reconnect');
+      try {
+        this.client.removeAllListeners();
+        this.client.end(true);
+      } catch (_) {
+        /* ignore */
+      }
+      this.client = null;
+    }
+
     // Determinar si usar TLS basado en puerto o configuración explícita
     const useTLS = MQTT_USE_TLS;
     const protocol = useTLS ? 'mqtts' : 'mqtt';
     const mqttUrl = `${protocol}://${MQTT_BROKER}:${MQTT_PORT}`;
-    
+
     console.log(`[MQTT] Conectando a ${mqttUrl}${useTLS ? ' (TLS)' : ''}...`);
 
     const isEventGrid = (MQTT_BROKER || '').includes('eventgrid.azure.net');
+    this._connecting = true;
+
+    if (isEventGrid && MQTT_PASSWORD) {
+      console.warn(
+        '[MQTT] ⚠️  MQTT_PASSWORD is set but Event Grid uses X.509 only. ' +
+          'Remove MQTT_PASSWORD from App Service settings (password is not sent, but it usually means leftover Mosquitto config).'
+      );
+    }
 
     // Configuración base de conexión
     const connectOptions = {
       clientId: MQTT_CLIENT_ID,
       clean: true,
-      reconnectPeriod: 5000, // Reintentar cada 5 segundos
-      connectTimeout: 10000, // Timeout de 10 segundos
+      // Back off harder after auth rejects to avoid flooding App Service logs
+      reconnectPeriod: this._authRejectCount > 0 ? 60000 : 5000,
+      connectTimeout: 10000,
     };
 
     // Autenticación: Event Grid usa solo username (client auth name) + X.509; Mosquitto usa username+password
@@ -270,8 +345,12 @@ class MQTTService {
     // Evento: Conexión exitosa
     this.client.on('connect', () => {
       this.isConnected = true;
+      this._connecting = false;
+      this._authRejectCount = 0;
+      this._authDiagLogged = false;
+      if (this.client?.options) this.client.options.reconnectPeriod = 5000;
       console.log(`[MQTT] ✅ Conectado al broker ${MQTT_BROKER}:${MQTT_PORT}`);
-      
+
       // Suscribirse a todos los topics
       this.subscribeToTopics();
     });
@@ -279,19 +358,38 @@ class MQTTService {
     // Evento: Error de conexión
     this.client.on('error', (error) => {
       this.lastError = error?.message || error;
-      console.error('[MQTT] ❌ Error de conexión:', this.lastError);
       this.isConnected = false;
+      this._connecting = false;
+      const msg = String(this.lastError || '');
+      const isNotAuthorized = /not authorized/i.test(msg);
+      if (isNotAuthorized) {
+        this._authRejectCount += 1;
+        this._logNotAuthorizedOnce(isEventGrid);
+        // Slow down reconnect loop (was every 5s → log flood)
+        if (this.client?.options) this.client.options.reconnectPeriod = 60000;
+        if (this._authRejectCount === 1 || this._authRejectCount % 10 === 0) {
+          console.error(`[MQTT] ❌ Error de conexión: ${msg} (authRejectCount=${this._authRejectCount}, next reconnect ~60s)`);
+        }
+        return;
+      }
+      console.error('[MQTT] ❌ Error de conexión:', this.lastError);
     });
 
     // Evento: Desconexión
     this.client.on('close', () => {
       console.log('[MQTT] ⚠️  Desconectado del broker');
       this.isConnected = false;
+      this._connecting = false;
     });
 
     // Evento: Reconexión
     this.client.on('reconnect', () => {
-      console.log('[MQTT] 🔄 Reintentando conexión...');
+      if (this._authRejectCount > 0 && this._authRejectCount % 10 !== 1) return;
+      console.log(
+        this._authRejectCount > 0
+          ? `[MQTT] 🔄 Reintentando conexión… (tras Not authorized; backoff ~60s)`
+          : '[MQTT] 🔄 Reintentando conexión...'
+      );
     });
 
     // Evento: Mensaje recibido
@@ -827,13 +925,22 @@ class MQTTService {
 
   // Obtener estado de conexión
   getConnectionStatus() {
+    const isEventGrid = (MQTT_BROKER || '').includes('eventgrid.azure.net');
+    const hasCert = !!(
+      (MQTT_CLIENT_CERT_B64 && MQTT_CLIENT_KEY_B64) ||
+      (MQTT_CLIENT_CERT_PATH && MQTT_CLIENT_KEY_PATH)
+    );
     return {
       connected: this.isConnected,
       broker: `${MQTT_BROKER}:${MQTT_PORT}`,
       clientId: MQTT_CLIENT_ID,
       tls: MQTT_USE_TLS,
       protocol: MQTT_USE_TLS ? 'mqtts' : 'mqtt',
-      authenticated: !!(MQTT_USERNAME && MQTT_PASSWORD)
+      authenticated: isEventGrid
+        ? !!(MQTT_USERNAME && hasCert)
+        : !!(MQTT_USERNAME && MQTT_PASSWORD),
+      lastError: this.lastError ? String(this.lastError) : null,
+      authRejectCount: this._authRejectCount,
     };
   }
 
