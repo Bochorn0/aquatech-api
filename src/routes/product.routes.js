@@ -1,6 +1,6 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductHistoricoLogs, getProductHistoricoDaysSummary, postHistoricoHubSummary, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, generarLogsPorFecha, createProduct, updateProduct, deleteProduct, lockProducts, previewMergeDuplicateProducts, mergeDuplicateProducts, getMergedProductsList, getMergedProductDetail } from '../controllers/product.controller.js'; // Named imports
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductHistoricoLogs, getProductHistoricoDaysSummary, postHistoricoHubSummary, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, fetchLogsRoutine_old, getTuyaLogsRoutineConfig, updateTuyaLogsRoutineConfig, runLogsRoutineForProduct, generarLogsPorFecha, createProduct, updateProduct, deleteProduct, lockProducts, previewMergeDuplicateProducts, mergeDuplicateProducts, getMergedProductsList, getMergedProductDetail } from '../controllers/product.controller.js'; // Named imports
 import { authenticate, requirePermission, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -24,7 +24,10 @@ const cronOrAuthForLogsRoutine = (req, res, next) => {
  * Mount-level middleware: for POST /fetchLogsRoutine allow X-Cron-Secret or X-TIWater-API-Key so Azure/external cron can call without JWT.
  */
 export const productAuthOrCron = (req, res, next) => {
-  if (req.path === '/fetchLogsRoutine' && req.method === 'POST') {
+  if (
+    (req.path === '/fetchLogsRoutine' || req.path === '/fetchLogsRoutine_old') &&
+    req.method === 'POST'
+  ) {
     return cronOrAuthForLogsRoutine(req, res, next);
   }
   authenticate(req, res, (err) => {
@@ -56,6 +59,12 @@ router.get('/mocked', authenticate, generateAllProducts);
 // Get specific product by ID
 router.get('/:id', authenticate, getProductById);
 
+// Admin: per-product config for which Tuya log fields/rules the cron routine uses
+router.get('/:id/logs-routine-config', authenticate, authorizeRoles('admin'), getTuyaLogsRoutineConfig);
+router.put('/:id/logs-routine-config', authenticate, authorizeRoles('admin'), updateTuyaLogsRoutineConfig);
+// Admin: run fetchLogsRoutine logic for a single product (test custom rules / campo_personalizado_*)
+router.post('/:id/run-logs-routine', authenticate, authorizeRoles('admin'), runLogsRoutineForProduct);
+
 // Create product - for Personalización V1 (add new product)
 router.post('/', authenticate, createProduct);
 // Update product (cliente, city, product_type) - for Equipos / personalización (access by permission at mount)
@@ -81,6 +90,8 @@ router.post('/componentInput', authenticate, requirePermission('/equipos'), comp
 
 // Fetch logs routine - Manual (JWT) or cron (X-Cron-Secret / X-TIWater-API-Key). Schedule e.g. every 30 min in Azure.
 router.post('/fetchLogsRoutine', cronOrAuthForLogsRoutine, fetchLogsRoutine);
+// Legacy hardcoded routine (backup / rollback)
+router.post('/fetchLogsRoutine_old', cronOrAuthForLogsRoutine, fetchLogsRoutine_old);
 
 // fetch reporte por fechas 
 router.post('/generarLogsPorFecha', authenticate, generarLogsPorFecha);
