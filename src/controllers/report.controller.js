@@ -25,6 +25,21 @@ function isFiniteNumber(n) {
   return typeof n === 'number' && Number.isFinite(n);
 }
 
+/**
+ * Hourly deltas from previous_hour rules are typically tens–hundreds of liters.
+ * Stored bugs used `0 − production_volume_total` ≈ ±60 000; drop those from aggregates.
+ */
+function isPlausibleCustomDelta(value, meterHint) {
+  if (!isFiniteNumber(value)) return false;
+  const abs = Math.abs(value);
+  const hint = Number(meterHint);
+  // Clearly an absolute meter reading used as a "delta"
+  if (isPositiveFinite(hint) && abs >= hint * 0.5) return false;
+  // Cap for typical hour/period production (L). Real hourly prod ≈ 50–100 L at ~1 L/min.
+  if (abs > 5000) return false;
+  return true;
+}
+
 function trackLastFinite(state, value, date) {
   if (!isFiniteNumber(value)) return;
   const ts = new Date(date).getTime();
@@ -92,12 +107,29 @@ function trackLastMeter(state, value, date) {
   }
 }
 
-/** product_logs volumes: match applySpecialProductLogic (special: *1.6/10; else keep DB units). */
+/** product_logs volumes: match applySpecialProductLogic (special: *1.6/10; else keep DB units).
+ * Returns null when there is no positive reading (caller should carry-forward / gap). */
 function convertOsmosisVolumeLiters(raw, isSpecial) {
   let v = Number(raw);
-  if (!Number.isFinite(v) || v <= 0) return 0;
+  if (!Number.isFinite(v) || v <= 0) return null;
   if (isSpecial) v = (v * 1.6) / 10;
   return parseFloat(v.toFixed(2));
+}
+
+/** Fill gaps where an hour had no meter sample (was wrongly reported as 0). */
+function carryForwardMeterTotals(hoursWithStats) {
+  let lastProd = null;
+  let lastRej = null;
+  for (const hour of hoursWithStats) {
+    const est = hour.estadisticas || (hour.estadisticas = {});
+    const prod = est.production_volume_total;
+    const rej = est.rejected_volume_total;
+    if (prod != null && Number(prod) > 0) lastProd = Number(prod);
+    else if (lastProd != null) est.production_volume_total = lastProd;
+    if (rej != null && Number(rej) > 0) lastRej = Number(rej);
+    else if (lastRej != null) est.rejected_volume_total = lastRej;
+  }
+  return hoursWithStats;
 }
 
 /** Tuya flowrate_speed_* → L/min display (always ÷10; special also ×1.6). */
@@ -328,13 +360,14 @@ export async function generateProductLogsReport(
           if (isPositiveFinite(fr)) bucket.flujoRech.push(fr);
           trackLastMeter(bucket.prodVol, Number(log.production_volume), log.date);
           trackLastMeter(bucket.rejVol, Number(log.rejected_volume), log.date);
+          const meterHint = Number(log.production_volume);
           const c1 = Number(log.campo_personalizado_1);
-          if (isFiniteNumber(c1)) {
+          if (isPlausibleCustomDelta(c1, meterHint)) {
             bucket.c1.samples.push(c1);
             trackLastFinite(bucket.c1, c1, log.date);
           }
           const c2 = Number(log.campo_personalizado_2);
-          if (isFiniteNumber(c2)) {
+          if (isPlausibleCustomDelta(c2, meterHint)) {
             bucket.c2.samples.push(c2);
             trackLastFinite(bucket.c2, c2, log.date);
           }
@@ -367,6 +400,7 @@ export async function generateProductLogsReport(
             };
           })
           .sort((a, b) => a.hora.localeCompare(b.hora));
+        carryForwardMeterTotals(hoursWithStats);
         const totalLogs = hoursWithStats.reduce((sum, b) => sum + (b.total_logs || 0), 0);
         console.log(`📊 [generateProductLogsReport] Osmosis agregado por hora: ${hoursWithStats.length} buckets, ${totalLogs} logs (last meter / avg TDS)`);
         return {
@@ -679,23 +713,29 @@ export async function generateProductLogsReport(
         };
         const totalProductionVolume = hourData.production_volume_agrupado?.length > 0
           ? Number(lastMeterValue(hourData.production_volume_agrupado, 'production_volume')).toFixed(2)
-          : 0;
+          : null;
 
         const totalRejectedVolume = hourData.rejected_volume_agrupado?.length > 0
           ? Number(lastMeterValue(hourData.rejected_volume_agrupado, 'rejected_volume')).toFixed(2)
-          : 0;
+          : null;
 
+        const meterHintForCustom = Number(
+          lastMeterValue(hourData.production_volume_agrupado, 'production_volume')
+        );
         const lastCustomValue = (arr, key) => {
           if (!arr?.length) return null;
-          const sorted = [...arr].filter((i) => i.timestamp).sort((a, b) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-          );
-          const top = sorted[0] || arr[arr.length - 1];
-          const n = Number(top?.[key]);
+          const sorted = [...arr]
+            .filter((i) => i.timestamp && isPlausibleCustomDelta(Number(i[key]), meterHintForCustom))
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          const top = sorted[0];
+          if (!top) return null;
+          const n = Number(top[key]);
           return Number.isFinite(n) ? parseFloat(n.toFixed(2)) : null;
         };
         const avgCustom = (arr, key) => {
-          const nums = (arr || []).map((i) => Number(i[key])).filter(isFiniteNumber);
+          const nums = (arr || [])
+            .map((i) => Number(i[key]))
+            .filter((n) => isPlausibleCustomDelta(n, meterHintForCustom));
           if (!nums.length) return null;
           return parseFloat((nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(2));
         };
@@ -706,8 +746,10 @@ export async function generateProductLogsReport(
             tds_promedio: parseFloat(avgTds),
             flujo_produccion_promedio: parseFloat(avgFlujoProduccion),
             flujo_rechazo_promedio: parseFloat(avgFlujoRechazo),
-            production_volume_total: parseFloat(totalProductionVolume),
-            rejected_volume_total: parseFloat(totalRejectedVolume),
+            production_volume_total:
+              totalProductionVolume != null ? parseFloat(totalProductionVolume) : null,
+            rejected_volume_total:
+              totalRejectedVolume != null ? parseFloat(totalRejectedVolume) : null,
             campo_personalizado_1_promedio: avgCustom(hourData.campo_personalizado_1_agrupado, 'campo_personalizado_1'),
             campo_personalizado_1_ultimo: lastCustomValue(hourData.campo_personalizado_1_agrupado, 'campo_personalizado_1'),
             campo_personalizado_2_promedio: avgCustom(hourData.campo_personalizado_2_agrupado, 'campo_personalizado_2'),
@@ -716,6 +758,8 @@ export async function generateProductLogsReport(
         };
       }
     });
+
+    carryForwardMeterTotals(hoursWithStats);
 
     // ====== RESPUESTA ======
     console.log(`✅ [generateProductLogsReport] Reporte generado con ${hoursWithStats.length} horas con datos`);

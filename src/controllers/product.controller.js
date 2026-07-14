@@ -3419,40 +3419,73 @@ function applyTuyaCodeToLogRow(row, code, rawValue, fieldMapping) {
   }
 }
 
+/**
+ * Resolve a rule operand → { value, present }.
+ * Missing current DPs (sparse Tuya timestamps) and previous_hour rows with
+ * volume/flow = 0 must NOT be treated as numeric 0 — that produced
+ * `0 − production_volume_total` ≈ −62 000 in campo_personalizado_*.
+ */
 function resolveOperandValue(operand, currentRow, previousHourRow, fieldMapping) {
-  if (!operand?.code) return 0;
+  if (!operand?.code) return { value: 0, present: false };
   const code = operand.code;
   if (operand.source === 'previous_hour') {
-    if (!previousHourRow) return 0;
-    if (previousHourRow._scaled_by_code?.[code] != null) {
-      return Number(previousHourRow._scaled_by_code[code]) || 0;
+    if (!previousHourRow) return { value: 0, present: false };
+    if (
+      previousHourRow._scaled_by_code &&
+      Object.prototype.hasOwnProperty.call(previousHourRow._scaled_by_code, code)
+    ) {
+      const v = Number(previousHourRow._scaled_by_code[code]);
+      if (!Number.isFinite(v) || v === 0) return { value: 0, present: false };
+      return { value: v, present: true };
     }
     const cfg = fieldMapping[code] || FALLBACK_CODE_TO_COLUMN[code];
     if (cfg?.db_column && previousHourRow[cfg.db_column] != null) {
-      return Number(previousHourRow[cfg.db_column]) || 0;
+      const v = Number(previousHourRow[cfg.db_column]);
+      if (!Number.isFinite(v) || v === 0) return { value: 0, present: false };
+      return { value: v, present: true };
     }
     if (previousHourRow.custom_metrics?.[code] != null) {
-      return Number(previousHourRow.custom_metrics[code]) || 0;
+      const v = Number(previousHourRow.custom_metrics[code]);
+      if (!Number.isFinite(v) || v === 0) return { value: 0, present: false };
+      return { value: v, present: true };
     }
-    return 0;
+    return { value: 0, present: false };
   }
-  // current
-  if (currentRow._scaled_by_code?.[code] != null) {
-    return Number(currentRow._scaled_by_code[code]) || 0;
+  // current — only if THIS grouped timestamp actually received the Tuya code
+  if (
+    currentRow._scaled_by_code &&
+    Object.prototype.hasOwnProperty.call(currentRow._scaled_by_code, code)
+  ) {
+    const v = Number(currentRow._scaled_by_code[code]);
+    return { value: Number.isFinite(v) ? v : 0, present: true };
   }
-  const cfg = fieldMapping[code] || FALLBACK_CODE_TO_COLUMN[code];
-  if (cfg?.db_column && currentRow[cfg.db_column] != null) {
-    return Number(currentRow[cfg.db_column]) || 0;
+  // Do NOT fall back to row[db_column] defaults (initialized as 0).
+  return { value: 0, present: false };
+}
+
+/** DB columns that previous_hour rules need to be > 0 on the prior row. */
+function dbColumnsForPreviousHourRules(customRules, fieldMapping) {
+  const cols = new Set();
+  for (const rule of customRules || []) {
+    for (const side of [rule.left, rule.right]) {
+      if (side?.source !== 'previous_hour' || !side?.code) continue;
+      const cfg = fieldMapping[side.code] || FALLBACK_CODE_TO_COLUMN[side.code];
+      if (cfg?.db_column) cols.add(cfg.db_column);
+    }
   }
-  return 0;
+  return [...cols];
 }
 
 function applyCustomRulesToLogRow(row, customRules, previousHourRow, fieldMapping) {
   if (!customRules?.length) return;
   const customMetrics = { ...(row.custom_metrics || {}) };
   for (const rule of customRules) {
-    const left = resolveOperandValue(rule.left, row, previousHourRow, fieldMapping);
-    const right = resolveOperandValue(rule.right, row, previousHourRow, fieldMapping);
+    const leftOp = resolveOperandValue(rule.left, row, previousHourRow, fieldMapping);
+    const rightOp = resolveOperandValue(rule.right, row, previousHourRow, fieldMapping);
+    // Skip incomplete operands — leaving null avoids writing −meter_total garbage.
+    if (!leftOp.present || !rightOp.present) continue;
+    const left = leftOp.value;
+    const right = rightOp.value;
     let result = 0;
     switch (rule.op) {
       case 'add':
@@ -3858,6 +3891,7 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
         });
 
         const logDeviceIdsForPrev = collectProductLogDeviceIds(productId, product);
+        const prevHourRequireCols = dbColumnsForPreviousHourRules(customRules, fieldMapping);
         const sortedTimestamps = Object.keys(groupedLogs)
           .map(Number)
           .sort((a, b) => a - b);
@@ -3873,11 +3907,12 @@ async function doFetchLogsRoutineWork(productosWhitelist) {
           );
           if (needsPreviousHour) {
             const beforeMs = ts - ONE_HOUR_MS;
-            const cacheKey = `${logDeviceIdsForPrev.join(',')}:${beforeMs}`;
+            const cacheKey = `${logDeviceIdsForPrev.join(',')}:${beforeMs}:${prevHourRequireCols.join(',')}`;
             if (cachedPreviousHourKey !== cacheKey) {
               cachedPreviousHour = await ProductLogModel.findLatestBeforeAmong(
                 logDeviceIdsForPrev,
-                new Date(beforeMs)
+                new Date(beforeMs),
+                { requirePositiveColumns: prevHourRequireCols }
               );
               cachedPreviousHourKey = cacheKey;
             }
