@@ -101,24 +101,35 @@ class ProductLogModel {
 
   /**
    * Latest log for a device at or before a given date (for delta / previous_hour rules).
+   * Optional requirePositiveColumns: only return a row where those numeric columns are > 0
+   * (avoids sparse Tuya rows with production_volume=0 breaking current−previous deltas).
    */
-  static async findLatestBefore(productDeviceId, beforeDate) {
-    const result = await query(
-      `SELECT * FROM product_logs
-       WHERE product_device_id = $1 AND date <= $2
-       ORDER BY date DESC LIMIT 1`,
-      [productDeviceId, beforeDate instanceof Date ? beforeDate : new Date(beforeDate)]
-    );
-    return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
+  static async findLatestBefore(productDeviceId, beforeDate, { requirePositiveColumns = [] } = {}) {
+    return this.findLatestBeforeAmong([productDeviceId], beforeDate, { requirePositiveColumns });
   }
 
   /** Same as findLatestBefore but across locked + live device_id strings. */
-  static async findLatestBeforeAmong(deviceIds = [], beforeDate) {
+  static async findLatestBeforeAmong(deviceIds = [], beforeDate, { requirePositiveColumns = [] } = {}) {
     const ids = [...new Set((deviceIds || []).filter(Boolean).map(String))];
     if (ids.length === 0) return null;
+    const cols = [...new Set((requirePositiveColumns || []).filter(Boolean).map(String))];
+    // Only allow known product_logs numeric columns (SQL identifier safety).
+    const allowed = new Set([
+      'production_volume',
+      'rejected_volume',
+      'flujo_produccion',
+      'flujo_rechazo',
+      'tds',
+      'temperature',
+      'campo_personalizado_1',
+      'campo_personalizado_2',
+    ]);
+    const safeCols = cols.filter((c) => allowed.has(c));
+    const colClause = safeCols.map((c) => `COALESCE(${c}, 0) > 0`).join(' AND ');
     const result = await query(
       `SELECT * FROM product_logs
        WHERE product_device_id = ANY($1::text[]) AND date <= $2
+         ${colClause ? `AND ${colClause}` : ''}
        ORDER BY date DESC LIMIT 1`,
       [ids, beforeDate instanceof Date ? beforeDate : new Date(beforeDate)]
     );
