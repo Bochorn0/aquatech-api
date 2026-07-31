@@ -2,19 +2,18 @@ import { Router } from 'express';
 import { 
   getQuotes, 
   getQuoteById, 
-  createQuote, 
+  // createQuote, 
   updateQuote, 
   deleteQuote,
   getQuoteStats
 } from '../controllers/tiwater-quote.controller.js';
 import { authenticate, requirePermission } from '../middlewares/auth.middleware.js';
-import { validateTiWaterApiKey } from '../middlewares/tiwater-api-key.middleware.js';
+// import { validateTiWaterApiKey } from '../middlewares/tiwater-api-key.middleware.js';
 
 const router = Router();
 
-// Protected route - Requires TI Water API Key for creating quotes
-// Create new quote (customers can create quotes using API key)
-router.post('/', validateTiWaterApiKey, createQuote);
+// Disabled: public create via X-TIWater-API-Key (clave en front) — use TI_water_api instead
+// router.post('/', validateTiWaterApiKey, createQuote);
 
 // Protected routes - Authentication required for viewing/managing quotes
 // Get all quotes (with optional filters) - requires auth
