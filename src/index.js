@@ -23,8 +23,8 @@ import puntoVentaRoutes, { puntoVentaAuthOrCron } from './routes/puntoVenta.rout
 import sensorDataRoutes from './routes/sensorData.routes.js';  // Use `import` for sensorDataRoutes
 import sensorDataV2Routes from './routes/sensorDataV2.routes.js';  // Use `import` for sensorDataV2Routes (v2.0)
 import customizationV2Routes from './routes/customizationV2.routes.js';  // Use `import` for customizationV2Routes (v2.0)
-import tiwaterProductRoutes from './routes/tiwater-product.routes.js';  // Use `import` for TI Water product routes (v2.0)
-import tiwaterQuoteRoutes from './routes/tiwater-quote.routes.js';  // Use `import` for TI Water quote routes (v2.0)
+// import tiwaterProductRoutes from './routes/tiwater-product.routes.js';  // TI Water catalog disabled on this API
+// import tiwaterQuoteRoutes from './routes/tiwater-quote.routes.js';  // TI Water quotes disabled on this API
 import authRoutes from './routes/auth.routes.js';  // Use `import` for authRoutes
 import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoutes
 import regionRoutes from './routes/region.routes.js';
@@ -303,9 +303,10 @@ app.use('/api/v1.0/controllers', authenticate, requirePermission('/controladores
 app.use('/api/v1.0/puntoVentas', puntoVentaAuthOrCron, puntoVentaRoutes);
 app.use('/api/v1.0/sensor-data', authenticate, requirePermission('/'), sensorDataRoutes);
 
-// v2.0 API routes - PostgreSQL based (TI Water - no auth on these or add if needed)
-app.use('/api/v2.0/tiwater/products', tiwaterProductRoutes);
-app.use('/api/v2.0/tiwater/quotes', tiwaterQuoteRoutes);
+// v2.0 API routes - TI Water catalog/quotes disabled on this API (surface reduction / FEMSA)
+// Catalog & quotes live on TI_water_api; API-key public access was a security exposure here.
+// app.use('/api/v2.0/tiwater/products', tiwaterProductRoutes);
+// app.use('/api/v2.0/tiwater/quotes', tiwaterQuoteRoutes);
 
 // v2.0 API routes - Regions and Ciudades (for MQTT topic hierarchy)
 app.use('/api/v2.0/regions', regionRoutes);
