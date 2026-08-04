@@ -56,6 +56,48 @@ class ExternalIngestLogModel {
       [idempotencyKey, status, error]
     );
   }
+
+  /**
+   * Ops listing / DLQ visibility.
+   * @param {{ provider?: string, status?: string, limit?: number, offset?: number }} opts
+   */
+  static async list({ provider, status, limit = 50, offset = 0 } = {}) {
+    const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const off = Math.max(Number(offset) || 0, 0);
+    const result = await query(
+      `SELECT id, provider, external_device_id, idempotency_key, status, codigo_tienda,
+              sensores_message_id, error, received_at
+       FROM external_ingest_log
+       WHERE ($1::text IS NULL OR provider = $1)
+         AND ($2::text IS NULL OR status = $2)
+       ORDER BY received_at DESC
+       LIMIT $3 OFFSET $4`,
+      [provider || null, status || null, lim, off]
+    );
+    return (result.rows || []).map((row) => ({
+      id: row.id,
+      provider: row.provider,
+      externalDeviceId: row.external_device_id,
+      idempotencyKey: row.idempotency_key,
+      status: row.status,
+      codigoTienda: row.codigo_tienda,
+      sensoresMessageId: row.sensores_message_id,
+      error: row.error,
+      receivedAt: row.received_at,
+    }));
+  }
+
+  static async countByStatus({ provider } = {}) {
+    const result = await query(
+      `SELECT status, COUNT(*)::int AS count
+       FROM external_ingest_log
+       WHERE ($1::text IS NULL OR provider = $1)
+       GROUP BY status
+       ORDER BY status`,
+      [provider || null]
+    );
+    return result.rows || [];
+  }
 }
 
 export default ExternalIngestLogModel;

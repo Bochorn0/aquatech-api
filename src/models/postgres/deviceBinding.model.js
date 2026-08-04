@@ -90,6 +90,29 @@ class DeviceBindingModel {
     );
     return result.rows.map(parseRow);
   }
+
+  static async list({ provider, activeOnly = true, limit = 200, offset = 0 } = {}) {
+    const lim = Math.min(Math.max(Number(limit) || 200, 1), 500);
+    const off = Math.max(Number(offset) || 0, 0);
+    const result = await query(
+      `SELECT * FROM device_bindings
+       WHERE ($1::text IS NULL OR provider = $1)
+         AND ($2::boolean IS FALSE OR active = TRUE)
+       ORDER BY provider, codigo_tienda
+       LIMIT $3 OFFSET $4`,
+      [provider || null, activeOnly, lim, off]
+    );
+    return result.rows.map(parseRow);
+  }
+
+  static async deactivate(id) {
+    const result = await query(
+      `UPDATE device_bindings SET active = FALSE, updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [id]
+    );
+    return parseRow(result.rows[0]);
+  }
 }
 
 export default DeviceBindingModel;

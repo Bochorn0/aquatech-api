@@ -230,9 +230,9 @@ Work **point by point** on this branch (or stacked PRs from same branch commits)
 | **P3** | `persist.service` → `sensores_message` / `sensores` / `sensor_latest` | ✅ |
 | **P4** | Ingest controller + routes + Linghu JSON ack | ✅ `POST /api/v2.0/ingest/external/:providerId/readings` |
 | **P5** | Dashboard: confirm V2 detalle/historico; tweak `source_type` / enrichment if needed | ✅ `external` + `externalMeters` |
-| **P6** | Harden idempotency ops / DLQ visibility | partial (log table exists) |
-| **P7** | Async queue + worker | pending |
-| **P8** | Admin API/UI bindings | pending |
+| **P6** | Harden idempotency ops / DLQ visibility | ✅ ingest-log + status counts + admin routes |
+| **P7** | Async queue + worker | ✅ `EXTERNAL_INGEST_ASYNC=true` (in-process; Service Bus later) |
+| **P8** | Admin API/UI bindings | ✅ API bindings CRUD; UI pending |
 
 ---
 
