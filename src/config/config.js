@@ -26,6 +26,8 @@ const config = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  /** Shared secret for Linghu (and future) meter push webhooks */
+  LINGHU_INGEST_SECRET: process.env.LINGHU_INGEST_SECRET || process.env.EXTERNAL_PROVIDER_LINGHU_SECRET || '',
 };
 
 export default config;  // Use 'export default' for ESM

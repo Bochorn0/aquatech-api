@@ -217,15 +217,15 @@ Work **point by point** on this branch (or stacked PRs from same branch commits)
 
 | # | Deliverable | Done when |
 |---|-------------|-----------|
-| **P0** | This plan + branch | Doc merged or committed as first commit |
-| **P1** | Scaffold `externalProviders/` + Linghu provider (normalize + verifyAuth stubs) | Unit tests for mapping m³→L + field typos (`positve_volume`) |
-| **P2** | Migration `device_bindings` + `deviceBinding.model` + `binding.service` | CRUD minimal or seed script for pilot |
-| **P3** | `persist.service` → `sensores_message` / `sensores` | One fixture push visible in SQL by `codigo_tienda` |
-| **P4** | `externalProviderIngest.controller` + routes + auth + Linghu JSON ack | Staging URL ready for vendor |
-| **P5** | Dashboard: confirm V2 detalle/historico; tweak `source_type` / enrichment if needed | Pilot PV shows volumes |
-| **P6** | `external_ingest_log` + idempotency unique | Duplicate POST does not double-count |
-| **P7** | Async queue + worker | Load test ~few k msgs/min |
-| **P8** | Admin API/UI bindings (optional front PR) | Ops can map 24k without SQL |
+| **P0** | This plan + branch | ✅ |
+| **P1** | Scaffold `externalProviders/` + Linghu provider (normalize + verifyAuth) | ✅ unit tests mapping |
+| **P2** | Migration `device_bindings` + `external_ingest_log` + models + `binding.service` | ✅ |
+| **P3** | `persist.service` → `sensores_message` / `sensores` / `sensor_latest` | ✅ |
+| **P4** | Ingest controller + routes + Linghu JSON ack | ✅ `POST /api/v2.0/ingest/external/:providerId/readings` |
+| **P5** | Dashboard: confirm V2 detalle/historico; tweak `source_type` / enrichment if needed | pending |
+| **P6** | Harden idempotency ops / DLQ visibility | partial (log table exists) |
+| **P7** | Async queue + worker | pending |
+| **P8** | Admin API/UI bindings | pending |
 
 ---
 

@@ -30,6 +30,7 @@ import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoute
 import regionRoutes from './routes/region.routes.js';
 import ciudadRoutes from './routes/ciudad.routes.js';
 import adminEventsRoutes from './routes/adminEvents.routes.js';
+import externalProviderRoutes from './routes/externalProvider.routes.js';
 import rateLimit from 'express-rate-limit';
 import { getCorsOptions, getHelmetOptions } from './config/http-security.js';
 import { authenticate, requirePermission } from './middlewares/auth.middleware.js';
@@ -311,6 +312,10 @@ app.use('/api/v1.0/sensor-data', authenticate, requirePermission('/'), sensorDat
 // v2.0 API routes - Regions and Ciudades (for MQTT topic hierarchy)
 app.use('/api/v2.0/regions', regionRoutes);
 app.use('/api/v2.0/ciudades', ciudadRoutes);
+
+// External meter providers (Linghu push, etc.) — provider secret, no user JWT
+// Must be registered BEFORE authenticated /api/v2.0 mounts.
+app.use('/api/v2.0/ingest/external', externalProviderRoutes);
 
 // v2.0 API routes - Admin events (must be before generic /api/v2.0 so /admin/* is matched)
 app.use('/api/v2.0/admin', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), adminEventsRoutes);
