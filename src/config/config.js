@@ -26,8 +26,19 @@ const config = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
-  /** Shared secret for Linghu (and future) meter push webhooks */
-  LINGHU_INGEST_SECRET: process.env.LINGHU_INGEST_SECRET || process.env.EXTERNAL_PROVIDER_LINGHU_SECRET || '',
+
+  /**
+   * Linghu / external meter provider credentials (from .env — same pattern as Tuya).
+   * Webhook auth: X-Linghu-Client-Id + X-Linghu-Client-Secret
+   */
+  LINGHU_CLIENT_ID: process.env.LINGHU_CLIENT_ID || '',
+  LINGHU_CLIENT_SECRET:
+    process.env.LINGHU_CLIENT_SECRET
+    || process.env.LINGHU_INGEST_SECRET
+    || process.env.EXTERNAL_PROVIDER_LINGHU_SECRET
+    || '',
+  LINGHU_API_URL: process.env.LINGHU_API_URL || '',
+  LINGHU_INGEST_ALLOWLIST_IPS: process.env.LINGHU_INGEST_ALLOWLIST_IPS || '',
 };
 
 export default config;  // Use 'export default' for ESM

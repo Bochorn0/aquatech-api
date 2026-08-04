@@ -198,16 +198,23 @@ export default {
 Env (examples):
 
 ```
-EXTERNAL_PROVIDERS_ENABLED=true
-LINGHU_INGEST_SECRET=...          # or EXTERNAL_PROVIDER_LINGHU_SECRET
-LINGHU_INGEST_ALLOWLIST_IPS=      # optional
-# later queue:
-EXTERNAL_INGEST_QUEUE_URL=
+LINGHU_CLIENT_ID=...
+LINGHU_CLIENT_SECRET=...
+# optional:
+LINGHU_API_URL=
+LINGHU_INGEST_ALLOWLIST_IPS=
+# legacy alias still accepted as secret-only:
+# LINGHU_INGEST_SECRET=...
 ```
 
-- No JWT for webhook (machine-to-machine).  
-- Rate limit dedicated route.  
-- Never log full secrets; payload logging behind flag.
+Webhook headers:
+
+```
+X-Linghu-Client-Id: <LINGHU_CLIENT_ID>
+X-Linghu-Client-Secret: <LINGHU_CLIENT_SECRET>
+```
+
+Same pattern as Tuya (`TUYA_CLIENT_ID` / `TUYA_CLIENT_SECRET`): values only from `.env` / App Settings, never hardcoded.
 
 ---
 
