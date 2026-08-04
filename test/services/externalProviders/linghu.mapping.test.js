@@ -38,8 +38,11 @@ describe('linghu.mapping normalizeLinghuPush', () => {
     expect(r.externalDeviceId).toBe('12345678901239');
     expect(r.imei).toBe('12345678901239');
     expect(r.metrics.find((m) => m.name === 'volume_positive').value).toBe(21500);
+    expect(r.metrics.find((m) => m.name === 'volume_positive').type).toBe('volume_positive');
     expect(r.metrics.find((m) => m.name === 'volume_reverse').value).toBe(1250);
+    expect(r.metrics.find((m) => m.name === 'volume_reverse').type).toBe('volume_reverse');
     expect(r.metrics.find((m) => m.name === 'flow_instant').value).toBeCloseTo(0.15);
+    expect(r.metrics.find((m) => m.name === 'flow_instant').type).toBe('flow_instant');
     expect(r.metrics.find((m) => m.name === 'pressure').value).toBeCloseTo(0.32);
     expect(r.idempotencyKey).toContain(LINGHU_PROVIDER_ID);
     expect(r.raw.source).toBe('external:linghu');

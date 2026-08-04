@@ -94,34 +94,35 @@ export function normalizeLinghuPush(body) {
   const metrics = [];
 
   const volPos = m3ToLiters(pick(body, ['positve_volume', 'positive_volume', 'positiveVolume']));
-  if (volPos !== null) metrics.push(metric('volume_positive', 'volume', volPos, 'L'));
+  // type must be unique per sensor_latest key (codigo_tienda, type, resource_id, resource_type)
+  if (volPos !== null) metrics.push(metric('volume_positive', 'volume_positive', volPos, 'L'));
 
   const volRev = m3ToLiters(pick(body, ['reverse_volume', 'reverseVolume']));
-  if (volRev !== null) metrics.push(metric('volume_reverse', 'volume', volRev, 'L'));
+  if (volRev !== null) metrics.push(metric('volume_reverse', 'volume_reverse', volRev, 'L'));
 
   const temp = toNumber(pick(body, ['temperature']));
   if (temp !== null) metrics.push(metric('temperature', 'temperature', temp, 'C'));
 
   const voltage = toNumber(pick(body, ['voltage_meter', 'voltageMeter']));
-  if (voltage !== null) metrics.push(metric('voltage_meter', 'voltage', voltage, 'V'));
+  if (voltage !== null) metrics.push(metric('voltage_meter', 'voltage_meter', voltage, 'V'));
 
   const signal = toNumber(pick(body, ['signal_meter', 'signalMeter']));
-  if (signal !== null) metrics.push(metric('signal_meter', 'signal', signal, ''));
+  if (signal !== null) metrics.push(metric('signal_meter', 'signal_meter', signal, ''));
 
   const noise = toNumber(pick(body, ['signal_noise', 'signalNoise']));
-  if (noise !== null) metrics.push(metric('signal_noise', 'signal', noise, ''));
+  if (noise !== null) metrics.push(metric('signal_noise', 'signal_noise', noise, ''));
 
   const valve = toByteFlag(pick(body, ['valve_status', 'valveStatus']));
-  if (valve !== null) metrics.push(metric('valve_status', 'status', valve, ''));
+  if (valve !== null) metrics.push(metric('valve_status', 'valve_status', valve, ''));
 
   const flow = toNumber(pick(body, ['para_a', 'paraA', 'instant_flow']));
-  if (flow !== null) metrics.push(metric('flow_instant', 'flow', flow, 'm3'));
+  if (flow !== null) metrics.push(metric('flow_instant', 'flow_instant', flow, 'm3'));
 
   const pressure = toNumber(pick(body, ['para_b', 'paraB', 'pressure']));
   if (pressure !== null) metrics.push(metric('pressure', 'pressure', pressure, 'MPa'));
 
   const sensorP = toNumber(pick(body, ['sensor_p', 'sensorP']));
-  if (sensorP !== null) metrics.push(metric('sensor_p', 'sensor', sensorP, ''));
+  if (sensorP !== null) metrics.push(metric('sensor_p', 'sensor_p', sensorP, ''));
 
   const alarms = {
     under_voltage_status: toByteFlag(pick(body, ['under_voltage_status', 'under_voltage_st -atus', 'underVoltageStatus'])),
@@ -133,7 +134,7 @@ export function normalizeLinghuPush(body) {
 
   for (const [name, value] of Object.entries(alarms)) {
     if (value !== null && value !== undefined) {
-      metrics.push(metric(name, 'alarm', value, ''));
+      metrics.push(metric(name, name, value, ''));
     }
   }
 

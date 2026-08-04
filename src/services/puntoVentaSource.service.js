@@ -8,7 +8,7 @@ import PuntoVentaV1Model from '../models/postgres/puntoVentaV1.model.js';
 import ProductModel from '../models/postgres/product.model.js';
 import { normalizeTuyaStatus } from '../utils/tuyaSensorMapping.js';
 
-export const SOURCE_TYPES = ['mqtt', 'tuya', 'hybrid'];
+export const SOURCE_TYPES = ['mqtt', 'tuya', 'hybrid', 'external'];
 
 export function normalizeSourceType(value) {
   const v = (value || 'mqtt').toString().toLowerCase().trim();
@@ -138,8 +138,13 @@ export function usesTuyaSource(sourceType) {
   return sourceType === 'tuya' || sourceType === 'hybrid';
 }
 
+/** MQTT gateway sensors and/or external provider pushes that land in sensores*. */
 export function usesMqttSource(sourceType) {
-  return sourceType === 'mqtt' || sourceType === 'hybrid';
+  return sourceType === 'mqtt' || sourceType === 'hybrid' || sourceType === 'external';
+}
+
+export function usesExternalSource(sourceType) {
+  return sourceType === 'external';
 }
 
 /**
@@ -182,7 +187,7 @@ export async function applySourceConfigOnSave(puntoventaRecord, body = {}) {
   let codigo_tienda = (body.codigo_tienda || body.code || puntoventaRecord?.codigo_tienda || '').toString().trim();
 
   if (usesMqttSource(sourceType) && !codigo_tienda) {
-    throw Object.assign(new Error('codigo_tienda is required for MQTT source type'), { statusCode: 400 });
+    throw Object.assign(new Error('codigo_tienda is required for MQTT/external source type'), { statusCode: 400 });
   }
   if (usesTuyaSource(sourceType) && productIds !== null && productIds.length === 0) {
     throw Object.assign(new Error('At least one Tuya product is required for Tuya source type'), { statusCode: 400 });
@@ -195,6 +200,12 @@ export async function applySourceConfigOnSave(puntoventaRecord, body = {}) {
   if (sourceType === 'tuya' && !codigo_tienda) {
     const pvId = puntoventaRecord?.id ? String(puntoventaRecord.id) : Date.now();
     codigo_tienda = `TUYA-${pvId}`;
+  }
+
+  // External-only: auto-generate store code when not provided
+  if (sourceType === 'external' && !codigo_tienda) {
+    const pvId = puntoventaRecord?.id ? String(puntoventaRecord.id) : Date.now();
+    codigo_tienda = `EXT-${pvId}`;
   }
 
   if (usesTuyaSource(sourceType) && productIds !== null) {
@@ -247,6 +258,74 @@ export async function enrichDetalleWithTuya({ puntoFromPG, osmosisSystems = [], 
     }), ...nivelAndOthers],
     onlineFromTuya: isTuyaOnline(products),
     skipDefaultPlaceholder: shouldSkipDefault,
+  };
+}
+
+/**
+ * Enrich V2 detalle with external provider meters (Linghu, etc.) bound to this store.
+ */
+export async function enrichDetalleWithExternal({ puntoFromPG }) {
+  const sourceType = normalizeSourceType(puntoFromPG.source_type);
+  if (!usesExternalSource(sourceType)) {
+    return { source_type: sourceType, externalMeters: [], onlineFromExternal: false };
+  }
+
+  const codigo = (puntoFromPG.codigo_tienda || puntoFromPG.code || '').toString().trim();
+  if (!codigo) {
+    return { source_type: sourceType, externalMeters: [], onlineFromExternal: false };
+  }
+
+  let SensorLatestModel;
+  try {
+    SensorLatestModel = (await import('../models/postgres/sensorLatest.model.js')).default;
+  } catch {
+    return { source_type: sourceType, externalMeters: [], onlineFromExternal: false };
+  }
+
+  // Bindings for this store (any provider)
+  const bindingsResult = await query(
+    `SELECT * FROM device_bindings
+     WHERE active = TRUE AND UPPER(TRIM(codigo_tienda)) = UPPER(TRIM($1))
+     ORDER BY provider, external_device_id`,
+    [codigo]
+  );
+
+  const latestRows = await SensorLatestModel.getLatestByCodigoTiendaNormalized(codigo)
+    .catch(async () => SensorLatestModel.getLatestByCodigoTienda(codigo).catch(() => []));
+
+  const ONLINE_MS = 48 * 60 * 60 * 1000; // external meters often report 3×/day
+  const now = Date.now();
+  const meters = (bindingsResult.rows || []).map((row) => {
+    const deviceId = row.external_device_id;
+    const deviceLatest = (latestRows || []).filter(
+      (s) => String(s.resourceId || s.resource_id || '') === String(deviceId)
+    );
+    const byName = {};
+    let maxTs = null;
+    for (const s of deviceLatest) {
+      byName[s.name || s.type] = s.value;
+      const ts = s.timestamp ? new Date(s.timestamp).getTime() : null;
+      if (ts && (!maxTs || ts > maxTs)) maxTs = ts;
+    }
+    return {
+      provider: row.provider,
+      externalDeviceId: deviceId,
+      imei: row.external_imei || null,
+      volume_positive_L: byName.volume_positive ?? null,
+      volume_reverse_L: byName.volume_reverse ?? null,
+      temperature: byName.temperature ?? null,
+      pressure: byName.pressure ?? null,
+      flow_instant: byName.flow_instant ?? null,
+      lastReadingAt: maxTs ? new Date(maxTs).toISOString() : null,
+      online: maxTs != null && (now - maxTs) <= ONLINE_MS,
+      metrics: deviceLatest,
+    };
+  });
+
+  return {
+    source_type: sourceType,
+    externalMeters: meters,
+    onlineFromExternal: meters.some((m) => m.online),
   };
 }
 
@@ -328,6 +407,7 @@ export default {
   ensureV1Shadow,
   applySourceConfigOnSave,
   enrichDetalleWithTuya,
+  enrichDetalleWithExternal,
   loadV1ShadowByPuntoIds,
   enrichListItem,
   batchTuyaOnlineByPuntoIds,
@@ -335,4 +415,5 @@ export default {
   mergeOsmosisSystems,
   usesTuyaSource,
   usesMqttSource,
+  usesExternalSource,
 };
