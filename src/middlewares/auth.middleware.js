@@ -75,3 +75,32 @@ export const requirePermission = (...allowedPaths) => {
     }
   };
 };
+
+/**
+ * Require an explicit path on the role checklist.
+ * Unlike requirePermission, empty permissions / admin name does NOT bypass.
+ */
+export const requireExplicitPermission = (...requiredPaths) => {
+  const normalizedRequired = requiredPaths.map(normalizePath).filter(Boolean);
+  return async (req, res, next) => {
+    try {
+      const role = await RoleModel.findById(req.user.role);
+      if (!role) {
+        return res.status(403).json({ message: 'Forbidden: Role not found' });
+      }
+      const perms = role.permissions && Array.isArray(role.permissions) ? role.permissions : [];
+      const normalizedPerms = perms.map(normalizePath);
+      const hasAccess = normalizedRequired.some((p) => normalizedPerms.includes(p));
+      if (!hasAccess) {
+        return res.status(403).json({
+          message: 'Forbidden: Explicit permission required',
+          required: normalizedRequired,
+        });
+      }
+      return next();
+    } catch (error) {
+      console.error('Explicit Permission Authorization Error:', error);
+      return res.status(500).json({ message: 'Server Error' });
+    }
+  };
+};

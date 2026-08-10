@@ -30,6 +30,9 @@ import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoute
 import regionRoutes from './routes/region.routes.js';
 import ciudadRoutes from './routes/ciudad.routes.js';
 import adminEventsRoutes from './routes/adminEvents.routes.js';
+import externalProviderRoutes from './routes/externalProvider.routes.js';
+import externalProviderAdminRoutes from './routes/externalProviderAdmin.routes.js';
+import { syncMeterPlatform } from './controllers/externalProviderAdmin.controller.js';
 import rateLimit from 'express-rate-limit';
 import { getCorsOptions, getHelmetOptions } from './config/http-security.js';
 import { authenticate, requirePermission } from './middlewares/auth.middleware.js';
@@ -311,6 +314,42 @@ app.use('/api/v1.0/sensor-data', authenticate, requirePermission('/'), sensorDat
 // v2.0 API routes - Regions and Ciudades (for MQTT topic hierarchy)
 app.use('/api/v2.0/regions', regionRoutes);
 app.use('/api/v2.0/ciudades', ciudadRoutes);
+
+// External meter providers (Linghu push, etc.) — provider secret, no user JWT
+// Must be registered BEFORE authenticated /api/v2.0 mounts.
+app.use('/api/v2.0/ingest/external', externalProviderRoutes);
+
+// External providers ops — JWT. Cron may POST meter-platform/sync with X-Cron-Secret (no JWT).
+app.post(
+  '/api/v2.0/external-providers/meter-platform/sync',
+  (req, res, next) => {
+    const cronHeader = req.headers['x-cron-secret'] || req.headers['x-tiwater-api-key'];
+    const validSecret =
+      process.env.CRON_METER_PLATFORM_SECRET
+      || process.env.CRON_TUYA_LOGS_SECRET
+      || process.env.CRON_DEV_MODE_SECRET
+      || process.env.TIWATER_API_KEY;
+    if (cronHeader && validSecret && cronHeader === validSecret) {
+      return syncMeterPlatform(req, res);
+    }
+    return next();
+  }
+);
+
+app.use(
+  '/api/v2.0/external-providers',
+  authenticate,
+  requirePermission(
+    '/',
+    '/dashboard',
+    '/dashboard/v1',
+    '/dashboard/v2',
+    '/puntoVenta',
+    '/personalizacion',
+    '/meter-platform'
+  ),
+  externalProviderAdminRoutes
+);
 
 // v2.0 API routes - Admin events (must be before generic /api/v2.0 so /admin/* is matched)
 app.use('/api/v2.0/admin', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), adminEventsRoutes);

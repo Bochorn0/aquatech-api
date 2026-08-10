@@ -1712,7 +1712,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       console.log(`[SensorDataV2] No sensor data for ${codigoTiendaNorm}; checking Tuya source before default placeholders`);
     }
 
-    const { enrichDetalleWithTuya } = await import('../services/puntoVentaSource.service.js');
+    const { enrichDetalleWithTuya, enrichDetalleWithExternal } = await import('../services/puntoVentaSource.service.js');
     const tuyaEnrichment = await enrichDetalleWithTuya({
       puntoFromPG,
       osmosisSystems,
@@ -1720,8 +1720,10 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
     });
     osmosisSystems = tuyaEnrichment.osmosisSystems;
 
-    if (osmosisSystems.length === 0 && !tuyaEnrichment.skipDefaultPlaceholder) {
-      console.log(`[SensorDataV2] No sensor/Tuya data for ${codigoTiendaNorm}; returning default TIWater placeholders`);
+    const externalEnrichment = await enrichDetalleWithExternal({ puntoFromPG });
+
+    if (osmosisSystems.length === 0 && !tuyaEnrichment.skipDefaultPlaceholder && !externalEnrichment.externalMeters?.length) {
+      console.log(`[SensorDataV2] No sensor/Tuya/external data for ${codigoTiendaNorm}; returning default TIWater placeholders`);
       osmosisSystems.push(buildDefaultTiwaterOsmosisSystem());
     }
 
@@ -2096,9 +2098,12 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       ...punto.toObject(),
       productos: allProductos,
       osmosisSystems,
+      externalMeters: externalEnrichment.externalMeters || [],
       online: tuyaEnrichment.source_type === 'tuya'
         ? tuyaEnrichment.onlineFromTuya
-        : (isOnline || tuyaEnrichment.onlineFromTuya),
+        : tuyaEnrichment.source_type === 'external'
+          ? (isOnline || externalEnrichment.onlineFromExternal)
+          : (isOnline || tuyaEnrichment.onlineFromTuya || externalEnrichment.onlineFromExternal),
       source_type: tuyaEnrichment.source_type,
       latestSensorTimestamp: latestSensorTimestamp || undefined
     };
