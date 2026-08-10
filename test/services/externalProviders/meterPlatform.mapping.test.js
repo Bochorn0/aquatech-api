@@ -2,6 +2,8 @@ import {
   normalizeMeterPlatformReading,
   cubicMetersToLiters,
   toCubicMeters,
+  parseLast5DaysDailyUsage,
+  enrichDailyUsageMap,
   METER_PLATFORM_PROVIDER_ID,
 } from '../../../src/services/externalProviders/providers/meterPlatform/meterPlatform.mapping.js';
 import { ExternalProviderValidationError } from '../../../src/services/externalProviders/types.js';
@@ -100,10 +102,40 @@ describe('meterPlatform.mapping normalizeMeterPlatformReading', () => {
     expect(r.raw.dailyUsageMap).toEqual({ '2026-08-09': 0 });
   });
 
+  it('rejects missing deviceCode', () => {
+    expect(() => normalizeMeterPlatformReading({ currentForwardUsage: 1 })).toThrow(
+      ExternalProviderValidationError
+    );
+  });
+
   it('rejects empty metrics', () => {
     expect(() => normalizeMeterPlatformReading({ deviceCode: 'X' })).toThrow(
       ExternalProviderValidationError
     );
+  });
+});
+
+describe('parseLast5DaysDailyUsage / enrichDailyUsageMap', () => {
+  it('parses last5DaysDailyUsage hex as protocol 1101H ×1000 m³', () => {
+    // start 2026-08-05, 2 days: 1.5 m³ (1500) and 2.0 m³ (2000)
+    const hex = `26080502${'000005dc'}${'000007d0'}`;
+    const parsed = parseLast5DaysDailyUsage(hex);
+    expect(parsed.startDate).toBe('2026-08-05');
+    expect(parsed.days).toBe(2);
+    expect(parsed.entries[0]).toMatchObject({ date: '2026-08-05', raw: 1500, m3: 1.5, liters: 1500 });
+    expect(parsed.entries[1]).toMatchObject({ date: '2026-08-06', raw: 2000, m3: 2, liters: 2000 });
+  });
+
+  it('enriches dailyUsageMap with m³→L and day deltas (cumulative pattern)', () => {
+    const rows = enrichDailyUsageMap({
+      '2026-08-05': 2880,
+      '2026-08-06': 2900,
+      '2026-08-07': 2990,
+    });
+    expect(rows[0].liters).toBe(2_880_000);
+    expect(rows[1].deltaM3).toBe(20);
+    expect(rows[1].deltaLiters).toBe(20_000);
+    expect(rows[2].deltaM3).toBe(90);
   });
 });
 

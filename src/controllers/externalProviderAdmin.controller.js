@@ -305,8 +305,13 @@ export async function getMeterPlatformDeviceDetail(req, res) {
 
     let normalized = null;
     let normalizeError = null;
+    let usageBreakdown = null;
     try {
-      const { normalizeMeterPlatformReading } = await import(
+      const {
+        normalizeMeterPlatformReading,
+        parseLast5DaysDailyUsage,
+        enrichDailyUsageMap,
+      } = await import(
         '../services/externalProviders/providers/meterPlatform/meterPlatform.mapping.js'
       );
       // Prefer richest payload: latest client report + extend
@@ -327,6 +332,25 @@ export async function getMeterPlatformDeviceDetail(req, res) {
           rawMeta: reading.raw,
         };
       }
+
+      const reportReq = report?.analyticalParsed?.meterReportRequest || {};
+      const last5 =
+        reportReq.last5DaysDailyUsage
+        || extend?.last5DaysDailyUsage
+        || null;
+      const map =
+        reportReq.dailyUsageMap
+        || extend?.dailyUsageMap
+        || null;
+      usageBreakdown = {
+        unit: 'm³ (protocol ×1000; not pulses)',
+        explanation:
+          'last5DaysDailyUsage is the packed hex for protocol 1101H (start date BCD + N days × 4B). Divide each int by 1000 → m³; the integer itself is liters. dailyUsageMap from the platform is already in m³; PDF examples match end-of-day cumulative totals (day delta ≈ consumption).',
+        last5DaysDailyUsageRaw: last5,
+        last5DaysParsed: parseLast5DaysDailyUsage(last5),
+        dailyUsageMap: map,
+        dailyUsageEnriched: enrichDailyUsageMap(map),
+      };
     } catch (err) {
       normalizeError = err.message;
     }
@@ -342,6 +366,7 @@ export async function getMeterPlatformDeviceDetail(req, res) {
         staticReports: staticRows,
         normalized,
         normalizeError,
+        usageBreakdown,
         fetchErrors: {
           extend: extendRes.success ? null : extendRes.error,
           conn: connRes.success ? null : connRes.error,

@@ -83,6 +83,90 @@ function parseObservedAt(raw) {
 }
 
 /**
+ * Decode protocol object 1101H packed into `last5DaysDailyUsage` hex string.
+ *
+ * Layout (hex digits, same as doc §2.3):
+ *   Start date 3B BCD (YYMMDD) + days 1B + days×4B big-endian integers.
+ * Scale: ×1000 → cubic meters (same as 0006H cumulative volume). NOT pulses.
+ *
+ * Example: "26080505" + 5×"00000000" → start 2026-08-05, 5 days of 0 m³.
+ *
+ * @param {string} hex
+ * @returns {{ startDate: string, days: number, entries: Array<{date: string, raw: number, m3: number, liters: number}>, unitNote: string } | null}
+ */
+export function parseLast5DaysDailyUsage(hex) {
+  if (hex == null || hex === '') return null;
+  const h = String(hex).trim().replace(/[^0-9a-fA-F]/g, '');
+  if (h.length < 8) return null;
+
+  const yy = 2000 + parseInt(h.slice(0, 2), 10);
+  const mo = parseInt(h.slice(2, 4), 10);
+  const dd = parseInt(h.slice(4, 6), 10);
+  const days = parseInt(h.slice(6, 8), 10);
+  if (![yy, mo, dd, days].every((n) => Number.isFinite(n)) || days < 1 || days > 31) {
+    return null;
+  }
+  if (h.length < 8 + days * 8) return null;
+
+  const start = new Date(yy, mo - 1, dd);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const entries = [];
+  for (let i = 0; i < days; i += 1) {
+    const chunk = h.slice(8 + i * 8, 8 + (i + 1) * 8);
+    const raw = parseInt(chunk, 16);
+    if (!Number.isFinite(raw)) continue;
+    const day = new Date(start);
+    day.setDate(start.getDate() + i);
+    const yyyy = day.getFullYear();
+    const mm = String(day.getMonth() + 1).padStart(2, '0');
+    const d2 = String(day.getDate()).padStart(2, '0');
+    // Protocol ×1000 (m³): raw/1000 = m³; raw itself = liters (1 m³ = 1000 L)
+    entries.push({
+      date: `${yyyy}-${mm}-${d2}`,
+      raw,
+      m3: raw / 1000,
+      liters: raw,
+    });
+  }
+
+  return {
+    startDate: `${yy}-${String(mo).padStart(2, '0')}-${String(dd).padStart(2, '0')}`,
+    days,
+    entries,
+    unit: 'm3',
+    scale: 'x1000',
+    unitNote:
+      'Protocol 1101H: each day is a 4-byte int ×1000 → m³ (same scale as cumulative volume). Not pulses. liters = raw; m³ = raw/1000. Platform dailyUsageMap is usually already in m³; PDF examples look like end-of-day cumulative totals (deltas ≈ daily consumption).',
+  };
+}
+
+/**
+ * Normalize platform dailyUsageMap (already m³ in live JSON / PDF) into a sorted table + deltas.
+ * @param {Record<string, number>|null|undefined} map
+ */
+export function enrichDailyUsageMap(map) {
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return null;
+  const rows = Object.entries(map)
+    .map(([date, value]) => ({ date, m3: toNumber(value) }))
+    .filter((r) => r.m3 !== null)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+  return rows.map((row, i) => {
+    const prev = i > 0 ? rows[i - 1].m3 : null;
+    const deltaM3 = prev == null ? null : row.m3 - prev;
+    return {
+      date: row.date,
+      m3: row.m3,
+      liters: row.m3 * 1000,
+      /** If map holds cumulative EOD totals (PDF pattern), this is that day's consumption */
+      deltaM3,
+      deltaLiters: deltaM3 == null ? null : deltaM3 * 1000,
+    };
+  });
+}
+
+/**
  * Flatten live platform shapes:
  * - deviceExtend: { meterNo, deviceInfo: { totalMetering, … }, … }
  * - conn analyticalBody JSON: { meterReportRequest: { currentForwardUsage, … } }
@@ -230,6 +314,8 @@ export function normalizeMeterPlatformReading(body, opts = {}) {
   }
 
   const dailyUsageMap = pick(raw, ['dailyUsageMap', 'dayUsageMap', 'dailyUsage']);
+  const last5Raw = pick(raw, ['last5DaysDailyUsage']);
+  const last5Parsed = parseLast5DaysDailyUsage(last5Raw);
 
   return {
     provider: METER_PLATFORM_PROVIDER_ID,
@@ -242,7 +328,9 @@ export function normalizeMeterPlatformReading(body, opts = {}) {
     raw: {
       source: externalSourceTag(METER_PLATFORM_PROVIDER_ID),
       dailyUsageMap: dailyUsageMap || undefined,
-      last5DaysDailyUsage: pick(raw, ['last5DaysDailyUsage']),
+      dailyUsageEnriched: enrichDailyUsageMap(dailyUsageMap),
+      last5DaysDailyUsage: last5Raw || undefined,
+      last5DaysDailyUsageParsed: last5Parsed || undefined,
       deviceType: pick(raw, ['deviceType', 'meterType']),
       iccid: pick(raw, ['iccid', 'ICCID']),
       vendor: pick(raw, ['vendor', 'manufacturer']),
@@ -259,6 +347,8 @@ export default {
   METER_PLATFORM_PROVIDER_ID,
   flattenMeterPlatformPayload,
   normalizeMeterPlatformReading,
+  parseLast5DaysDailyUsage,
+  enrichDailyUsageMap,
   toCubicMeters,
   cubicMetersToLiters,
 };
