@@ -60,10 +60,44 @@ describe('meterPlatform.mapping normalizeMeterPlatformReading', () => {
     expect(r.metrics.find((m) => m.name === 'volume_positive').value).toBe(2_990_000);
   });
 
-  it('rejects missing deviceCode', () => {
-    expect(() => normalizeMeterPlatformReading({ currentForwardUsage: 1 })).toThrow(
-      ExternalProviderValidationError
-    );
+  it('flattens live deviceExtend + nested deviceInfo', () => {
+    const r = normalizeMeterPlatformReading({
+      meterNo: '11002608101111',
+      valveDesc: '阀门开',
+      terminalClock: '260810134546',
+      deviceInfo: {
+        deviceCode: '11002608101111',
+        totalMetering: 0,
+        isOnline: 'on_line',
+        valveStatus: '阀门开',
+      },
+    });
+    expect(r.externalDeviceId).toBe('11002608101111');
+    expect(r.metrics.find((m) => m.name === 'volume_positive').value).toBe(0);
+    expect(r.metrics.find((m) => m.name === 'online').value).toBe(1);
+    expect(r.metrics.find((m) => m.name === 'valve_status').value).toBe(0);
+  });
+
+  it('parses conn analyticalBody meterReportRequest', () => {
+    const r = normalizeMeterPlatformReading({
+      deviceCode: '11002608101111',
+      direction: 'client',
+      type: 'report',
+      analyticalBody: JSON.stringify({
+        meterReportRequest: {
+          terminalClock: '260810134546',
+          currentForwardUsage: 12.5,
+          reverseUsage: 0.1,
+          batteryVoltage: 3694,
+          valveDesc: '阀门开',
+          dailyUsageMap: { '2026-08-09': 0 },
+        },
+      }),
+    });
+    expect(r.metrics.find((m) => m.name === 'volume_positive').value).toBe(12500);
+    expect(r.metrics.find((m) => m.name === 'volume_reverse').value).toBe(100);
+    expect(r.metrics.find((m) => m.name === 'voltage_meter').value).toBeCloseTo(3.694);
+    expect(r.raw.dailyUsageMap).toEqual({ '2026-08-09': 0 });
   });
 
   it('rejects empty metrics', () => {

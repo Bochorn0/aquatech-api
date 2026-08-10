@@ -16,16 +16,60 @@ const PROVIDER = meterPlatformProvider.id;
  * @param {string} deviceCode
  * @param {{ persist?: boolean, volumeUnit?: string }} [opts]
  */
-export async function syncDevice(deviceCode, opts = {}) {
-  const persist = opts.persist !== false;
+/**
+ * Prefer latest client "report" conn row (rich analyticalBody); fall back to deviceExtend.
+ */
+async function fetchBestPayload(deviceCode) {
   const extend = await meterPlatformProvider.client.getDeviceExtend(deviceCode);
   if (!extend.success) {
-    return { success: false, deviceCode, error: extend.error, stage: 'fetch' };
+    return { success: false, error: extend.error, stage: 'fetch', payload: null };
+  }
+
+  let payload = extend.data || extend.raw;
+  let source = 'deviceExtend';
+
+  try {
+    const conn = await meterPlatformProvider.client.getConnRecordList(deviceCode, {
+      pageNum: 1,
+      pageSize: 20,
+    });
+    if (conn.success) {
+      const rows = Array.isArray(conn.data)
+        ? conn.data
+        : conn.data?.rows || conn.raw?.rows || [];
+      const report = rows.find(
+        (r) =>
+          String(r?.direction || '').toLowerCase() === 'client'
+          && String(r?.type || '').toLowerCase() === 'report'
+          && r?.analyticalBody
+      ) || rows.find((r) => r?.analyticalBody && String(r.analyticalBody).includes('currentForwardUsage'));
+      if (report) {
+        // Merge extend profile + report metrics
+        payload = {
+          ...(typeof extend.data === 'object' ? extend.data : {}),
+          ...report,
+          deviceCode,
+        };
+        source = 'connRecord+deviceExtend';
+      }
+    }
+  } catch (err) {
+    console.warn('[meterPlatform.sync] conn fetch optional fail:', err.message);
+  }
+
+  return { success: true, payload, source, extendData: extend.data };
+}
+
+export async function syncDevice(deviceCode, opts = {}) {
+  const persist = opts.persist !== false;
+  const fetched = await fetchBestPayload(deviceCode);
+  if (!fetched.success) {
+    return { success: false, deviceCode, error: fetched.error, stage: 'fetch' };
   }
 
   let reading;
   try {
-    reading = normalizeMeterPlatformReading(extend.data || extend.raw, {
+    reading = normalizeMeterPlatformReading(fetched.payload, {
       volumeUnit: opts.volumeUnit,
     });
   } catch (err) {
@@ -34,12 +78,18 @@ export async function syncDevice(deviceCode, opts = {}) {
       deviceCode,
       error: err.message,
       stage: 'normalize',
-      raw: extend.data,
+      raw: fetched.payload,
     };
   }
 
   if (!persist) {
-    return { success: true, deviceCode, reading, persisted: false };
+    return {
+      success: true,
+      deviceCode,
+      reading,
+      persisted: false,
+      payloadSource: fetched.source,
+    };
   }
 
   // Ensure idempotency log row exists for pull path
@@ -49,7 +99,7 @@ export async function syncDevice(deviceCode, opts = {}) {
       externalDeviceId: reading.externalDeviceId,
       idempotencyKey: reading.idempotencyKey,
       status: 'queued',
-      payload: process.env.EXTERNAL_INGEST_STORE_PAYLOAD === 'true' ? extend.data : null,
+      payload: process.env.EXTERNAL_INGEST_STORE_PAYLOAD === 'true' ? fetched.payload : null,
     });
   } catch (err) {
     if (err.code !== '42P01' && err.code !== '23505') {
@@ -65,6 +115,7 @@ export async function syncDevice(deviceCode, opts = {}) {
       reading,
       ...result,
       persisted: !result.unmapped,
+      payloadSource: fetched.source,
     };
   } catch (err) {
     return { success: false, deviceCode, error: err.message, stage: 'persist', reading };

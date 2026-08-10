@@ -41,8 +41,14 @@ Do not call the live host until the vendor account is filled in (demo login in t
 ## Flow
 
 1. Bind `deviceCode` → `codigo_tienda` (`device_bindings`, provider `meter-platform`).
-2. Cron or manual sync → `deviceExtend` → normalize (m³→L) → `sensores*` via shared ingest/persist.
+2. Cron or manual sync → latest **conn `report`** (preferred) + `deviceExtend` → normalize (m³→L) → `sensores*`.
 3. Dashboard: `source_type: external` (same as Linghu path).
+
+### Live payload notes (demo account)
+
+- Login works on both `/app/login` (token in `data.token`) and `/login` (token at root).
+- `deviceExtend` nests profile under `deviceInfo` (`totalMetering`, `isOnline: "on_line"`, Chinese `valveDesc`).
+- Rich metrics (`currentForwardUsage`, `batteryVoltage`, `dailyUsageMap`) live in conn `analyticalBody` → `meterReportRequest`.
 
 ## Not in this PR
 

@@ -52,7 +52,10 @@ function metric(name, type, value, unit) {
 
 function parseObservedAt(raw) {
   const s = pick(raw, [
+    'terminalClock',
+    'systemClock',
     'reportTime',
+    'lastConnTime',
     'createTime',
     'updateTime',
     'realTimeClock',
@@ -80,7 +83,40 @@ function parseObservedAt(raw) {
 }
 
 /**
- * @param {object} body - deviceExtend / parsed report / list row
+ * Flatten live platform shapes:
+ * - deviceExtend: { meterNo, deviceInfo: { totalMetering, … }, … }
+ * - conn analyticalBody JSON: { meterReportRequest: { currentForwardUsage, … } }
+ */
+export function flattenMeterPlatformPayload(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+
+  let raw = body.data && typeof body.data === 'object' && !Array.isArray(body.data)
+    ? { ...body, ...body.data }
+    : { ...body };
+
+  if (raw.deviceInfo && typeof raw.deviceInfo === 'object') {
+    raw = { ...raw.deviceInfo, ...raw };
+  }
+
+  // Conn record row with analyticalBody string
+  if (typeof raw.analyticalBody === 'string' && raw.analyticalBody.trim()) {
+    try {
+      const parsed = JSON.parse(raw.analyticalBody);
+      raw = { ...raw, ...flattenMeterPlatformPayload(parsed) };
+    } catch {
+      /* ignore bad JSON */
+    }
+  }
+
+  if (raw.meterReportRequest && typeof raw.meterReportRequest === 'object') {
+    raw = { ...raw, ...raw.meterReportRequest };
+  }
+
+  return raw;
+}
+
+/**
+ * @param {object} body - deviceExtend / parsed report / list row / conn row
  * @param {{ volumeUnit?: 'auto'|'m3'|'m3x1000' }} [opts]
  * @returns {import('../../types.js').NormalizedReading}
  */
@@ -89,10 +125,7 @@ export function normalizeMeterPlatformReading(body, opts = {}) {
     throw new ExternalProviderValidationError('Body must be a JSON object');
   }
 
-  // Sometimes data is nested
-  const raw = body.data && typeof body.data === 'object' && !Array.isArray(body.data)
-    ? { ...body, ...body.data }
-    : body;
+  const raw = flattenMeterPlatformPayload(body);
 
   const externalDeviceId = String(
     pick(raw, ['deviceCode', 'device_code', 'meterNumber', 'meterNo', 'deviceId', 'imei']) ?? ''
@@ -158,15 +191,19 @@ export function normalizeMeterPlatformReading(body, opts = {}) {
   }
 
   const signal = toNumber(pick(raw, ['signalStrength', 'signal', 'rsrp', 'networkSignal']));
-  if (signal !== null) metrics.push(metric('signal_meter', 'signal_meter', signal, ''));
+  // Live demo sometimes returns a packed int (e.g. 4289003520) — skip garbage
+  if (signal !== null && Math.abs(signal) <= 200) {
+    metrics.push(metric('signal_meter', 'signal_meter', signal, ''));
+  }
 
   const valveRaw = pick(raw, ['valveStatus', 'valveState', 'valve', 'valveDesc']);
   if (valveRaw !== undefined && valveRaw !== null) {
     let valve = toNumber(valveRaw);
     if (valve === null) {
       const s = String(valveRaw).toLowerCase();
-      if (s.includes('open') || s === 'true') valve = 0; // platform: 0 open in protocol; UI may say open
-      else if (s.includes('close')) valve = 1;
+      // Chinese UI: 阀门开 / 阀门关; English open/close
+      if (s.includes('open') || s.includes('开') || s === 'true') valve = 0;
+      else if (s.includes('close') || s.includes('关')) valve = 1;
     }
     // Protocol: 0 open / 1 close — keep numeric if present
     if (valve !== null) metrics.push(metric('valve_status', 'valve_status', valve, ''));
@@ -174,7 +211,15 @@ export function normalizeMeterPlatformReading(body, opts = {}) {
 
   const online = pick(raw, ['isOnline', 'online']);
   if (online !== undefined && online !== null) {
-    const o = online === true || online === 1 || String(online) === '1' ? 1 : 0;
+    const s = String(online).toLowerCase();
+    const o =
+      online === true
+      || online === 1
+      || s === '1'
+      || s === 'on_line'
+      || s === 'online'
+        ? 1
+        : 0;
     metrics.push(metric('online', 'online', o, ''));
   }
 
@@ -197,9 +242,11 @@ export function normalizeMeterPlatformReading(body, opts = {}) {
     raw: {
       source: externalSourceTag(METER_PLATFORM_PROVIDER_ID),
       dailyUsageMap: dailyUsageMap || undefined,
+      last5DaysDailyUsage: pick(raw, ['last5DaysDailyUsage']),
       deviceType: pick(raw, ['deviceType', 'meterType']),
       iccid: pick(raw, ['iccid', 'ICCID']),
       vendor: pick(raw, ['vendor', 'manufacturer']),
+      meterStatus: pick(raw, ['meterStatus']),
     },
   };
 }
@@ -210,6 +257,7 @@ export function cubicMetersToLiters(m3) {
 
 export default {
   METER_PLATFORM_PROVIDER_ID,
+  flattenMeterPlatformPayload,
   normalizeMeterPlatformReading,
   toCubicMeters,
   cubicMetersToLiters,
