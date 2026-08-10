@@ -7,7 +7,7 @@
  */
 
 import express from 'express';
-import { requirePermission } from '../middlewares/auth.middleware.js';
+import { requireExplicitPermission } from '../middlewares/auth.middleware.js';
 import {
   getExternalProviderStatus,
   listBindings,
@@ -39,7 +39,7 @@ const cronOrNext = (req, res, next) => {
   return next();
 };
 
-const requireMeterPlatform = requirePermission('/meter-platform');
+const requireMeterPlatform = requireExplicitPermission('/meter-platform');
 
 router.get('/status', getExternalProviderStatus);
 router.get('/bindings', listBindings);
