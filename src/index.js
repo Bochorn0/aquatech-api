@@ -339,7 +339,15 @@ app.post(
 app.use(
   '/api/v2.0/external-providers',
   authenticate,
-  requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'),
+  requirePermission(
+    '/',
+    '/dashboard',
+    '/dashboard/v1',
+    '/dashboard/v2',
+    '/puntoVenta',
+    '/personalizacion',
+    '/meter-platform'
+  ),
   externalProviderAdminRoutes
 );
 
