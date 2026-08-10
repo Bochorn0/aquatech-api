@@ -7,6 +7,12 @@ import DeviceBindingModel from '../models/postgres/deviceBinding.model.js';
 import ExternalIngestLogModel from '../models/postgres/externalIngestLog.model.js';
 import { listProviders } from '../services/externalProviders/index.js';
 import { isAsyncMode } from '../services/externalProviders/ingest.service.js';
+import {
+  syncAll,
+  syncDevice,
+  ensureBinding,
+} from '../services/externalProviders/pullSync.service.js';
+import meterPlatformClient from '../services/externalProviders/providers/meterPlatform/meterPlatform.client.js';
 
 export async function getExternalProviderStatus(_req, res) {
   try {
@@ -102,10 +108,83 @@ export async function listIngestLog(req, res) {
   }
 }
 
+/**
+ * Pull-sync meter platform (manual JWT or cron X-Cron-Secret).
+ * Body/query: { discover?: boolean, deviceCode?: string, persist?: boolean, limit?: number }
+ */
+export async function syncMeterPlatform(req, res) {
+  try {
+    const body = { ...(req.query || {}), ...(req.body || {}) };
+    const deviceCode = (body.deviceCode || body.device_code || '').toString().trim();
+
+    if (deviceCode) {
+      const result = await syncDevice(deviceCode, {
+        persist: body.persist !== false && body.persist !== 'false',
+        volumeUnit: body.volumeUnit,
+      });
+      return res.status(result.success ? 200 : 502).json({ success: result.success, data: result });
+    }
+
+    const result = await syncAll({
+      discover: body.discover === true || body.discover === 'true',
+      persist: body.persist !== false && body.persist !== 'false',
+      limit: body.limit ? Number(body.limit) : undefined,
+      pageSize: body.pageSize ? Number(body.pageSize) : undefined,
+      volumeUnit: body.volumeUnit,
+    });
+    return res.status(result.success ? 200 : 502).json({ success: result.success, data: result });
+  } catch (err) {
+    console.error('[externalProviderAdmin.syncMeterPlatform]', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+/** Dry-run login check (does not persist). */
+export async function testMeterPlatformLogin(_req, res) {
+  try {
+    if (!meterPlatformClient.hasMeterPlatformCredentials()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Set METER_PLATFORM_USERNAME and METER_PLATFORM_PASSWORD in .env',
+      });
+    }
+    const result = await meterPlatformClient.login({ force: true });
+    return res.status(result.success ? 200 : 502).json({
+      success: result.success,
+      message: result.success ? 'Login OK' : result.error,
+      data: result.success ? { loginPath: result.loginPath, cached: result.cached } : null,
+    });
+  } catch (err) {
+    console.error('[externalProviderAdmin.testMeterPlatformLogin]', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+export async function upsertMeterBinding(req, res) {
+  try {
+    const body = req.body || {};
+    const row = await ensureBinding({
+      deviceCode: body.deviceCode || body.externalDeviceId || body.external_device_id,
+      codigoTienda: body.codigoTienda || body.codigo_tienda,
+      puntoventaId: body.puntoventaId || body.puntoventa_id,
+      clientId: body.clientId || body.client_id,
+      imei: body.imei || body.externalImei,
+      meta: body.meta,
+    });
+    return res.json({ success: true, data: row });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({ success: false, message: err.message });
+  }
+}
+
 export default {
   getExternalProviderStatus,
   listBindings,
   upsertBinding,
   deactivateBinding,
   listIngestLog,
+  syncMeterPlatform,
+  testMeterPlatformLogin,
+  upsertMeterBinding,
 };

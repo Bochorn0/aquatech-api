@@ -262,3 +262,12 @@ Confirm with stakeholders:
 - Vendor doc: *APIPlatform push interface documentation* (Linghu).  
 - Architecture PDF: dual path MQTT + API push.  
 - Parallel patterns: `tuya.service.js`, `mqtt.service.js` → Postgres, `puntoVentaSource.service.js`.
+
+---
+
+## 12. Meter management platform (pull) — follow-up
+
+**Branch:** `feature/external-providers-meter-platform-pull`  
+**Detail:** [`docs/METER_PLATFORM_PULL.md`](./METER_PLATFORM_PULL.md)
+
+Vendor Q&A (`api_response.md`) clarified: meters report over **TCP** to the vendor station; we **pull** REST JWT (`meter-platform` provider). Shared `device_bindings` + `sensores*` pipeline; sync via `POST /external-providers/meter-platform/sync`.

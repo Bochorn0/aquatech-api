@@ -39,6 +39,17 @@ const config = {
     || '',
   LINGHU_API_URL: process.env.LINGHU_API_URL || '',
   LINGHU_INGEST_ALLOWLIST_IPS: process.env.LINGHU_INGEST_ALLOWLIST_IPS || '',
+
+  /**
+   * Water/Gas meter management platform (pull REST + JWT).
+   * Docs: 05_Water-Gas-Meter-WebManagementPlatform-API-Doc-EN.pdf
+   */
+  METER_PLATFORM_BASE_URL: process.env.METER_PLATFORM_BASE_URL || 'http://47.97.252.2/prod-api',
+  METER_PLATFORM_USERNAME: process.env.METER_PLATFORM_USERNAME || '',
+  METER_PLATFORM_PASSWORD: process.env.METER_PLATFORM_PASSWORD || '',
+  METER_PLATFORM_LOGIN_PATH: process.env.METER_PLATFORM_LOGIN_PATH || '/app/login',
+  /** auto | m3 | m3x1000 */
+  METER_PLATFORM_VOLUME_UNIT: process.env.METER_PLATFORM_VOLUME_UNIT || 'auto',
 };
 
 export default config;  // Use 'export default' for ESM

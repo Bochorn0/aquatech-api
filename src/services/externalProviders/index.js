@@ -3,6 +3,7 @@
  */
 
 import linghuProvider from './providers/linghu/linghu.provider.js';
+import meterPlatformProvider from './providers/meterPlatform/meterPlatform.provider.js';
 
 const providers = new Map();
 
@@ -12,6 +13,7 @@ function register(provider) {
 }
 
 register(linghuProvider);
+register(meterPlatformProvider);
 
 export function getProvider(providerId) {
   const id = String(providerId || '').toLowerCase().trim();
@@ -22,6 +24,7 @@ export function listProviders() {
   return [...providers.values()].map((p) => ({
     id: p.id,
     displayName: p.displayName,
+    mode: p.mode || 'push',
   }));
 }
 
