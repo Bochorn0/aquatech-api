@@ -32,6 +32,7 @@ import ciudadRoutes from './routes/ciudad.routes.js';
 import adminEventsRoutes from './routes/adminEvents.routes.js';
 import externalProviderRoutes from './routes/externalProvider.routes.js';
 import externalProviderAdminRoutes from './routes/externalProviderAdmin.routes.js';
+import { syncMeterPlatform } from './controllers/externalProviderAdmin.controller.js';
 import rateLimit from 'express-rate-limit';
 import { getCorsOptions, getHelmetOptions } from './config/http-security.js';
 import { authenticate, requirePermission } from './middlewares/auth.middleware.js';
@@ -318,7 +319,23 @@ app.use('/api/v2.0/ciudades', ciudadRoutes);
 // Must be registered BEFORE authenticated /api/v2.0 mounts.
 app.use('/api/v2.0/ingest/external', externalProviderRoutes);
 
-// External providers ops (bindings + ingest log) — JWT
+// External providers ops — JWT. Cron may POST meter-platform/sync with X-Cron-Secret (no JWT).
+app.post(
+  '/api/v2.0/external-providers/meter-platform/sync',
+  (req, res, next) => {
+    const cronHeader = req.headers['x-cron-secret'] || req.headers['x-tiwater-api-key'];
+    const validSecret =
+      process.env.CRON_METER_PLATFORM_SECRET
+      || process.env.CRON_TUYA_LOGS_SECRET
+      || process.env.CRON_DEV_MODE_SECRET
+      || process.env.TIWATER_API_KEY;
+    if (cronHeader && validSecret && cronHeader === validSecret) {
+      return syncMeterPlatform(req, res);
+    }
+    return next();
+  }
+);
+
 app.use(
   '/api/v2.0/external-providers',
   authenticate,
