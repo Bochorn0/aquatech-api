@@ -15,6 +15,8 @@ import {
   syncMeterPlatform,
   testMeterPlatformLogin,
   upsertMeterBinding,
+  listMeterPlatformDevices,
+  getMeterPlatformDeviceDetail,
 } from '../controllers/externalProviderAdmin.controller.js';
 
 const router = express.Router();
@@ -46,5 +48,7 @@ router.get('/ingest-log', listIngestLog);
 router.get('/meter-platform/login-test', testMeterPlatformLogin);
 router.post('/meter-platform/bindings', upsertMeterBinding);
 router.post('/meter-platform/sync', cronOrNext, syncMeterPlatform);
+router.get('/meter-platform/devices', listMeterPlatformDevices);
+router.get('/meter-platform/devices/:deviceCode', getMeterPlatformDeviceDetail);
 
 export default router;
