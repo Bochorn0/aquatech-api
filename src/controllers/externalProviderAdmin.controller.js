@@ -197,6 +197,66 @@ function parseAnalyticalBody(row) {
   return out;
 }
 
+function isOnlineFlag(v) {
+  const s = String(v ?? '').toLowerCase();
+  return v === true || v === 1 || s === '1' || s === 'on_line' || s === 'online';
+}
+
+/**
+ * Attach last-report snapshot so the demo list can show liters / last update
+ * without a full detail fetch per row.
+ */
+async function enrichListRow(row) {
+  const deviceCode = String(row?.deviceCode || row?.device_code || '').trim();
+  const snapshot = {
+    deviceCode,
+    litersForward: null,
+    litersReverse: null,
+    lastReportAt: row?.lastConnTime || row?.updateTime || null,
+    stale: !isOnlineFlag(row?.isOnline),
+    online: isOnlineFlag(row?.isOnline),
+  };
+  if (!deviceCode) return { ...row, snapshot };
+
+  try {
+    const conn = await meterPlatformClient.getConnRecordList(deviceCode, {
+      pageNum: 1,
+      pageSize: 8,
+    });
+    const connRows = conn.success
+      ? (extractRows(conn.data).length ? extractRows(conn.data) : extractRows(conn.raw))
+      : [];
+    const report = connRows.find(
+      (r) =>
+        String(r?.direction || '').toLowerCase() === 'client'
+        && String(r?.type || '').toLowerCase() === 'report'
+        && r?.analyticalBody
+    );
+    if (report) {
+      const { normalizeMeterPlatformReading } = await import(
+        '../services/externalProviders/providers/meterPlatform/meterPlatform.mapping.js'
+      );
+      const reading = normalizeMeterPlatformReading({ ...report, deviceCode });
+      const fwd = reading.metrics.find((m) => m.name === 'volume_positive');
+      const rev = reading.metrics.find((m) => m.name === 'volume_reverse');
+      snapshot.litersForward = fwd ? fwd.value : null;
+      snapshot.litersReverse = rev ? rev.value : null;
+      snapshot.lastReportAt = report.createTime || reading.observedAt || snapshot.lastReportAt;
+    }
+  } catch {
+    /* keep list row even if snapshot fails */
+  }
+
+  if (snapshot.lastReportAt) {
+    const t = new Date(String(snapshot.lastReportAt).replace(' ', 'T')).getTime();
+    if (Number.isFinite(t)) {
+      snapshot.stale = Date.now() - t > 24 * 60 * 60 * 1000 || !snapshot.online;
+    }
+  }
+
+  return { ...row, snapshot };
+}
+
 /** Browse: paged device list from vendor platform (JWT ops). */
 export async function listMeterPlatformDevices(req, res) {
   try {
@@ -208,16 +268,23 @@ export async function listMeterPlatformDevices(req, res) {
     }
     const pageNum = Number(req.query.pageNum || req.query.page || 1) || 1;
     const pageSize = Math.min(Number(req.query.pageSize || req.query.limit || 50) || 50, 200);
+    const enrich = req.query.enrich !== 'false' && req.query.enrich !== '0';
     const result = await meterPlatformClient.getDeviceInfoList({ pageNum, pageSize });
     if (!result.success) {
       return res.status(502).json({ success: false, message: result.error, data: null });
     }
-    const rows = extractRows(result.data);
+    let rows = extractRows(result.data);
     const total =
       result.data?.total
       ?? result.data?.totalCount
       ?? result.raw?.total
       ?? rows.length;
+
+    if (enrich && rows.length) {
+      const capped = rows.slice(0, Math.min(rows.length, 40));
+      rows = await Promise.all(capped.map((row) => enrichListRow(row)));
+    }
+
     return res.json({
       success: true,
       data: {
