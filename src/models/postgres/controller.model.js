@@ -4,6 +4,7 @@ import { query } from '../../config/postgres.config.js';
 
 class ControllerModel {
   static async findById(id) {
+    if (id == null || !/^\d+$/.test(String(id))) return null;
     const result = await query(
       `SELECT c.*, p.device_id as product_device_id FROM controllers c
        LEFT JOIN products p ON c.product_id = p.id WHERE c.id = $1 LIMIT 1`,
@@ -53,7 +54,11 @@ class ControllerModel {
     const values = [];
     let i = 1;
     if (filters.id) {
-      where.push(`(id = $${i} OR device_id = $${i})`);
+      if (/^\d+$/.test(String(filters.id))) {
+        where.push(`(id = $${i} OR device_id = $${i})`);
+      } else {
+        where.push(`device_id = $${i}`);
+      }
       values.push(filters.id);
       i++;
     }

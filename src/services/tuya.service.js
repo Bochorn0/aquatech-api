@@ -38,10 +38,22 @@ const noTuyaConfig = () => ({
   data: null
 });
 
+const skipManualDevice = (deviceId) => {
+  if (!String(deviceId || '').startsWith('manual-')) return null;
+  return {
+    success: false,
+    error: 'manual device, skip Tuya',
+    code: 'MANUAL_DEVICE',
+    data: null,
+  };
+};
+
 // ---------------------------------------------
 // Fetch device details by deviceId
 // ---------------------------------------------
 export async function getDeviceDetail(deviceId) {
+  const skipped = skipManualDevice(deviceId);
+  if (skipped) return skipped;
   if (!context) return noTuyaConfig();
   console.log('Fetching device details for:', deviceId);
   try {
@@ -128,6 +140,8 @@ export async function getAllDevicesForUserIds(userIds) {
 //   }
 // }
 export async function getDeviceLogs(query) {
+  const skipped = skipManualDevice(query?.id);
+  if (skipped) return skipped;
   if (!context) return noTuyaConfig();
   const { id, start_date, end_date, fields, size = 100, last_row_key } = query;
   const safeStart = Number(start_date);
@@ -233,6 +247,8 @@ export async function getDeviceLogs(query) {
 // Uses the EXACT same implementation as getDeviceLogs which already works
 // ---------------------------------------------
 export async function getDeviceLogsForRoutine(query) {
+  const skipped = skipManualDevice(query?.id);
+  if (skipped) return skipped;
   if (!context) return noTuyaConfig();
   const { id, start_date, end_date, fields, size = 100, last_row_key } = query;
   const safeStart = Number(start_date);
@@ -260,6 +276,8 @@ export async function getDeviceLogsForRoutine(query) {
 // Execute commands on device
 // ---------------------------------------------
 export async function executeCommands(data) {
+  const skipped = skipManualDevice(data?.id);
+  if (skipped) return skipped;
   if (!context) return noTuyaConfig();
   const { id, commands } = data;
   console.log('Executing commands for device:', id);
