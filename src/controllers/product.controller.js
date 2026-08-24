@@ -216,10 +216,32 @@ function collectProductLogDeviceIds(routeOrCanonicalId, product) {
   if (product) {
     const pid = String(product.id ?? '');
     if (pid) ids.add(pid);
+    const did = String(product.device_id ?? '');
+    if (did) ids.add(did);
     const live = resolveTuyaLiveDeviceIdForTuyaApi(product);
     if (live) ids.add(live);
   }
   return [...ids];
+}
+
+function isManualProduct(id, product) {
+  return (
+    String(id || '').startsWith('manual-') ||
+    String(product?.id || '').startsWith('manual-') ||
+    String(product?.device_id || '').startsWith('manual-')
+  );
+}
+
+function isSensorFlujoProduct(product) {
+  const t = String(product?.product_type || product?.type || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  return t === 'sensor_flujo' || t === 'flujo';
+}
+
+function skipsTuyaCloud(id, product) {
+  return isManualProduct(id, product) || isSensorFlujoProduct(product);
 }
 
 export const getAllProducts = async (req, res) => {
@@ -1354,8 +1376,43 @@ export const getProductById = async (req, res) => {
           return res.status(403).json({ message: 'No tienes acceso a este equipo' });
         }
       }
-      devLog('Product found in MongoDB. Fetching latest details from Tuya API...');
       product.online = product.last_time_active && (now - product.last_time_active <= ONLINE_THRESHOLD_MS);
+
+      if (skipsTuyaCloud(id, product)) {
+        try {
+          const logDevIds = collectProductLogDeviceIds(id, product);
+          const logRows = await ProductLogModel.find({ product_device_ids: logDevIds, _limit: 1 });
+          const latestLog = logRows[0];
+          if (latestLog) {
+            if (!Array.isArray(product.status)) product.status = [];
+            const upsert = (code, value) => {
+              if (value == null || value === '') return;
+              const i = product.status.findIndex((s) => s.code === code);
+              if (i >= 0) product.status[i].value = value;
+              else product.status.push({ code, value });
+            };
+            upsert('flowrate_speed_1', latestLog.flujo_produccion);
+            if (latestLog.production_volume != null) {
+              upsert('flowrate_total_1', latestLog.production_volume);
+            }
+            const metrics =
+              latestLog.custom_metrics && typeof latestLog.custom_metrics === 'object'
+                ? latestLog.custom_metrics
+                : {};
+            if (metrics.m3 != null) upsert('m3', metrics.m3);
+            if (metrics.litros != null) upsert('litros', metrics.litros);
+          }
+        } catch (logError) {
+          console.error('[getProductById] manual product_logs:', logError.message);
+        }
+        const lastDisplayManual = await getLastUpdatedDisplay(id, product.update_time, product);
+        const outManual = { ...product };
+        outManual.last_updated_display =
+          lastDisplayManual != null ? lastDisplayManual : outManual.update_time;
+        return res.json(withInferredApagadorProductType(outManual));
+      }
+
+      devLog('Product found in MongoDB. Fetching latest details from Tuya API...');
       const tuyaDetailId = resolveTuyaLiveDeviceIdForTuyaApi(product) || id;
 
       // Fetch the latest details from Tuya API
@@ -1541,7 +1598,7 @@ export const getProductById = async (req, res) => {
       return res.json(withInferredApagadorProductType(outExisting));
     }
 
-    if (isClientScopedProductAccess(accessCtx)) {
+    if (isClientScopedProductAccess(accessCtx) || skipsTuyaCloud(id, null)) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
@@ -1804,7 +1861,9 @@ export const getProductLogsById = async (req, res) => {
 
     let rawLogs = [];
     let source = 'database';
+    const skipTuya = skipsTuyaCloud(id, product);
 
+    if (!skipTuya) {
     // ====== Intentar obtener desde Tuya ======
     try {
       const response = await tuyaService.getDeviceLogs(filters);
@@ -1820,10 +1879,11 @@ export const getProductLogsById = async (req, res) => {
     } catch (err) {
       devWarn('⚠️ Error al obtener logs de Tuya:', err.message);
     }
+    }
 
     // ====== Si Tuya no devolvió datos: para Nivel, intentar sync-on-read (guardar en ProductLog y luego leer de DB) ======
     if (!rawLogs.length) {
-      if (isNivel) {
+      if (isNivel && !skipTuya) {
         try {
           const productForSync = await ProductModel.findByDeviceId(id);
           if (productForSync) {
@@ -2031,7 +2091,7 @@ export const getProductLogsById = async (req, res) => {
     // ====== APLICAR CONVERSIONES (solo Osmosis) Y CONVERTIR A ARRAY ======
     const groupedArray = Object.values(groupedLogs)
       .map(log => {
-        if (!isNivel) {
+        if (!isNivel && !isSensorFlujoProduct(product)) {
           if (log.flujo_produccion != null) {
             log.flujo_produccion = applySpecialProductLogic('flowrate_speed_1', log.flujo_produccion);
           }
@@ -2790,9 +2850,78 @@ export const sendDeviceCommands = async (req, res) => {
    🔧 Funciones auxiliares para cada tipo de producto
    ====================================================== */
 
+function numericProductPk(product) {
+  const raw = product?._id ?? product?.numeric_id;
+  if (raw != null && /^\d+$/.test(String(raw))) return String(raw);
+  return null;
+}
+
+async function saveEsp32ProductLog(product, data) {
+  const {
+    flujo_prod,
+    flujo_rech,
+    tds,
+    temperature,
+    m3,
+    litros,
+    production_volume,
+    pulsos_total,
+    pulsos_intervalo,
+    source,
+  } = data;
+
+  const productionVolume =
+    production_volume != null
+      ? Number(production_volume)
+      : litros != null
+        ? Number(litros)
+        : m3 != null
+          ? Number(m3) * 1000
+          : null;
+
+  const hasData =
+    flujo_prod != null ||
+    flujo_rech != null ||
+    tds != null ||
+    temperature != null ||
+    productionVolume != null ||
+    m3 != null;
+  if (!hasData) return null;
+
+  const deviceId = product.device_id || (typeof product.id === 'string' ? product.id : null);
+  const logSource = source ? String(source).slice(0, 50) : 'esp32';
+
+  const created = await ProductLogModel.create({
+    product_id: numericProductPk(product),
+    product_device_id: deviceId,
+    producto: numericProductPk(product),
+    flujo_produccion: flujo_prod != null ? Number(flujo_prod) : null,
+    flujo_rechazo: flujo_rech != null ? Number(flujo_rech) : null,
+    tds: tds != null ? Number(tds) : null,
+    temperature: temperature != null ? Number(temperature) : null,
+    production_volume: productionVolume,
+    date: new Date(),
+    source: logSource,
+    custom_metrics: {
+      m3: m3 != null ? Number(m3) : undefined,
+      litros: productionVolume,
+      pulsos_total: pulsos_total != null ? Number(pulsos_total) : undefined,
+      pulsos_intervalo: pulsos_intervalo != null ? Number(pulsos_intervalo) : undefined,
+      origin: logSource,
+    },
+  });
+  devLog(
+    `📝 [componentInput] product_logs id=${created?.id ?? created?._id} device=${deviceId} flujo_prod=${flujo_prod} litros=${productionVolume}`
+  );
+  return created;
+}
+
 // 🧩 — OSMOSIS
 async function handleOsmosisProduct(product, data) {
   devLog('🧩 [Osmosis] Procesando actualización...');
+  if (!Array.isArray(product.status)) {
+    product.status = [];
+  }
   const {
     pressure_valve1_psi,
     pressure_valve2_psi,
@@ -2941,56 +3070,6 @@ async function handleOsmosisProduct(product, data) {
   await ProductModel.update(product.id, product);
   devLog('💾 [Osmosis] Datos de osmosis actualizados correctamente');
 
-  // Guardar log en ProductLog si hay datos relevantes
-  if (flujo_prod != null || flujo_rech != null || tds != null || temperature != null) {
-    try {
-      // Convertir timestamp a Date
-      let logDate = new Date();
-      if (timestamp) {
-        const timestampNum = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
-        // Si el timestamp parece ser en milisegundos (más de 13 dígitos) o si es muy grande, usarlo directamente
-        // Si es pequeño, podría ser relativo, usar Date.now()
-        if (!isNaN(timestampNum) && timestampNum > 1000000000000) {
-          logDate = new Date(timestampNum);
-        } else if (!isNaN(timestampNum) && timestampNum > 0) {
-          // Asumir que es un timestamp relativo en milisegundos desde algún inicio
-          // Por ahora usar Date.now() para logs en tiempo real
-          logDate = new Date();
-        }
-      }
-
-      const logData = {
-        producto: product._id,
-        product_id: product.id || product._id.toString(),
-        flujo_produccion: flujo_prod != null ? Number(flujo_prod) : null,
-        flujo_rechazo: flujo_rech != null ? Number(flujo_rech) : null,
-        tds: tds != null ? Number(tds) : null,
-        temperature: temperature != null ? Number(temperature) : null,
-        date: logDate,
-        source: 'esp32',
-      };
-
-      // Verificar si ya existe un log similar (evitar duplicados basado en fecha y product_id)
-      const existingLog = await ProductLogModel.findOne({
-        product_id: logData.product_id,
-        date: {
-          $gte: new Date(logDate.getTime() - 1000), // 1 segundo antes
-          $lte: new Date(logDate.getTime() + 1000), // 1 segundo después
-        },
-      });
-
-      if (!existingLog) {
-        await ProductLogModel.create(logData);
-        devLog(`📝 [Osmosis] Log guardado en ProductLog - TDS: ${tds}, Flujo Prod: ${flujo_prod}, Flujo Rech: ${flujo_rech}`);
-      } else {
-        devLog(`⏭️ [Osmosis] Log duplicado omitido para fecha ${logDate.toISOString()}`);
-      }
-    } catch (logError) {
-      console.error('❌ [Osmosis] Error guardando log en ProductLog:', logError.message);
-      // No lanzar el error para no interrumpir el flujo principal
-    }
-  }
-
   return { success: true, message: 'Datos de osmosis actualizados', product };
 }
 
@@ -3107,6 +3186,29 @@ async function handleLevelProduct(product, data) {
   return { success: true, message: 'Datos de nivel actualizados', product };
 }
 
+async function handleSensorFlujoProduct(product, data) {
+  if (!Array.isArray(product.status)) product.status = [];
+  const { flujo_prod, m3, litros, production_volume, pulsos_total, pulsos_intervalo } = data;
+
+  const updateStatus = (code, value) => {
+    if (value == null) return;
+    const existing = product.status.find((st) => st.code === code);
+    if (existing) existing.value = Number(value);
+    else product.status.push({ code, value: Number(value) });
+  };
+
+  if (flujo_prod != null) updateStatus('flowrate_speed_1', flujo_prod);
+  if (m3 != null) updateStatus('m3', m3);
+  if (litros != null) updateStatus('litros', litros);
+  const volume = production_volume != null ? production_volume : litros;
+  if (volume != null) updateStatus('production_volume', volume);
+  if (pulsos_total != null) updateStatus('pulsos_total', pulsos_total);
+  if (pulsos_intervalo != null) updateStatus('pulsos_intervalo', pulsos_intervalo);
+
+  await ProductModel.update(product.id, product);
+  return { success: true, message: 'Datos de sensor_flujo actualizados', product };
+}
+
 /* ======================================================
    🎯 Función principal
    ====================================================== */
@@ -3134,7 +3236,13 @@ export const componentInput = async (req, res) => {
       flujo_rech = null,
       tds = null,
       voltage_in = null,
-      voltage_out = null
+      voltage_out = null,
+      m3 = null,
+      litros = null,
+      production_volume = null,
+      pulsos_total = null,
+      pulsos_intervalo = null,
+      source = null,
     } = req.body;
 
     if (!productId) {
@@ -3169,7 +3277,17 @@ export const componentInput = async (req, res) => {
       flujo_prod,
       flujo_rech,
       tds,
+      m3,
+      litros,
+      production_volume,
+      pulsos_total,
+      pulsos_intervalo,
+      source,
     };
+
+    product.last_time_active = Date.now();
+    product.update_time = Date.now();
+    product.online = true;
 
     let result;
 
@@ -3190,13 +3308,32 @@ export const componentInput = async (req, res) => {
         result = await handleLevelProduct(product, data);
         break;
 
+      case 'sensor_flujo':
+      case 'Sensor_flujo':
+      case 'flujo':
+        result = await handleSensorFlujoProduct(product, data);
+        break;
+
       default:
         await ProductModel.update(product.id, product);
         result = { success: true, message: 'Producto actualizado sin lógica especial', product };
         break;
     }
 
-    return res.json(result);
+    let productLog = null;
+    try {
+      productLog = await saveEsp32ProductLog(product, data);
+    } catch (logError) {
+      console.error('❌ [componentInput] Error guardando product_logs:', logError.message);
+    }
+
+    return res.json({
+      success: result?.success !== false,
+      message: result?.message,
+      product_log_saved: Boolean(productLog),
+      product_log_id: productLog?.id ?? productLog?._id ?? null,
+      product: result?.product,
+    });
   } catch (error) {
     console.error('🔥 [componentInput] Error inesperado:', error);
     return res.status(500).json({ message: 'Error en el servidor', error: error.message });
