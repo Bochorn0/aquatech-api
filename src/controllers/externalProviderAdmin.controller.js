@@ -212,6 +212,12 @@ async function enrichListRow(row) {
     deviceCode,
     litersForward: null,
     litersReverse: null,
+    rawForward: null,
+    rawReverse: null,
+    reportSuccess: null,
+    reportTotal: null,
+    voltage: null,
+    temperatureRaw: null,
     lastReportAt: row?.lastConnTime || row?.updateTime || null,
     stale: !isOnlineFlag(row?.isOnline),
     online: isOnlineFlag(row?.isOnline),
@@ -242,6 +248,26 @@ async function enrichListRow(row) {
       snapshot.litersForward = fwd ? fwd.value : null;
       snapshot.litersReverse = rev ? rev.value : null;
       snapshot.lastReportAt = report.createTime || reading.observedAt || snapshot.lastReportAt;
+      let req = {};
+      if (typeof report.analyticalBody === 'string' && report.analyticalBody.trim()) {
+        try {
+          req = JSON.parse(report.analyticalBody)?.meterReportRequest || {};
+        } catch {
+          req = {};
+        }
+      }
+      const rawForward = Number(req.currentForwardUsage);
+      const rawReverse = Number(req.reverseUsage ?? req.currentReverseUsage);
+      const reportSuccess = Number(req.successReportTimes);
+      const reportTotal = Number(req.totalReportTimes);
+      const voltage = Number(req.voltage);
+      const temperatureRaw = Number(req.temperature);
+      snapshot.rawForward = Number.isFinite(rawForward) ? rawForward : null;
+      snapshot.rawReverse = Number.isFinite(rawReverse) ? rawReverse : null;
+      snapshot.reportSuccess = Number.isFinite(reportSuccess) ? reportSuccess : null;
+      snapshot.reportTotal = Number.isFinite(reportTotal) ? reportTotal : null;
+      snapshot.voltage = Number.isFinite(voltage) ? voltage : null;
+      snapshot.temperatureRaw = Number.isFinite(temperatureRaw) ? temperatureRaw : null;
     }
   } catch {
     /* keep list row even if snapshot fails */
