@@ -30,6 +30,8 @@ import mqttRoutes from './routes/mqtt.routes.js';  // Use `import` for mqttRoute
 import regionRoutes from './routes/region.routes.js';
 import ciudadRoutes from './routes/ciudad.routes.js';
 import adminEventsRoutes from './routes/adminEvents.routes.js';
+import visitScheduleRoutes from './routes/visitSchedule.routes.js';
+import { startVisitReminderScheduler } from './services/visitSchedule.service.js';
 import externalProviderRoutes from './routes/externalProvider.routes.js';
 import externalProviderAdminRoutes from './routes/externalProviderAdmin.routes.js';
 import { syncMeterPlatform } from './controllers/externalProviderAdmin.controller.js';
@@ -354,6 +356,9 @@ app.use(
 // v2.0 API routes - Admin events (must be before generic /api/v2.0 so /admin/* is matched)
 app.use('/api/v2.0/admin', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), adminEventsRoutes);
 
+// v2.0 API routes - Visitas de mantenimiento (reglas, Meet y recordatorios)
+app.use('/api/v2.0', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), visitScheduleRoutes);
+
 // v2.0 API routes - Customization and sensors (require dashboard or puntoVenta/personalizacion access)
 app.use('/api/v2.0', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), customizationV2Routes);
 app.use('/api/v2.0/sensors', authenticate, requirePermission('/', '/dashboard', '/dashboard/v1', '/dashboard/v2', '/puntoVenta', '/personalizacion'), sensorDataV2Routes);
@@ -394,6 +399,7 @@ if ((process.env.MQTT_BROKER || '').includes('eventgrid.azure.net')) {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  startVisitReminderScheduler();
   console.log(
     `[rate-limit] trust proxy=${app.get('trust proxy')}, api max=${rateLimitMax}/${rateLimitWindowMs}ms auth max=${authRateLimitMax}/${authRateLimitWindowMs}ms`,
   );

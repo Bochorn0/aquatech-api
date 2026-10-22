@@ -50,6 +50,12 @@ const config = {
   METER_PLATFORM_LOGIN_PATH: process.env.METER_PLATFORM_LOGIN_PATH || '/app/login',
   /** auto | m3 | m3x1000 */
   METER_PLATFORM_VOLUME_UNIT: process.env.METER_PLATFORM_VOLUME_UNIT || 'auto',
+
+  /** Service account JSON (gitignored). Domain-wide delegation acts as this mailbox. */
+  GOOGLE_CALENDAR_CREDENTIALS: process.env.GOOGLE_CALENDAR_CREDENTIALS || '',
+  GOOGLE_CALENDAR_IMPERSONATE: process.env.GOOGLE_CALENDAR_IMPERSONATE || 'mantenimiento@lcc.com.mx',
+  GOOGLE_CALENDAR_ID: process.env.GOOGLE_CALENDAR_ID || 'primary',
+  GOOGLE_CALENDAR_TIMEZONE: process.env.GOOGLE_CALENDAR_TIMEZONE || 'America/Tijuana',
 };
 
 export default config;  // Use 'export default' for ESM
