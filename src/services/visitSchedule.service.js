@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import config from '../config/config.js';
 import emailHelper from '../utils/email.helper.js';
 import VisitScheduleModel from '../models/postgres/visitSchedule.model.js';
-import { createMeetEvent, deleteMeetEvent } from './googleCalendar.service.js';
+import { createMeetEvent, deleteMeetEvent, updateMeetEvent } from './googleCalendar.service.js';
 import {
   addDaysYmd,
   addMinutes,
@@ -345,6 +345,115 @@ export async function scheduleVisits(body) {
     )));
     throw error;
   }
+}
+
+function zonedYmd(iso, zone) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: zone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(iso));
+  const get = (type) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+export async function updateVisit(id, body, scope) {
+  const visit = await VisitScheduleModel.findVisit(id);
+  if (!visit || visit.status !== 'scheduled') {
+    throw new VisitScheduleError('No se encontró la visita programada', 404);
+  }
+
+  const name = String(body.name || '').trim().slice(0, 200);
+  if (!name) throw new VisitScheduleError('Escribe el nombre de la cita');
+  const eventType = body.event_type;
+  if (!EVENT_TYPES.includes(eventType)) throw new VisitScheduleError('El tipo de visita no es válido');
+
+  const date = String(body.date || '');
+  if (!isValidYmd(date)) throw new VisitScheduleError('La fecha de la visita no es válida');
+  const startHm = String(body.start_time || '').slice(0, 5);
+  if (!isValidHm(startHm)) throw new VisitScheduleError('La hora de la visita no es válida');
+
+  const zone = visit.time_zone || timeZone();
+  const editedStart = localDateTimeToUtc(date, startHm, zone);
+  if (editedStart.getTime() < Date.now() - 5 * 60 * 1000) {
+    throw new VisitScheduleError('La fecha y hora de la visita ya pasaron');
+  }
+
+  const duration = intInRange(body.duration_minutes, 15, 480, 'La duración');
+  const guests = normalizeGuests(body.guests || []);
+  const notificationDays = intInRange(body.notification_days_before, 0, 90, 'Los días de aviso');
+  const reminderHour = intInRange(body.reminder_hour, 0, 23, 'La hora del correo');
+  const notes = String(body.notes || '').trim().slice(0, 2000) || null;
+  const endClock = addMinutes(startHm, duration);
+  const label = TYPE_LABEL[eventType];
+  const title = `${label} — ${name}`;
+
+  const series = scope === 'series'
+    ? (await VisitScheduleModel.listSeries(visit.series_id)).filter((item) => (
+      new Date(item.starts_at).getTime() >= new Date(visit.starts_at).getTime()
+    ))
+    : [visit];
+
+  const updated = [];
+  const failures = [];
+  for (const target of series) {
+    const ymd = target.id === visit.id ? date : zonedYmd(target.starts_at, zone);
+    const endDate = addDaysYmd(ymd, endClock.dayOffset);
+    const place = target.codigo_tienda
+      ? `${target.punto_venta_name || name} (${target.codigo_tienda})`
+      : (target.punto_venta_name || '');
+    const description = [
+      label,
+      `Nombre: ${name}`,
+      place ? `Sitio: ${place}` : '',
+      notes || '',
+      `Recordatorio por correo ${notificationDays} día(s) antes.`,
+    ].filter(Boolean).join('\n');
+
+    let event = null;
+    if (target.google_event_id) {
+      try {
+        event = await updateMeetEvent(target.google_event_id, {
+          summary: title,
+          description,
+          start: `${ymd}T${startHm}:00`,
+          end: `${endDate}T${endClock.hm}:00`,
+          attendees: guests,
+          timeZone: zone,
+        });
+      } catch (error) {
+        failures.push({ id: target.id, message: googleMessage(error) });
+        continue;
+      }
+    }
+
+    const startsAt = localDateTimeToUtc(ymd, startHm, zone).toISOString();
+    const endsAt = localDateTimeToUtc(endDate, endClock.hm, zone).toISOString();
+    const timingChanged = new Date(startsAt).getTime() !== new Date(target.starts_at).getTime()
+      || notificationDays !== target.notification_days_before
+      || reminderHour !== target.reminder_hour;
+
+    updated.push(await VisitScheduleModel.updateVisit(target.id, {
+      client_name: name,
+      event_type: eventType,
+      title,
+      notes,
+      starts_at: startsAt,
+      ends_at: endsAt,
+      guests,
+      notification_days_before: notificationDays,
+      reminder_hour: reminderHour,
+      meet_link: event?.meetLink || null,
+      calendar_link: event?.htmlLink || null,
+      reset_reminder: timingChanged,
+    }));
+  }
+
+  if (!updated.length) {
+    throw new VisitScheduleError(`Google Calendar: ${failures[0]?.message || 'No se pudo actualizar el evento'}`, 502);
+  }
+  return { updated, failures };
 }
 
 export async function cancelVisits(id, scope) {

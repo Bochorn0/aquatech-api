@@ -78,6 +78,41 @@ export async function createMeetEvent({
   };
 }
 
+/** Actualiza el evento existente. El enlace de Meet se conserva. */
+export async function updateMeetEvent(eventId, {
+  summary,
+  description,
+  start,
+  end,
+  attendees = [],
+  timeZone = config.GOOGLE_CALENDAR_TIMEZONE,
+}) {
+  const calendar = calendarClient();
+  const guestEmails = attendees.map((email) => ({ email }));
+  const response = await calendar.events.patch({
+    calendarId: config.GOOGLE_CALENDAR_ID || 'primary',
+    eventId,
+    sendUpdates: 'all',
+    requestBody: {
+      summary,
+      description,
+      start: { dateTime: start, timeZone },
+      end: { dateTime: end, timeZone },
+      attendees: guestEmails,
+    },
+  });
+  const event = response.data;
+  const video = event.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === 'video');
+  return {
+    id: event.id,
+    summary: event.summary,
+    htmlLink: event.htmlLink,
+    meetLink: event.hangoutLink || video?.uri || null,
+    start: event.start,
+    end: event.end,
+  };
+}
+
 /** Borra el evento. Un 404 significa que ya no está en el calendario. */
 export async function deleteMeetEvent(eventId) {
   if (!eventId) return { deleted: false, missing: true };
