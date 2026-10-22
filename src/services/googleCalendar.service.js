@@ -6,19 +6,22 @@ import config from '../config/config.js';
 
 const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 
-function credentialsPath() {
-  const configured = config.GOOGLE_CALENDAR_CREDENTIALS;
+function loadServiceAccount() {
+  const configured = String(config.GOOGLE_CALENDAR_CREDENTIALS || '').trim();
   if (!configured) {
     throw new Error('Falta GOOGLE_CALENDAR_CREDENTIALS');
   }
-  return path.isAbsolute(configured)
+  if (configured.startsWith('{')) {
+    return JSON.parse(configured);
+  }
+  const keyFile = path.isAbsolute(configured)
     ? configured
     : path.resolve(process.cwd(), configured);
+  return JSON.parse(fs.readFileSync(keyFile, 'utf8'));
 }
 
 function calendarClient() {
-  const keyFile = credentialsPath();
-  const key = JSON.parse(fs.readFileSync(keyFile, 'utf8'));
+  const key = loadServiceAccount();
   const auth = new google.auth.JWT({
     email: key.client_email,
     key: key.private_key,
