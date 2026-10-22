@@ -4,6 +4,7 @@ import {
   deleteVisitRule,
   getScheduledVisits,
   getVisitRules,
+  patchScheduledVisit,
   patchVisitRule,
   postDefaultVisitRules,
   postScheduledVisits,
@@ -20,6 +21,7 @@ router.patch('/visit-rules/:id', patchVisitRule);
 router.delete('/visit-rules/:id', deleteVisitRule);
 router.get('/scheduled-visits', getScheduledVisits);
 router.post('/scheduled-visits', postScheduledVisits);
+router.patch('/scheduled-visits/:id', patchScheduledVisit);
 router.delete('/scheduled-visits/:id', deleteScheduledVisit);
 router.post('/scheduled-visits/reminders/run', sendVisitReminders);
 

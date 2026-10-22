@@ -9,6 +9,7 @@ import {
   scheduleVisits,
   sendDueReminders,
   updateRule,
+  updateVisit,
 } from '../services/visitSchedule.service.js';
 
 function sendError(res, error, fallback) {
@@ -92,6 +93,23 @@ export const postScheduledVisits = async (req, res) => {
     });
   } catch (error) {
     sendError(res, error, 'No se pudo agendar la visita');
+  }
+};
+
+export const patchScheduledVisit = async (req, res) => {
+  try {
+    const scope = req.query.scope === 'series' ? 'series' : 'one';
+    const result = await updateVisit(req.params.id, req.body || {}, scope);
+    const count = result.updated.length;
+    res.json({
+      success: true,
+      message: result.failures.length
+        ? `Se actualizaron ${count} visitas. ${result.failures.length} no se pudieron cambiar en Google Calendar.`
+        : (count === 1 ? 'Visita y Meet actualizados' : `Se actualizaron ${count} visitas y sus Meets`),
+      data: result.updated,
+    });
+  } catch (error) {
+    sendError(res, error, 'No se pudo editar la visita');
   }
 };
 

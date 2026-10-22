@@ -302,6 +302,45 @@ class VisitScheduleModel {
     return result.rows.map((row) => this.parseVisit(row));
   }
 
+  static async updateVisit(id, data) {
+    const result = await query(
+      `UPDATE scheduled_visits
+       SET client_name = $2,
+           event_type = $3,
+           title = $4,
+           notes = $5,
+           starts_at = $6,
+           ends_at = $7,
+           guests = $8::jsonb,
+           notification_days_before = $9,
+           reminder_hour = $10,
+           meet_link = COALESCE($11, meet_link),
+           calendar_link = COALESCE($12, calendar_link),
+           reminder_sent_at = CASE WHEN $13::boolean THEN NULL ELSE reminder_sent_at END,
+           reminder_claimed_at = CASE WHEN $13::boolean THEN NULL ELSE reminder_claimed_at END,
+           reminder_error = CASE WHEN $13::boolean THEN NULL ELSE reminder_error END,
+           updated_at = NOW()
+       WHERE id = $1 AND status = 'scheduled'
+       RETURNING *`,
+      [
+        id,
+        data.client_name,
+        data.event_type,
+        data.title,
+        data.notes,
+        data.starts_at,
+        data.ends_at,
+        JSON.stringify(data.guests),
+        data.notification_days_before,
+        data.reminder_hour,
+        data.meet_link,
+        data.calendar_link,
+        data.reset_reminder,
+      ]
+    );
+    return this.parseVisit(result.rows[0]);
+  }
+
   static async markCancelled(ids) {
     if (!ids.length) return [];
     const result = await query(
