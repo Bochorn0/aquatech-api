@@ -20,6 +20,16 @@ import {
   executeMergeDuplicateProducts,
 } from '../services/productMerge.service.js';
 import {
+  REPORT_MAX_ROWS,
+  REPORT_PREVIEW_ROWS,
+  parseReportQuery,
+  buildProductLogsReportCsv,
+  buildDailyReportCsv,
+  reportRowToObject,
+  reportDailyRowToObject,
+  safeReportFilename,
+} from '../services/productLogsReport.js';
+import {
   getProductAccessContext,
   isClientScopedProductAccess,
   normalizeClientIdFromProduct,
@@ -2473,6 +2483,130 @@ export const getProductHistoricoLogs = async (req, res) => {
   }
 };
 
+/**
+ * Reporte CSV de product_logs (todo el historial, o un rango) sin llamar a Tuya.
+ * GET /products/:id/logs/reporte
+ * Query: start_date, end_date (ms, opcionales), exclude_zeros=1, mode=detail|daily, count_only=1
+ */
+export const getProductLogsReport = async (req, res) => {
+  try {
+    let { id } = req.params;
+    try {
+      id = decodeURIComponent(String(id || ''));
+    } catch (_) {
+      id = String(req.params.id || '');
+    }
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Missing required parameter: id' });
+    }
+
+    const parsed = parseReportQuery(req.query || {});
+    if (parsed.error) {
+      return res.status(400).json({ success: false, message: parsed.error });
+    }
+
+    const accessCtx = await getProductAccessContext(req);
+    const product = await ProductModel.findByIdOrDeviceId(id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    if (isClientScopedProductAccess(accessCtx)) {
+      const cid = normalizeClientIdFromProduct(product);
+      if (!clientIdInAllowedList(cid, accessCtx.allowedClientIds)) {
+        return res.status(403).json({ success: false, message: 'No tienes acceso a este equipo' });
+      }
+    }
+    if (!product.tuya_logs_routine_enabled) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'El reporte desde esta vista sólo está permitido cuando la rutina de logs está activa para el equipo.',
+        code: 'TUYA_HISTORICO_ROUTINE_DISABLED',
+      });
+    }
+    const productType = String(product.product_type || 'Osmosis').toLowerCase();
+    if (productType !== 'osmosis') {
+      return res.status(400).json({
+        success: false,
+        message: 'El reporte de histórico aplica sólo a equipos Osmosis.',
+        code: 'TUYA_HISTORICO_OSMOSIS_ONLY',
+      });
+    }
+
+    const logDeviceIds = collectProductLogDeviceIds(id, product);
+    const filter = {
+      start: parsed.start,
+      end: parsed.end,
+      excludeZeros: parsed.excludeZeros,
+    };
+    const rawTotal = await ProductLogModel.countReportRows(logDeviceIds, filter);
+    const total = parsed.mode === 'daily'
+      ? await ProductLogModel.countReportDays(logDeviceIds, filter)
+      : rawTotal;
+    const meta = {
+      max_rows: REPORT_MAX_ROWS,
+      mode: parsed.mode,
+      exclude_zeros: parsed.excludeZeros,
+      start_ms: parsed.start ? parsed.start.getTime() : null,
+      end_ms: parsed.end ? parsed.end.getTime() : null,
+      raw_total: rawTotal,
+      exceeds_detail_limit: rawTotal > REPORT_MAX_ROWS,
+    };
+
+    if (parsed.countOnly) {
+      const previewRows = parsed.mode === 'daily'
+        ? await ProductLogModel.findReportDailyRows(logDeviceIds, {
+          ...filter,
+          limit: REPORT_PREVIEW_ROWS,
+          order: 'desc',
+        })
+        : await ProductLogModel.findReportRows(logDeviceIds, {
+          ...filter,
+          limit: REPORT_PREVIEW_ROWS,
+          order: 'desc',
+        });
+      const preview = parsed.mode === 'daily'
+        ? previewRows.map(reportDailyRowToObject)
+        : previewRows.map(reportRowToObject);
+      return res.json({
+        success: true,
+        total,
+        raw_total: rawTotal,
+        preview,
+        meta,
+      });
+    }
+
+    if (parsed.mode === 'detail' && rawTotal > REPORT_MAX_ROWS) {
+      return res.status(400).json({
+        success: false,
+        message: `Hay ${rawTotal} registros y el máximo por descarga es ${REPORT_MAX_ROWS}. Active un rango de fechas más corto, o descargue el resumen por día.`,
+        meta,
+      });
+    }
+
+    const rows = parsed.mode === 'daily'
+      ? await ProductLogModel.findReportDailyRows(logDeviceIds, { ...filter, order: 'asc' })
+      : await ProductLogModel.findReportRows(logDeviceIds, {
+        ...filter,
+        limit: REPORT_MAX_ROWS,
+        order: 'asc',
+      });
+    const csv = parsed.mode === 'daily' ? buildDailyReportCsv(rows) : buildProductLogsReportCsv(rows);
+    const filename = safeReportFilename(product.name || id, parsed.mode);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(`\uFEFF${csv}`);
+  } catch (error) {
+    console.error('[getProductLogsReport]', error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error al generar el reporte',
+    });
+  }
+};
+
 /** Días calendario inclusivos entre dos marcas de tiempo (parte de fecha en UTC). */
 function inclusiveCalendarSpanDays(minDate, maxDate) {
   if (!minDate || !maxDate) return 0;
@@ -3151,7 +3285,6 @@ async function handlePressureProduct(product, data) {
 
   return { success: true, message: 'Datos de presión actualizados', product: refreshed };
 }
-
 
 // 🌊 — NIVEL
 async function handleLevelProduct(product, data) {
