@@ -1,6 +1,7 @@
 import {
   buildDailyReportCsv,
   buildProductLogsReportCsv,
+  formatReportBound,
   parseReportQuery,
   reportDailyRowToObject,
   reportRowToObject,
@@ -14,8 +15,36 @@ describe('productLogsReport', () => {
     expect(parsed.excludeZeros).toBe(true);
     expect(parsed.countOnly).toBe(true);
     expect(parsed.mode).toBe('daily');
+    expect(parsed.sort).toBe('dia');
+    expect(parsed.order).toBe('desc');
+    expect(parsed.page).toBe(1);
+    expect(parsed.pageSize).toBe(25);
+    expect(parsed.columnFilters).toEqual({});
     expect(parsed.start).toBeNull();
     expect(parsed.end).toBeNull();
+  });
+
+  it('parses paging, sort and column filters', () => {
+    const parsed = parseReportQuery({
+      page: '3',
+      page_size: '50',
+      sort: 'tds_ppm',
+      order: 'asc',
+      col_tds_ppm_min: '10',
+      col_tds_ppm_max: '40,5',
+      col_origen: 'tuya',
+    });
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.page).toBe(3);
+    expect(parsed.pageSize).toBe(50);
+    expect(parsed.sort).toBe('tds_ppm');
+    expect(parsed.order).toBe('asc');
+    expect(parsed.columnFilters.tds_ppm).toEqual({ min: 10, max: 40.5 });
+    expect(parsed.columnFilters.origen).toEqual({ text: 'tuya' });
+  });
+
+  it('rejects an unknown sort column', () => {
+    expect(parseReportQuery({ sort: 'drop table' }).error).toMatch(/orden/);
   });
 
   it('rejects an inverted date range', () => {
@@ -81,6 +110,12 @@ describe('productLogsReport', () => {
     expect(row.flujo_produccion_prom_l_min).toBe('1.80');
     expect(row.flujo_rechazo_prom_l_min).toBe('');
     expect(buildDailyReportCsv([row]).split('\n')[0]).toContain('volumen_produccion_delta_l');
+  });
+
+  it('labels the first and last record in Hermosillo time', () => {
+    expect(formatReportBound(new Date('2026-03-15T18:30:00.000Z'), 'detail')).toContain('15/03/2026');
+    expect(formatReportBound('2026-03-15', 'daily')).toBe('15/03/2026');
+    expect(formatReportBound(null, 'detail')).toBeNull();
   });
 
   it('builds an ascii filename', () => {
