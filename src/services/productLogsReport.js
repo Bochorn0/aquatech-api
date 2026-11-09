@@ -1,7 +1,35 @@
 /** CSV de product_logs para la sección de reportería en Equipos / histórico. */
 
 export const REPORT_MAX_ROWS = 200000;
-export const REPORT_PREVIEW_ROWS = 5;
+export const REPORT_PAGE_SIZE_DEFAULT = 25;
+export const REPORT_PAGE_SIZE_MAX = 100;
+
+const DETAIL_SORT_KEYS = [
+  'fecha_hermosillo',
+  'fecha_utc',
+  'tds_ppm',
+  'volumen_produccion_l',
+  'volumen_rechazo_l',
+  'flujo_produccion_l_min',
+  'flujo_rechazo_l_min',
+  'temperatura',
+  'origen',
+];
+
+const DAILY_SORT_KEYS = [
+  'dia',
+  'muestras',
+  'tds_inicio_ppm',
+  'tds_fin_ppm',
+  'tds_min_ppm',
+  'tds_max_ppm',
+  'volumen_produccion_delta_l',
+  'volumen_rechazo_delta_l',
+  'flujo_produccion_prom_l_min',
+  'flujo_rechazo_prom_l_min',
+];
+
+const TEXT_FILTER_KEYS = new Set(['origen']);
 
 const HERMOSILLO_TZ = 'America/Hermosillo';
 
@@ -44,9 +72,39 @@ function parseOptionalEpochMs(raw) {
   return { ok: true, date: new Date(n) };
 }
 
+function parseOptionalNumber(raw) {
+  if (raw == null || String(raw).trim() === '') return { ok: true, value: null };
+  const n = Number(String(raw).trim().replace(',', '.'));
+  if (!Number.isFinite(n)) return { ok: false, value: null };
+  return { ok: true, value: n };
+}
+
+function parseColumnFilters(query, mode) {
+  const allowed = new Set(mode === 'daily' ? DAILY_SORT_KEYS : DETAIL_SORT_KEYS);
+  const columnFilters = {};
+  for (const key of allowed) {
+    if (TEXT_FILTER_KEYS.has(key)) {
+      const text = String(query[`col_${key}`] ?? '').trim();
+      if (text) columnFilters[key] = { text: text.slice(0, 80) };
+      continue;
+    }
+    const minParsed = parseOptionalNumber(query[`col_${key}_min`]);
+    const maxParsed = parseOptionalNumber(query[`col_${key}_max`]);
+    if (!minParsed.ok || !maxParsed.ok) {
+      return { error: `Filtro numérico inválido en ${key}` };
+    }
+    if (minParsed.value == null && maxParsed.value == null) continue;
+    if (minParsed.value != null && maxParsed.value != null && minParsed.value > maxParsed.value) {
+      return { error: `En ${key} el mínimo no puede ser mayor que el máximo` };
+    }
+    columnFilters[key] = { min: minParsed.value, max: maxParsed.value };
+  }
+  return { columnFilters };
+}
+
 /**
  * @param {Record<string, unknown>} query
- * @returns {{ error: string } | { error?: undefined, start: Date|null, end: Date|null, excludeZeros: boolean, countOnly: boolean, mode: 'detail'|'daily' }}
+ * @returns {{ error: string } | { error?: undefined, start: Date|null, end: Date|null, excludeZeros: boolean, countOnly: boolean, mode: 'detail'|'daily', page: number, pageSize: number, sort: string, order: 'asc'|'desc', columnFilters: Record<string, { min?: number|null, max?: number|null, text?: string }> }}
  */
 export function parseReportQuery(query = {}) {
   const startParsed = parseOptionalEpochMs(query.start_date);
@@ -68,12 +126,36 @@ export function parseReportQuery(query = {}) {
     return { error: 'Modo inválido. Use detail o daily.' };
   }
 
+  const sortKeys = rawMode === 'daily' ? DAILY_SORT_KEYS : DETAIL_SORT_KEYS;
+  const defaultSort = rawMode === 'daily' ? 'dia' : 'fecha_hermosillo';
+  const sort = String(query.sort || defaultSort);
+  if (!sortKeys.includes(sort)) {
+    return { error: 'Columna de orden no válida' };
+  }
+  const order = String(query.order || 'desc').toLowerCase();
+  if (order !== 'asc' && order !== 'desc') {
+    return { error: 'El orden debe ser asc o desc' };
+  }
+
+  const page = Math.max(parseInt(query.page ?? '1', 10) || 1, 1);
+  const pageSize = Math.min(
+    Math.max(parseInt(query.page_size ?? String(REPORT_PAGE_SIZE_DEFAULT), 10) || REPORT_PAGE_SIZE_DEFAULT, 1),
+    REPORT_PAGE_SIZE_MAX
+  );
+  const filters = parseColumnFilters(query, rawMode);
+  if (filters.error) return { error: filters.error };
+
   return {
     start,
     end,
     excludeZeros: queryFlag(query.exclude_zeros),
     countOnly: queryFlag(query.count_only),
     mode: rawMode,
+    page,
+    pageSize,
+    sort,
+    order,
+    columnFilters: filters.columnFilters,
   };
 }
 
@@ -98,6 +180,18 @@ export function flujoToLmin(raw) {
   const n = Number(raw);
   if (!Number.isFinite(n) || n === 0) return '';
   return (n / 10).toFixed(2);
+}
+
+export function formatReportBound(value, mode = 'detail') {
+  if (value == null || value === '') return null;
+  if (mode === 'daily') {
+    const day = formatCalendarDay(value);
+    if (!day) return null;
+    const [year, month, dayNum] = day.split('-');
+    return `${dayNum}/${month}/${year}`;
+  }
+  const formatted = formatHermosillo(value);
+  return formatted || null;
 }
 
 export function formatHermosillo(date) {

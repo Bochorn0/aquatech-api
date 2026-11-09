@@ -21,13 +21,13 @@ import {
 } from '../services/productMerge.service.js';
 import {
   REPORT_MAX_ROWS,
-  REPORT_PREVIEW_ROWS,
   parseReportQuery,
   buildProductLogsReportCsv,
   buildDailyReportCsv,
   reportRowToObject,
   reportDailyRowToObject,
   safeReportFilename,
+  formatReportBound,
 } from '../services/productLogsReport.js';
 import {
   getProductAccessContext,
@@ -2534,15 +2534,20 @@ export const getProductLogsReport = async (req, res) => {
     }
 
     const logDeviceIds = collectProductLogDeviceIds(id, product);
-    const filter = {
+    const baseFilter = {
       start: parsed.start,
       end: parsed.end,
       excludeZeros: parsed.excludeZeros,
     };
-    const rawTotal = await ProductLogModel.countReportRows(logDeviceIds, filter);
-    const total = parsed.mode === 'daily'
+    const filter = { ...baseFilter, columnFilters: parsed.columnFilters };
+    const rawStats = await ProductLogModel.countReportRows(logDeviceIds, baseFilter);
+    const filteredStats = parsed.mode === 'daily'
       ? await ProductLogModel.countReportDays(logDeviceIds, filter)
-      : rawTotal;
+      : await ProductLogModel.countReportRows(logDeviceIds, filter);
+    const rawTotal = rawStats.count;
+    const total = filteredStats.count;
+    const pageCount = Math.max(1, Math.ceil(total / parsed.pageSize));
+    const page = Math.min(parsed.page, pageCount);
     const meta = {
       max_rows: REPORT_MAX_ROWS,
       mode: parsed.mode,
@@ -2550,21 +2555,26 @@ export const getProductLogsReport = async (req, res) => {
       start_ms: parsed.start ? parsed.start.getTime() : null,
       end_ms: parsed.end ? parsed.end.getTime() : null,
       raw_total: rawTotal,
-      exceeds_detail_limit: rawTotal > REPORT_MAX_ROWS,
+      exceeds_detail_limit: parsed.mode === 'detail' && total > REPORT_MAX_ROWS,
+      page,
+      page_size: parsed.pageSize,
+      sort: parsed.sort,
+      order: parsed.order,
+      first_record: formatReportBound(filteredStats.firstDate, parsed.mode),
+      last_record: formatReportBound(filteredStats.lastDate, parsed.mode),
     };
 
     if (parsed.countOnly) {
+      const pageOptions = {
+        ...filter,
+        sort: parsed.sort,
+        order: parsed.order,
+        limit: parsed.pageSize,
+        offset: (page - 1) * parsed.pageSize,
+      };
       const previewRows = parsed.mode === 'daily'
-        ? await ProductLogModel.findReportDailyRows(logDeviceIds, {
-          ...filter,
-          limit: REPORT_PREVIEW_ROWS,
-          order: 'desc',
-        })
-        : await ProductLogModel.findReportRows(logDeviceIds, {
-          ...filter,
-          limit: REPORT_PREVIEW_ROWS,
-          order: 'desc',
-        });
+        ? await ProductLogModel.findReportDailyRows(logDeviceIds, pageOptions)
+        : await ProductLogModel.findReportRows(logDeviceIds, pageOptions);
       const preview = parsed.mode === 'daily'
         ? previewRows.map(reportDailyRowToObject)
         : previewRows.map(reportRowToObject);
@@ -2577,20 +2587,25 @@ export const getProductLogsReport = async (req, res) => {
       });
     }
 
-    if (parsed.mode === 'detail' && rawTotal > REPORT_MAX_ROWS) {
+    if (parsed.mode === 'detail' && total > REPORT_MAX_ROWS) {
       return res.status(400).json({
         success: false,
-        message: `Hay ${rawTotal} registros y el máximo por descarga es ${REPORT_MAX_ROWS}. Active un rango de fechas más corto, o descargue el resumen por día.`,
+        message: `Hay ${total} registros con estos filtros y el máximo por descarga es ${REPORT_MAX_ROWS}. Acota el rango o los filtros de columna, o descargue el resumen por día.`,
         meta,
       });
     }
 
     const rows = parsed.mode === 'daily'
-      ? await ProductLogModel.findReportDailyRows(logDeviceIds, { ...filter, order: 'asc' })
+      ? await ProductLogModel.findReportDailyRows(logDeviceIds, {
+        ...filter,
+        sort: parsed.sort,
+        order: parsed.order,
+      })
       : await ProductLogModel.findReportRows(logDeviceIds, {
         ...filter,
+        sort: parsed.sort,
+        order: parsed.order,
         limit: REPORT_MAX_ROWS,
-        order: 'asc',
       });
     const csv = parsed.mode === 'daily' ? buildDailyReportCsv(rows) : buildProductLogsReportCsv(rows);
     const filename = safeReportFilename(product.name || id, parsed.mode);
