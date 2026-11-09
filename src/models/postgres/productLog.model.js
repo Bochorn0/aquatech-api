@@ -428,6 +428,121 @@ class ProductLogModel {
     }));
   }
 
+  /**
+   * Filtro de reportería: device ids del equipo, rango opcional y filas totalmente en cero.
+   * @returns {{ whereSql: string, values: unknown[], nextIndex: number } | null}
+   */
+  static buildReportWhere(deviceIds = [], { start = null, end = null, excludeZeros = false } = {}) {
+    const ids = [...new Set((deviceIds || []).filter(Boolean).map(String))];
+    if (ids.length === 0) return null;
+    const where = ['product_device_id = ANY($1::text[])'];
+    const values = [ids];
+    let i = 2;
+    if (start) {
+      where.push(`date >= $${i}`);
+      values.push(start instanceof Date ? start : new Date(start));
+      i += 1;
+    }
+    if (end) {
+      where.push(`date <= $${i}`);
+      values.push(end instanceof Date ? end : new Date(end));
+      i += 1;
+    }
+    if (excludeZeros) {
+      where.push(`(
+        COALESCE(tds, 0) <> 0
+        OR COALESCE(production_volume, 0) <> 0
+        OR COALESCE(rejected_volume, 0) <> 0
+        OR COALESCE(flujo_produccion, 0) <> 0
+        OR COALESCE(flujo_rechazo, 0) <> 0
+        OR COALESCE(temperature, 0) <> 0
+      )`);
+    }
+    return { whereSql: where.join(' AND '), values, nextIndex: i };
+  }
+
+  static async countReportRows(deviceIds = [], options = {}) {
+    const built = this.buildReportWhere(deviceIds, options);
+    if (!built) return 0;
+    const result = await query(
+      `SELECT COUNT(*)::int AS c FROM product_logs WHERE ${built.whereSql}`,
+      built.values
+    );
+    return Number(result.rows?.[0]?.c) || 0;
+  }
+
+  static async countReportDays(deviceIds = [], options = {}) {
+    const built = this.buildReportWhere(deviceIds, options);
+    if (!built) return 0;
+    const result = await query(
+      `SELECT COUNT(DISTINCT (timezone('America/Hermosillo', date))::date)::int AS c
+       FROM product_logs
+       WHERE ${built.whereSql}`,
+      built.values
+    );
+    return Number(result.rows?.[0]?.c) || 0;
+  }
+
+  /** Filas crudas para CSV. order: 'asc' (archivo) o 'desc' (vista previa). */
+  static async findReportRows(deviceIds = [], options = {}) {
+    const built = this.buildReportWhere(deviceIds, options);
+    if (!built) return [];
+    const order = options.order === 'desc' ? 'DESC' : 'ASC';
+    const values = [...built.values];
+    let limitSql = '';
+    if (options.limit != null) {
+      const limit = Math.min(Math.max(parseInt(options.limit, 10) || 1, 1), 250000);
+      limitSql = ` LIMIT $${built.nextIndex}`;
+      values.push(limit);
+    }
+    const result = await query(
+      `SELECT date, tds, production_volume, rejected_volume,
+              flujo_produccion, flujo_rechazo, temperature, source, product_device_id
+       FROM product_logs
+       WHERE ${built.whereSql}
+       ORDER BY date ${order}${limitSql}`,
+      values
+    );
+    return result.rows || [];
+  }
+
+  /**
+   * Un renglón por día en America/Hermosillo.
+   * Volúmenes = última muestra − primera (contador acumulado). Flujos = promedio del crudo.
+   */
+  static async findReportDailyRows(deviceIds = [], options = {}) {
+    const built = this.buildReportWhere(deviceIds, options);
+    if (!built) return [];
+    const order = options.order === 'desc' ? 'DESC' : 'ASC';
+    const values = [...built.values];
+    let limitSql = '';
+    if (options.limit != null) {
+      const limit = Math.min(Math.max(parseInt(options.limit, 10) || 1, 1), 50000);
+      limitSql = ` LIMIT $${built.nextIndex}`;
+      values.push(limit);
+    }
+    const result = await query(
+      `SELECT (timezone('America/Hermosillo', date))::date AS day,
+              COUNT(*)::int AS muestras,
+              (array_agg(tds ORDER BY date ASC) FILTER (WHERE tds IS NOT NULL))[1] AS tds_first,
+              (array_agg(tds ORDER BY date DESC) FILTER (WHERE tds IS NOT NULL))[1] AS tds_last,
+              MIN(tds) AS tds_min,
+              MAX(tds) AS tds_max,
+              (array_agg(production_volume ORDER BY date ASC) FILTER (WHERE production_volume IS NOT NULL))[1] AS prod_first,
+              (array_agg(production_volume ORDER BY date DESC) FILTER (WHERE production_volume IS NOT NULL))[1] AS prod_last,
+              (array_agg(rejected_volume ORDER BY date ASC) FILTER (WHERE rejected_volume IS NOT NULL))[1] AS rej_first,
+              (array_agg(rejected_volume ORDER BY date DESC) FILTER (WHERE rejected_volume IS NOT NULL))[1] AS rej_last,
+              AVG(flujo_produccion) FILTER (WHERE COALESCE(flujo_produccion, 0) <> 0) AS flujo_prod_avg,
+              AVG(flujo_rechazo) FILTER (WHERE COALESCE(flujo_rechazo, 0) <> 0) AS flujo_rech_avg
+       FROM product_logs
+       WHERE ${built.whereSql}
+       GROUP BY 1
+       ORDER BY 1 ${order}${limitSql}`,
+      values
+    );
+    return result.rows || [];
+  }
+
   static async getMaxVolumesByDeviceIds(deviceIds = []) {
     const ids = Array.from(new Set((deviceIds || []).filter(Boolean).map(String)));
     if (ids.length === 0) return new Map();

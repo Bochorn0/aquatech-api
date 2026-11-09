@@ -1,6 +1,6 @@
 // src/routes/product.routes.js
 import { Router } from 'express';
-import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductHistoricoLogs, getProductHistoricoDaysSummary, postHistoricoHubSummary, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, fetchLogsRoutine_old, getTuyaLogsRoutineConfig, updateTuyaLogsRoutineConfig, runLogsRoutineForProduct, generarLogsPorFecha, createProduct, updateProduct, deleteProduct, lockProducts, previewMergeDuplicateProducts, mergeDuplicateProducts, getMergedProductsList, getMergedProductDetail } from '../controllers/product.controller.js'; // Named imports
+import { getAllProducts, generateAllProducts, getProductById, getProductMetrics, getProductHistoricoLogs, getProductHistoricoDaysSummary, getProductLogsReport, postHistoricoHubSummary, getProductLogsById, sendDeviceCommands, saveAllProducts, componentInput, fetchLogsRoutine, fetchLogsRoutine_old, getTuyaLogsRoutineConfig, updateTuyaLogsRoutineConfig, runLogsRoutineForProduct, generarLogsPorFecha, createProduct, updateProduct, deleteProduct, lockProducts, previewMergeDuplicateProducts, mergeDuplicateProducts, getMergedProductsList, getMergedProductDetail } from '../controllers/product.controller.js'; // Named imports
 import { authenticate, requirePermission, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -76,6 +76,7 @@ router.delete('/:id', authenticate, authorizeRoles('admin'), deleteProduct);
 // Historico Tuya (totales + TDS) — requires tuya_logs_routine_enabled on the product; must be registered before /:id/logs
 router.get('/:id/logs/historico', authenticate, getProductHistoricoLogs);
 router.get('/:id/logs/historico-days-summary', authenticate, getProductHistoricoDaysSummary);
+router.get('/:id/logs/reporte', authenticate, getProductLogsReport);
 
 // Get specific product logs by ID
 router.get('/:id/logs', authenticate, getProductLogsById);
