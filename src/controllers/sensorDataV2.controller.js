@@ -5,6 +5,7 @@ import SensoresModel from '../models/postgres/sensores.model.js';
 import SensorLatestModel from '../models/postgres/sensorLatest.model.js';
 import { query } from '../config/postgres.config.js';
 import ClientModel from '../models/postgres/client.model.js';
+import { resolveHistoricoRangeFromQuery } from '../utils/historicoRange.js';
 
 /** Sonora (no DST). Used for historico day boundaries (matches chart labels). */
 const APP_TZ = 'America/Hermosillo';
@@ -928,15 +929,17 @@ export const getPuntoVentaHistoricoV2 = async (req, res) => {
       }
       let startDate;
       let endDate;
-      if (historicoRange === '7d') {
-        startDate = moment().subtract(7, 'days').toISOString();
-        endDate = moment().toISOString();
-      } else if (historicoRange === '30d') {
-        startDate = moment().subtract(30, 'days').toISOString();
-        endDate = moment().toISOString();
-      } else {
-        startDate = moment().subtract(24, 'hours').toISOString();
-        endDate = moment().toISOString();
+      let resolvedRange = historicoRange;
+      try {
+        const resolved = resolveHistoricoRangeFromQuery(req.query, moment);
+        startDate = resolved.startDate;
+        endDate = resolved.endDate;
+        resolvedRange = resolved.range;
+      } catch (rangeErr) {
+        return res.status(rangeErr.statusCode || 400).json({
+          success: false,
+          message: rangeErr.message,
+        });
       }
       const productType = (product.product_type || 'Osmosis').toString();
       const useLastValue = productType === 'Nivel' || productType === 'nivel';
@@ -965,7 +968,9 @@ export const getPuntoVentaHistoricoV2 = async (req, res) => {
         success: true,
         data: {
           historico: hours.length ? { hours_with_data: hours } : null,
-          range: historicoRange,
+          range: resolvedRange,
+          start_date: startDate,
+          end_date: endDate,
           productId: String(product._id ?? product.id),
           product_type: productType,
           source: 'tuya',

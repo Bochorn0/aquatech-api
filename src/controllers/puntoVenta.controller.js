@@ -10,6 +10,7 @@ import mqttService from '../services/mqtt.service.js';
 import { buildTiwaterTopic } from '../utils/mqttTopic.js';
 import PostgresService from '../services/postgres.service.js';
 import { getAllowedClientIdsForRequest } from '../utils/user-clients.helper.js';
+import { resolveHistoricoRangeFromQuery } from '../utils/historicoRange.js';
 
 /** Default full tiwater payload when no sensor data exists (same structure as generate-daily-data). */
 function getDefaultTiwaterPayload() {
@@ -367,19 +368,17 @@ export const getPuntoVentaById = async (req, res) => {
     const nivelProducts = productos.filter((p) => p && (p.product_type === 'Nivel' || p.product_type === 'nivel'));
     const historicoRange = (req.query.historicoRange || '24h').toLowerCase();
     if (nivelProducts.length > 0) {
-      // Rango según historicoRange: 24h (last 24 hours), 7d (last week), 30d (last month)
       let startDate;
       let endDate;
-      if (historicoRange === '7d') {
-        startDate = moment().subtract(7, 'days').toISOString();
-        endDate = moment().toISOString();
-      } else if (historicoRange === '30d') {
-        startDate = moment().subtract(30, 'days').toISOString();
-        endDate = moment().toISOString();
-      } else {
-        // default 24h
-        startDate = moment().subtract(24, 'hours').toISOString();
-        endDate = moment().toISOString();
+      try {
+        const resolved = resolveHistoricoRangeFromQuery(
+          { ...req.query, historicoRange, range: historicoRange },
+          moment
+        );
+        startDate = resolved.startDate;
+        endDate = resolved.endDate;
+      } catch (rangeErr) {
+        return res.status(rangeErr.statusCode || 400).json({ message: rangeErr.message });
       }
       await Promise.all(
         nivelProducts.map(async (product) => {
