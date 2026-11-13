@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { 
   getControllers, 
   getControllerById,
+  getControllerRevision,
   getActiveControllers, 
   updateController, 
   deleteController, 
@@ -13,6 +14,7 @@ const router = Router();
 
 // Access by requirePermission('/controladores') at mount
 router.get('/all', authenticate, requirePermission('/controladores'), getControllers);
+router.get('/:id/revision', authenticate, getControllerRevision);
 router.get('/:id', authenticate, getControllerById);
 router.get('/', authenticate, getActiveControllers);
 router.post('/', authenticate, requirePermission('/controladores'), addController);

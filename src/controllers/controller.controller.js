@@ -1,7 +1,28 @@
 // src/controllers/controller.controller.js
+import crypto from 'crypto';
 import ControllerModel from '../models/postgres/controller.model.js';
 import ClientModel from '../models/postgres/client.model.js';
 import ProductModel from '../models/postgres/product.model.js';
+import { decorateRulesForDevice } from '../services/controllerFlowReadings.js';
+
+function rulesRevision(rules) {
+  const raw = rules == null ? '' : JSON.stringify(rules);
+  return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 20);
+}
+
+function syncMsOf(controller) {
+  const value = Number(controller?.update_controller_time ?? 60000);
+  if (!Number.isFinite(value) || value < 15000) return 60000;
+  return value;
+}
+
+async function presentController(controller) {
+  if (!controller?.rules) return controller;
+  return {
+    ...controller,
+    rules: await decorateRulesForDevice(controller.rules),
+  };
+}
 
 // Obtener todos los controladores
 export const getControllers = async (req, res) => {
@@ -98,7 +119,23 @@ export const getControllerById = async (req, res) => {
       lapso_loop: controller.loop_time ?? controller.lapso_loop ?? 5000,
     };
 
-    res.json(safeController);
+    res.json(await presentController(safeController));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// El equipo pregunta solo el sello de las reglas. Si no cambió, no baja el documento.
+export const getControllerRevision = async (req, res) => {
+  try {
+    const controller = await ControllerModel.findByIdOrDeviceId(req.params.id);
+    if (!controller) {
+      return res.status(404).json({ message: 'Controlador no encontrado' });
+    }
+    res.json({
+      revision: rulesRevision(controller.rules),
+      sync_ms: syncMsOf(controller),
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -139,7 +176,7 @@ export const addController = async (req, res) => {
         field: error.column
       });
     }
-    res.status(500).json({ message: 'Error adding controller', error: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message || 'Error adding controller' });
   }
 };
 
@@ -158,10 +195,17 @@ export const updateController = async (req, res) => {
     if (!updated) {
       return res.status(500).json({ message: 'Failed to update controller' });
     }
-    res.json(updated);
+    if (String(req.query.brief || '') === '1') {
+      return res.json({
+        ok: true,
+        revision: rulesRevision(updated.rules),
+        sync_ms: syncMsOf(updated),
+      });
+    }
+    res.json(await presentController(updated));
   } catch (error) {
     console.error('Error updating controller:', error);
-    res.status(500).json({ message: 'Error updating controller' });
+    res.status(error.statusCode || 500).json({ message: error.message || 'Error updating controller' });
   }
 };
 
