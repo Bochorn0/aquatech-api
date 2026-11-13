@@ -1,6 +1,7 @@
 // PostgreSQL model for controllers table (replaces MongoDB Controller)
 
 import { query } from '../../config/postgres.config.js';
+import { normalizeControllerRules } from './controllerRules.js';
 
 class ControllerModel {
   static async findById(id) {
@@ -79,11 +80,12 @@ class ControllerModel {
 
   static async create(data) {
     const row = this.toRow(data);
+    const rules = data.rules == null ? null : JSON.stringify(normalizeControllerRules(data.rules));
     const result = await query(`
-      INSERT INTO controllers (device_id, active_time, last_time_active, product_type, create_time, kfactor_tds, kfactor_flujo, icon, ip, city, state, client_id, product_id, drive, lat, lon, model, name, online, owner_id, product_device_id, product_name, sub, time_zone, reset_pending, update_controller_time, loop_time, flush_time, flush_pending, tipo_sensor, sensor_factor)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
+      INSERT INTO controllers (device_id, active_time, last_time_active, product_type, create_time, kfactor_tds, kfactor_flujo, icon, ip, city, state, client_id, product_id, drive, lat, lon, model, name, online, owner_id, product_device_id, product_name, sub, time_zone, reset_pending, update_controller_time, loop_time, flush_time, flush_pending, tipo_sensor, sensor_factor, rules)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32::jsonb)
       RETURNING *
-    `, [row.device_id, row.active_time, row.last_time_active, row.product_type, row.create_time, row.kfactor_tds, row.kfactor_flujo, row.icon, row.ip, row.city, row.state, row.client_id, row.product_id, row.drive, row.lat, row.lon, row.model, row.name, row.online, row.owner_id, row.product_device_id, row.product_name, row.sub, row.time_zone, row.reset_pending, row.update_controller_time, row.loop_time, row.flush_time, row.flush_pending, row.tipo_sensor, row.sensor_factor]);
+    `, [row.device_id, row.active_time, row.last_time_active, row.product_type, row.create_time, row.kfactor_tds, row.kfactor_flujo, row.icon, row.ip, row.city, row.state, row.client_id, row.product_id, row.drive, row.lat, row.lon, row.model, row.name, row.online, row.owner_id, row.product_device_id, row.product_name, row.sub, row.time_zone, row.reset_pending, row.update_controller_time, row.loop_time, row.flush_time, row.flush_pending, row.tipo_sensor, row.sensor_factor, rules]);
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
@@ -97,12 +99,18 @@ class ControllerModel {
       product: 'product_id',
       cliente: 'client_id',
     };
-    const allowed = ['active_time', 'last_time_active', 'online', 'ip', 'reset_pending', 'flush_pending', 'kfactor_tds', 'kfactor_flujo', 'name', 'product_id', 'client_id', 'product_device_id', 'product_name', 'city', 'state', 'drive', 'lat', 'lon', 'model', 'update_controller_time', 'loop_time', 'flush_time', 'flush_pending', 'tipo_sensor', 'sensor_factor'];
+    const allowed = ['active_time', 'last_time_active', 'online', 'ip', 'reset_pending', 'flush_pending', 'kfactor_tds', 'kfactor_flujo', 'name', 'product_id', 'client_id', 'product_device_id', 'product_name', 'city', 'state', 'drive', 'lat', 'lon', 'model', 'update_controller_time', 'loop_time', 'flush_time', 'flush_pending', 'tipo_sensor', 'sensor_factor', 'rules'];
     for (const k of Object.keys(data)) {
       const col = map[k] || k;
       if (allowed.includes(col) && data[k] !== undefined) {
-        cols.push(`${col} = $${i}`);
-        vals.push(data[k]);
+        if (col === 'rules') {
+          const normalized = data[k] == null ? null : normalizeControllerRules(data[k]);
+          cols.push(normalized == null ? `rules = $${i}` : `rules = $${i}::jsonb`);
+          vals.push(normalized == null ? null : JSON.stringify(normalized));
+        } else {
+          cols.push(`${col} = $${i}`);
+          vals.push(data[k]);
+        }
         i++;
       }
     }
@@ -115,8 +123,13 @@ class ControllerModel {
   }
 
   static toRow(data) {
-    const productId = data.product?.id ?? data.product?._id ?? data.product_id;
-    const clientId = data.cliente?.id ?? data.cliente ?? data.client_id;
+    const relationId = (value) => {
+      if (value == null || value === '') return null;
+      if (typeof value === 'object') return value.id ?? value._id ?? null;
+      return value;
+    };
+    const productId = relationId(data.product) ?? data.product_id ?? null;
+    const clientId = relationId(data.cliente) ?? data.client_id ?? null;
     return {
       device_id: data.id ?? data.device_id ?? '',
       active_time: data.active_time ?? null,
@@ -189,7 +202,8 @@ class ControllerModel {
       flush_time: row.flush_time ?? 20000,
       flush_pending: row.flush_pending ?? false,
       tipo_sensor: row.tipo_sensor ?? 1,
-      sensor_factor: row.sensor_factor
+      sensor_factor: row.sensor_factor,
+      rules: row.rules ?? null
     };
   }
 }
