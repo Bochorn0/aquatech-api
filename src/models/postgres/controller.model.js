@@ -15,7 +15,13 @@ class ControllerModel {
   }
 
   static async findByDeviceId(deviceId) {
-    const result = await query('SELECT * FROM controllers WHERE device_id = $1 LIMIT 1', [deviceId]);
+    const result = await query(
+      `SELECT * FROM controllers
+       WHERE device_id = $1 OR LOWER(device_id) = LOWER($1)
+       ORDER BY CASE WHEN device_id = $1 THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [deviceId]
+    );
     return result.rows?.[0] ? this.parseRow(result.rows[0]) : null;
   }
 
@@ -99,7 +105,7 @@ class ControllerModel {
       product: 'product_id',
       cliente: 'client_id',
     };
-    const allowed = ['active_time', 'last_time_active', 'online', 'ip', 'reset_pending', 'flush_pending', 'kfactor_tds', 'kfactor_flujo', 'name', 'product_id', 'client_id', 'product_device_id', 'product_name', 'city', 'state', 'drive', 'lat', 'lon', 'model', 'update_controller_time', 'loop_time', 'flush_time', 'flush_pending', 'tipo_sensor', 'sensor_factor', 'rules'];
+    const allowed = ['active_time', 'last_time_active', 'online', 'ip', 'reset_pending', 'flush_pending', 'kfactor_tds', 'kfactor_flujo', 'name', 'product_id', 'client_id', 'product_device_id', 'product_name', 'city', 'state', 'drive', 'lat', 'lon', 'model', 'time_zone', 'update_controller_time', 'loop_time', 'flush_time', 'flush_pending', 'tipo_sensor', 'sensor_factor', 'rules'];
     for (const k of Object.keys(data)) {
       const col = map[k] || k;
       if (allowed.includes(col) && data[k] !== undefined) {

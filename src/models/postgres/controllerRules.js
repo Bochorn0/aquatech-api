@@ -1,11 +1,14 @@
-const RELAY_MODES = {
-  1: 'manual',
-  2: 'and_inputs',
-  3: 'timer',
-  4: 'flow',
-  5: 'pressure',
-  6: 'pressure',
-};
+const INPUT_PINS = [4, 16, 17, 19, 22];
+const FLOW_PINS = [4, 19];
+const FLUSH_EVERY_MS = 12 * 60 * 60 * 1000;
+
+const FLOW_SLOTS = [
+  { role: 'gate', name: 'Agua cruda', optionalDevice: false },
+  { role: 'chlorine', name: 'Cruda a tienda', optionalDevice: false },
+  { role: 'calc', name: 'Rechazo', optionalDevice: true },
+  { role: 'calc', name: 'Produccion', optionalDevice: true },
+  { role: 'read', name: 'Pura a tienda', optionalDevice: true },
+];
 
 function fail(message) {
   const error = new Error(message);
@@ -18,118 +21,152 @@ function clampNumber(value, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function isLegacy(src) {
+  const relays = Array.isArray(src.relays) ? src.relays : [];
+  return relays.some((relay) => {
+    const id = Number(relay?.id);
+    const mode = relay?.mode;
+    return id > 4 || mode === 'and_inputs' || mode === 'pressure' || mode === 'diff';
+  });
+}
+
+function sourceRelay(src, legacy, id) {
+  const relays = Array.isArray(src.relays) ? src.relays : [];
+  const find = (relayId) => relays.find((relay) => Number(relay?.id) === relayId) || {};
+  if (!legacy) return find(id);
+  if (id === 1) return find(1);
+  if (id === 2) return find(3);
+  if (id === 3) return find(4);
+  const purified = find(6);
+  return purified?.mode === 'manual' ? purified : {};
+}
+
 /**
- * Deja las reglas en la forma que aplica el firmware del controlador hidráulico.
- * El modo de cada relevador queda fijo: el portal solo cambia habilitación y parámetros.
+ * Cuatro relevadores y cinco flujos.
+ * 1 interruptor: la válvula arranca la bomba de agua cruda.
+ * 2 timer: flush, 12 horas si el portal no manda otro periodo.
+ * 3 flujo: la bomba de cloro sigue al agua cruda que va a la tienda.
+ * 4 interruptor: la bomba de agua purificada.
+ * El flujo de agua cruda es la condición para que arranque cualquier relevador.
  */
 export function normalizeControllerRules(input) {
   const src = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
-  const byId = new Map();
-  if (Array.isArray(src.relays)) {
-    for (const relay of src.relays) {
-      const id = Number(relay?.id);
-      if (id >= 1 && id <= 6) byId.set(id, relay);
-    }
-  }
+  const legacy = isLegacy(src);
+  const raw = sourceRelay(src, legacy, 1);
+  const flush = sourceRelay(src, legacy, 2);
+  const chlorine = sourceRelay(src, legacy, 3);
+  const purified = sourceRelay(src, legacy, 4);
+  const rawPin = inputPin(raw.input_a, 16);
+  const purifiedPin = inputPin(purified.input_a, 22);
+  if (purifiedPin === rawPin) fail('La bomba de cruda y la de purificada no pueden usar el mismo interruptor');
 
-  const relays = [];
-  for (let id = 1; id <= 6; id += 1) {
-    const relay = byId.get(id) || {};
-    const mode = RELAY_MODES[id];
-    const enabled = Boolean(relay.enabled);
-    const rule = { id, enabled, mode };
-
-    if (mode === 'manual') {
-      rule.on = Boolean(relay.on);
-    }
-
-    if (mode === 'timer') {
-      let duration = Math.round(clampNumber(relay.duration_ms, 30000));
-      let interval = Math.round(clampNumber(relay.interval_ms, 4 * 60 * 60 * 1000));
-      if (duration < 5000) duration = 5000;
-      if (duration > 180000) duration = 180000;
-      if (interval < 60 * 60 * 1000) interval = 60 * 60 * 1000;
-      if (interval < duration * 2) interval = duration * 2;
-      rule.duration_ms = duration;
-      rule.interval_ms = interval;
-    }
-
-    if (mode === 'flow') {
-      const meter = Number(relay.meter) === 1 ? 1 : 0;
-      let minLpm = clampNumber(relay.min_lpm, 0);
-      if (minLpm < 0) minLpm = 0;
-      if (minLpm > 10000) minLpm = 10000;
-      rule.meter = meter;
-      rule.min_lpm = minLpm;
-    }
-
-    if (mode === 'pressure') {
-      const sensors = Array.isArray(relay.sensors)
-        ? [...new Set(relay.sensors.map(Number).filter((n) => n >= 0 && n <= 3))]
-        : [];
-      const minPsi = clampNumber(relay.min_psi, 0);
-      const maxPsi = clampNumber(relay.max_psi, 60);
-      if (minPsi < 0 || maxPsi > 200 || minPsi >= maxPsi) {
-        fail(`Relevador ${id}: la presión mínima tiene que ser menor que la máxima, entre 0 y 200 psi`);
-      }
-      if (enabled && sensors.length === 0) {
-        fail(`Relevador ${id}: elige al menos un sensor de presión`);
-      }
-      rule.sensors = sensors;
-      rule.min_psi = minPsi;
-      rule.max_psi = maxPsi;
-    }
-
-    relays.push(rule);
-  }
-
-  const flows = normalizeFlows(src.flows);
+  const relays = [
+    {
+      id: 1,
+      enabled: Boolean(raw.enabled),
+      mode: 'manual',
+      on: Boolean(raw.on),
+      input_a: rawPin,
+    },
+    normalizeFlush(flush),
+    normalizeChlorine(chlorine),
+    {
+      id: 4,
+      enabled: Boolean(purified.enabled),
+      mode: 'manual',
+      on: Boolean(purified.on),
+      input_a: purifiedPin,
+    },
+  ];
 
   return {
     input_active_low: src.input_active_low !== false,
-    flows,
+    description: String(src.description || '').trim().slice(0, 280),
+    flows: normalizeFlows(src.flows),
     relays,
   };
 }
 
-const FLOW_PINS = [4, 5, 15, 18, 19, 21, 22, 23];
+function normalizeFlush(relay) {
+  const duration = Math.round(clampNumber(relay.duration_ms, 30000));
+  const interval = Math.round(clampNumber(relay.interval_ms, FLUSH_EVERY_MS));
+  if (duration < 1000 || duration > 3600000) fail('La duración del flush va de 1 a 3600 segundos');
+  if (interval < 60000 || interval > 10080 * 60000) fail('El periodo del flush va de 1 minuto a 7 días');
+  if (duration >= interval) fail('La duración del flush tiene que ser menor que el periodo');
+  return {
+    id: 2,
+    enabled: Boolean(relay.enabled),
+    mode: 'timer',
+    duration_ms: duration,
+    interval_ms: interval,
+  };
+}
+
+function normalizeChlorine(relay) {
+  let minLpm = clampNumber(relay.min_lpm, 0);
+  if (minLpm < 0) minLpm = 0;
+  if (minLpm > 10000) minLpm = 10000;
+  let hyst = clampNumber(relay.hyst_lpm, 0);
+  if (hyst < 0) hyst = 0;
+  if (hyst > 1000) hyst = 1000;
+  return {
+    id: 3,
+    enabled: Boolean(relay.enabled),
+    mode: 'flow',
+    meter: 1,
+    min_lpm: minLpm,
+    hyst_lpm: hyst,
+  };
+}
+
+function inputPin(value, fallback) {
+  const pin = Number(value);
+  return INPUT_PINS.includes(pin) ? pin : fallback;
+}
 
 function normalizeFlows(input) {
   const source = Array.isArray(input) ? input : [];
-  const flows = [0, 1].map((index) => {
+  const flows = FLOW_SLOTS.map((slot, index) => {
     const flow = source[index] && typeof source[index] === 'object' ? source[index] : {};
-    const name = String(flow.name || '').trim().slice(0, 15);
-    const origin = flow.origin === 'pin' || (flow.pin != null && flow.origin !== 'platform')
-      ? 'pin'
-      : 'platform';
+    let name = String(flow.name || '').trim().slice(0, 15);
+    if (!name || /^Medidor \d+$/.test(name)) name = slot.name;
+
+    let origin = index < 2 ? 'pin' : 'platform';
+    if (flow.origin === 'pin' || flow.origin === 'platform') origin = flow.origin;
+    else if (flow.device_code || flow.deviceCode) origin = 'platform';
+    else if (flow.pin != null) origin = 'pin';
 
     if (origin === 'pin') {
       const pin = Number(flow.pin);
       if (!FLOW_PINS.includes(pin)) {
-        fail(`Medidor ${index + 1}: elige un pin disponible (${FLOW_PINS.join(', ')})`);
+        fail(`Flujo ${index + 1} (${slot.name}): elige GPIO 4 o GPIO 19`);
       }
       let liters = clampNumber(flow.liters_per_pulse, 0.1);
       if (liters <= 0 || liters > 100) liters = 0.1;
       return {
-        name: name || `GPIO ${pin}`,
+        name,
         origin: 'pin',
+        role: slot.role,
         pin,
         liters_per_pulse: liters,
       };
     }
 
     const deviceCode = String(flow.device_code || flow.deviceCode || '').trim().slice(0, 64);
-    if (!deviceCode) fail(`Medidor ${index + 1}: elige el equipo en Medidores`);
+    if (!deviceCode && !slot.optionalDevice) {
+      fail(`Flujo ${index + 1} (${slot.name}): elige el equipo en Medidores`);
+    }
     return {
-      name: name || deviceCode.slice(0, 15),
+      name,
       origin: 'platform',
-      device_code: deviceCode,
+      role: slot.role,
+      ...(deviceCode ? { device_code: deviceCode } : {}),
     };
   });
 
   const pins = flows.filter((flow) => flow.origin === 'pin').map((flow) => flow.pin);
   if (new Set(pins).size !== pins.length) {
-    fail('Los dos medidores físicos no pueden usar el mismo pin');
+    fail('GPIO 4 y GPIO 19 no se pueden repetir entre flujos');
   }
   return flows;
 }
