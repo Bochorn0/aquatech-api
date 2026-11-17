@@ -148,12 +148,14 @@ export const addController = async (req, res) => {
     delete controllerData._id;
 
     if (!controllerData.id || String(controllerData.id).trim() === '') {
-      const existingByIp = await ControllerModel.findOne({ ip: controllerData.ip });
-      if (existingByIp) {
-        return res.status(409).json({
-          message: 'Ya existe un controlador con esta IP',
-          existingController: existingByIp
-        });
+      if (controllerData.ip) {
+        const existingByIp = await ControllerModel.findOne({ ip: controllerData.ip });
+        if (existingByIp) {
+          return res.status(409).json({
+            message: 'Ya existe un controlador con esta IP',
+            existingController: existingByIp
+          });
+        }
       }
       controllerData.id = `CTRL-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     } else {
