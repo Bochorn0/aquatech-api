@@ -83,6 +83,12 @@ function litersFromCatalogRow(row) {
   return Number.isFinite(raw) ? Math.round(raw * 1000) : null;
 }
 
+function meterIsOnline(row) {
+  const value = row?.isOnline ?? row?.online;
+  const text = String(value ?? '').toLowerCase();
+  return value === true || value === 1 || text === '1' || text === 'on_line' || text === 'online';
+}
+
 async function platformLiters() {
   if (!meterPlatformClient.hasMeterPlatformCredentials()) return volumeCache.map;
   if (volumeCache.map.size && Date.now() - volumeCache.at < CACHE_MS) return volumeCache.map;
@@ -95,8 +101,8 @@ async function platformLiters() {
         const rows = extractRows(result.data);
         for (const row of rows) {
           const code = String(row?.deviceCode || row?.device_code || '').trim();
-          const liters = litersFromCatalogRow(row);
-          if (code && liters != null) found.set(code, liters);
+          if (!code) continue;
+          found.set(code, { liters: litersFromCatalogRow(row), online: meterIsOnline(row) });
         }
         if (rows.length < 100) break;
       }
@@ -121,7 +127,7 @@ function schedule(deviceCode) {
 
 /**
  * Rechazo, producción y purificada a tienda no tienen pulso en la placa.
- * La respuesta les adjunta el acumulado en litros y, si ya hay dos lecturas, el caudal.
+ * La respuesta les adjunta el acumulado en litros, si están en línea y, si ya hay dos lecturas, el caudal.
  * Nada de esto se escribe dentro de rules.
  */
 export async function decorateRulesForDevice(rules) {
@@ -135,9 +141,11 @@ export async function decorateRulesForDevice(rules) {
     const cached = samples.get(deviceCode);
     if (!cached || Date.now() - cached.fetchedAt >= CACHE_MS) schedule(deviceCode);
     const live = readingFromCache(deviceCode);
-    const liters = catalog.has(deviceCode) ? catalog.get(deviceCode) : null;
+    const entry = catalog.get(deviceCode);
+    const liters = entry && Number.isFinite(entry.liters) ? entry.liters : null;
     const extra = { lpm: live.lpm, ok: live.ok };
     if (Number.isFinite(liters)) extra.liters = liters;
+    if (entry) extra.online = entry.online;
     return { ...flow, ...extra };
   });
 
