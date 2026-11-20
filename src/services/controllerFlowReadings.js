@@ -6,6 +6,8 @@ const MAX_RATE_MINUTES = 30;
 
 const samples = new Map();
 const inflight = new Map();
+let volumeCache = { at: 0, map: new Map() };
+let volumeInflight = null;
 
 function extractRows(payload) {
   if (!payload) return [];
@@ -75,6 +77,38 @@ async function refresh(deviceCode) {
   });
 }
 
+function litersFromCatalogRow(row) {
+  const raw = Number(row?.totalMetering ?? row?.totalUsage ?? row?.currentForwardUsage);
+  // La lista de la plataforma trae el acumulado en m³.
+  return Number.isFinite(raw) ? Math.round(raw * 1000) : null;
+}
+
+async function platformLiters() {
+  if (!meterPlatformClient.hasMeterPlatformCredentials()) return volumeCache.map;
+  if (volumeCache.map.size && Date.now() - volumeCache.at < CACHE_MS) return volumeCache.map;
+  if (!volumeInflight) {
+    volumeInflight = (async () => {
+      const found = new Map();
+      for (let page = 1; page <= 3; page += 1) {
+        const result = await meterPlatformClient.getDeviceInfoList({ pageNum: page, pageSize: 100 });
+        if (!result.success) break;
+        const rows = extractRows(result.data);
+        for (const row of rows) {
+          const code = String(row?.deviceCode || row?.device_code || '').trim();
+          const liters = litersFromCatalogRow(row);
+          if (code && liters != null) found.set(code, liters);
+        }
+        if (rows.length < 100) break;
+      }
+      if (found.size) volumeCache = { at: Date.now(), map: found };
+      return volumeCache.map;
+    })().finally(() => {
+      volumeInflight = null;
+    });
+  }
+  return volumeInflight;
+}
+
 function schedule(deviceCode) {
   if (inflight.has(deviceCode)) return;
   const job = refresh(deviceCode)
@@ -86,21 +120,25 @@ function schedule(deviceCode) {
 }
 
 /**
- * El equipo solo recibe ip y last_time_active.
- * El caudal de un medidor de plataforma se calcula aquí y se adjunta en la respuesta,
- * sin guardarlo dentro de rules.
+ * Rechazo, producción y purificada a tienda no tienen pulso en la placa.
+ * La respuesta les adjunta el acumulado en litros y, si ya hay dos lecturas, el caudal.
+ * Nada de esto se escribe dentro de rules.
  */
 export async function decorateRulesForDevice(rules) {
   if (!rules || !Array.isArray(rules.flows)) return rules;
   if (!meterPlatformClient.hasMeterPlatformCredentials()) return rules;
 
+  const catalog = await platformLiters();
   const flows = rules.flows.map((flow) => {
     if (flow?.origin !== 'platform' || !flow.device_code) return flow;
     const deviceCode = String(flow.device_code);
     const cached = samples.get(deviceCode);
     if (!cached || Date.now() - cached.fetchedAt >= CACHE_MS) schedule(deviceCode);
     const live = readingFromCache(deviceCode);
-    return { ...flow, lpm: live.lpm, ok: live.ok };
+    const liters = catalog.has(deviceCode) ? catalog.get(deviceCode) : null;
+    const extra = { lpm: live.lpm, ok: live.ok };
+    if (Number.isFinite(liters)) extra.liters = liters;
+    return { ...flow, ...extra };
   });
 
   return { ...rules, flows };
