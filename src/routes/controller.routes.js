@@ -6,7 +6,8 @@ import {
   getActiveControllers, 
   updateController, 
   deleteController, 
-  addController 
+  addController,
+  reportPressureAlarm,
 } from '../controllers/controller.controller.js';
 import { authenticate, requirePermission } from '../middlewares/auth.middleware.js';
 
@@ -18,6 +19,7 @@ router.get('/:id/revision', authenticate, getControllerRevision);
 router.get('/:id', authenticate, getControllerById);
 router.get('/', authenticate, getActiveControllers);
 router.post('/', authenticate, requirePermission('/controladores'), addController);
+router.post('/:id/pressure-alarm', authenticate, reportPressureAlarm);
 router.patch('/:id', authenticate, updateController);
 router.delete('/:id', authenticate, requirePermission('/controladores'), deleteController);
 

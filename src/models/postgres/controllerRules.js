@@ -84,6 +84,45 @@ export function normalizeControllerRules(input) {
     description: String(src.description || '').trim().slice(0, 280),
     flows: normalizeFlows(src.flows),
     relays,
+    pressure_alarms: normalizePressureAlarms(src.pressure_alarms),
+  };
+}
+
+function hexColor(value, fallback) {
+  const text = String(value || '').trim();
+  return /^#[0-9A-Fa-f]{6}$/.test(text) ? text : fallback;
+}
+
+function normalizePressureAlarms(input) {
+  const src = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const sensorsIn = Array.isArray(src.sensors) ? src.sensors : [];
+  const sensors = [1, 2, 3, 4].map((sensor) => {
+    const found = sensorsIn.find((item) => Number(item?.sensor) === sensor) || {};
+    let minPsi = clampNumber(found.min_psi, 20);
+    let maxPsi = clampNumber(found.max_psi, 80);
+    let margin = clampNumber(found.margin_psi, 5);
+    if (minPsi < 0) minPsi = 0;
+    if (minPsi > 200) minPsi = 200;
+    if (maxPsi > 200) maxPsi = 200;
+    if (maxPsi <= minPsi) maxPsi = Math.min(200, minPsi + 1);
+    if (margin < 0) margin = 0;
+    if (margin * 2 >= maxPsi - minPsi) margin = Math.max(0, (maxPsi - minPsi) / 2 - 0.1);
+    const channel = ['portal', 'email', 'both'].includes(found.channel) ? found.channel : 'portal';
+    return {
+      sensor,
+      enabled: Boolean(found.enabled),
+      min_psi: Math.round(minPsi * 10) / 10,
+      max_psi: Math.round(maxPsi * 10) / 10,
+      margin_psi: Math.round(margin * 10) / 10,
+      channel,
+      email: String(found.email || '').trim().slice(0, 80),
+    };
+  });
+  return {
+    color_ok: hexColor(src.color_ok, '#059669'),
+    color_warn: hexColor(src.color_warn, '#D97706'),
+    color_alarm: hexColor(src.color_alarm, '#DC2626'),
+    sensors,
   };
 }
 
@@ -141,7 +180,7 @@ function normalizeFlows(input) {
       if (!FLOW_PINS.includes(pin)) {
         fail(`Flujo ${index + 1} (${slot.name}): elige GPIO 4 o GPIO 19`);
       }
-      let liters = clampNumber(flow.liters_per_pulse, 0.1);
+      let liters = clampNumber(flow.liters_per_pulse, 1 / 330);
       if (liters <= 0 || liters > 100) liters = 0.1;
       return {
         name,
