@@ -158,6 +158,28 @@ function normalizeChlorine(relay) {
   };
 }
 
+function normalizeFlowAlarm(input) {
+  const alarm = input && typeof input === 'object' ? input : {};
+  let minLpm = clampNumber(alarm.min_lpm, 0);
+  let maxLpm = clampNumber(alarm.max_lpm, 60);
+  let margin = clampNumber(alarm.margin_lpm, 5);
+  if (minLpm < 0) minLpm = 0;
+  if (minLpm > 10000) minLpm = 10000;
+  if (maxLpm > 10000) maxLpm = 10000;
+  if (maxLpm <= minLpm) maxLpm = Math.min(10000, minLpm + 0.1);
+  if (margin < 0) margin = 0;
+  if (margin * 2 >= maxLpm - minLpm) margin = Math.max(0, (maxLpm - minLpm) / 2 - 0.1);
+  const channel = ['portal', 'email', 'both'].includes(alarm.channel) ? alarm.channel : 'portal';
+  return {
+    enabled: Boolean(alarm.enabled),
+    min_lpm: Math.round(minLpm * 10) / 10,
+    max_lpm: Math.round(maxLpm * 10) / 10,
+    margin_lpm: Math.round(margin * 10) / 10,
+    channel,
+    email: String(alarm.email || '').trim().slice(0, 80),
+  };
+}
+
 function inputPin(value, fallback) {
   const pin = Number(value);
   return INPUT_PINS.includes(pin) ? pin : fallback;
@@ -188,6 +210,7 @@ function normalizeFlows(input) {
         role: slot.role,
         pin,
         liters_per_pulse: liters,
+        alarm: normalizeFlowAlarm(flow.alarm),
       };
     }
 
@@ -200,6 +223,7 @@ function normalizeFlows(input) {
       origin: 'platform',
       role: slot.role,
       ...(deviceCode ? { device_code: deviceCode } : {}),
+      alarm: normalizeFlowAlarm(flow.alarm),
     };
   });
 

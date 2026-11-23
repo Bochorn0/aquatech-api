@@ -222,27 +222,36 @@ export const reportPressureAlarm = async (req, res) => {
     if (!controller) return res.status(404).json({ message: 'Controlador no encontrado' });
 
     const sensor = Number(req.body?.sensor);
-    const psi = Number(req.body?.psi);
-    const rule = controller.rules?.pressure_alarms?.sensors?.find((item) => Number(item.sensor) === sensor);
-    if (!rule?.enabled || !Number.isFinite(psi)) return res.json({ ok: true, ignored: true });
+    const flowAlert = req.body?.kind === 'flow';
+    const flow = flowAlert ? controller.rules?.flows?.[sensor - 1] : null;
+    const rule = flowAlert
+      ? flow?.alarm
+      : controller.rules?.pressure_alarms?.sensors?.find((item) => Number(item.sensor) === sensor);
+    const reading = Number(flowAlert ? req.body?.lpm : req.body?.psi);
+    const min = Number(flowAlert ? rule?.min_lpm : rule?.min_psi);
+    const max = Number(flowAlert ? rule?.max_lpm : rule?.max_psi);
+    const margin = Number(flowAlert ? rule?.margin_lpm : rule?.margin_psi) || 0;
+    if (!rule?.enabled || !Number.isFinite(reading)) return res.json({ ok: true, ignored: true });
 
     let level = 'ok';
-    if (psi < rule.min_psi || psi > rule.max_psi) level = 'alarm';
-    else if (psi < rule.min_psi + Number(rule.margin_psi || 0) || psi > rule.max_psi - Number(rule.margin_psi || 0)) level = 'warn';
+    if (reading < min || reading > max) level = 'alarm';
+    else if (reading < min + margin || reading > max - margin) level = 'warn';
 
     const deviceKey = controller.device_id || controller.id;
-    const key = `${deviceKey}:${sensor}:${level}`;
+    const key = `${deviceKey}:${flowAlert ? 'flow' : 'psi'}:${sensor}:${level}`;
     const now = Date.now();
     if (now - (recentPressureAlarms.get(key) || 0) < 15 * 60 * 1000) {
       return res.json({ ok: true, skipped: true, level });
     }
-    const hadAlert = ['warn', 'alarm'].some((name) => recentPressureAlarms.has(`${deviceKey}:${sensor}:${name}`));
+    const hadAlert = ['warn', 'alarm'].some((name) => recentPressureAlarms.has(`${deviceKey}:${flowAlert ? 'flow' : 'psi'}:${sensor}:${name}`));
     if (level === 'ok' && !hadAlert) return res.json({ ok: true, ignored: true, level });
 
     const name = controller.name || deviceKey || 'Controlador';
     const label = level === 'alarm' ? 'fuera de rango' : level === 'warn' ? 'cerca del límite' : 'de vuelta en rango';
-    const title = `Presión S${sensor} ${label}`;
-    const description = `${name}: S${sensor} en ${psi.toFixed(1)} psi. Rango ${rule.min_psi}–${rule.max_psi} psi.`;
+    const subject = flowAlert ? (flow?.name || `Flujo ${sensor}`) : `S${sensor}`;
+    const unit = flowAlert ? 'L/min' : 'psi';
+    const title = `${flowAlert ? 'Flujo' : 'Presión'} ${subject} ${label}`;
+    const description = `${name}: ${subject} en ${reading.toFixed(1)} ${unit}. Rango ${min}–${max} ${unit}.`;
     const channel = rule.channel || 'portal';
     let delivered = false;
 
@@ -275,9 +284,9 @@ export const reportPressureAlarm = async (req, res) => {
           await emailHelper.sendAlertEmail({
             to: rule.email,
             alertType: level === 'warn' ? 'preventivo' : 'correctivo',
-            metricName: `Presión S${sensor}`,
+            metricName: `${flowAlert ? 'Flujo' : 'Presión'} ${subject}`,
             message: description,
-            sensorData: { Controlador: name, PSI: psi.toFixed(1), Rango: `${rule.min_psi}–${rule.max_psi}` },
+            sensorData: { Controlador: name, Lectura: `${reading.toFixed(1)} ${unit}`, Rango: `${min}–${max}` },
           });
         }
         delivered = true;
