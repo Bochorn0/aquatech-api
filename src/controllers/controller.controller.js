@@ -3,7 +3,12 @@ import crypto from 'crypto';
 import ControllerModel from '../models/postgres/controller.model.js';
 import ClientModel from '../models/postgres/client.model.js';
 import ProductModel from '../models/postgres/product.model.js';
+import NotificationModel from '../models/postgres/notification.model.js';
+import UserModel from '../models/postgres/user.model.js';
+import emailHelper from '../utils/email.helper.js';
 import { decorateRulesForDevice } from '../services/controllerFlowReadings.js';
+
+const recentPressureAlarms = new Map();
 
 function rulesRevision(rules) {
   const raw = rules == null ? '' : JSON.stringify(rules);
@@ -208,6 +213,85 @@ export const updateController = async (req, res) => {
   } catch (error) {
     console.error('Error updating controller:', error);
     res.status(error.statusCode || 500).json({ message: error.message || 'Error updating controller' });
+  }
+};
+
+export const reportPressureAlarm = async (req, res) => {
+  try {
+    const controller = await ControllerModel.findByIdOrDeviceId(req.params.id);
+    if (!controller) return res.status(404).json({ message: 'Controlador no encontrado' });
+
+    const sensor = Number(req.body?.sensor);
+    const psi = Number(req.body?.psi);
+    const rule = controller.rules?.pressure_alarms?.sensors?.find((item) => Number(item.sensor) === sensor);
+    if (!rule?.enabled || !Number.isFinite(psi)) return res.json({ ok: true, ignored: true });
+
+    let level = 'ok';
+    if (psi < rule.min_psi || psi > rule.max_psi) level = 'alarm';
+    else if (psi < rule.min_psi + Number(rule.margin_psi || 0) || psi > rule.max_psi - Number(rule.margin_psi || 0)) level = 'warn';
+
+    const deviceKey = controller.device_id || controller.id;
+    const key = `${deviceKey}:${sensor}:${level}`;
+    const now = Date.now();
+    if (now - (recentPressureAlarms.get(key) || 0) < 15 * 60 * 1000) {
+      return res.json({ ok: true, skipped: true, level });
+    }
+    const hadAlert = ['warn', 'alarm'].some((name) => recentPressureAlarms.has(`${deviceKey}:${sensor}:${name}`));
+    if (level === 'ok' && !hadAlert) return res.json({ ok: true, ignored: true, level });
+
+    const name = controller.name || deviceKey || 'Controlador';
+    const label = level === 'alarm' ? 'fuera de rango' : level === 'warn' ? 'cerca del límite' : 'de vuelta en rango';
+    const title = `Presión S${sensor} ${label}`;
+    const description = `${name}: S${sensor} en ${psi.toFixed(1)} psi. Rango ${rule.min_psi}–${rule.max_psi} psi.`;
+    const channel = rule.channel || 'portal';
+    let delivered = false;
+
+    if (channel === 'portal' || channel === 'both') {
+      try {
+        const users = await UserModel.find({ status: 'active' });
+        for (const user of (users || []).slice(0, 20)) {
+          if (!user?.id) continue;
+          await NotificationModel.create({
+            user_id: user.id,
+            title,
+            description,
+            type: level === 'ok' ? 'info' : level === 'warn' ? 'warning' : 'alert',
+            posted_at: new Date(),
+            is_unread: true,
+            url: `/controladores/${encodeURIComponent(deviceKey)}`,
+          });
+          delivered = true;
+        }
+      } catch (error) {
+        console.error('[PSI] no se pudo crear la notificación:', error.message);
+      }
+    }
+
+    if ((channel === 'email' || channel === 'both') && rule.email) {
+      try {
+        if (level === 'ok') {
+          await emailHelper.sendNotificationEmail({ to: rule.email, subject: title, title, message: description });
+        } else {
+          await emailHelper.sendAlertEmail({
+            to: rule.email,
+            alertType: level === 'warn' ? 'preventivo' : 'correctivo',
+            metricName: `Presión S${sensor}`,
+            message: description,
+            sensorData: { Controlador: name, PSI: psi.toFixed(1), Rango: `${rule.min_psi}–${rule.max_psi}` },
+          });
+        }
+        delivered = true;
+      } catch (error) {
+        console.error('[PSI] no se pudo enviar el correo:', error.message);
+      }
+    }
+
+    if (!delivered) return res.status(502).json({ message: 'La alarma no llegó al portal ni al correo' });
+    recentPressureAlarms.set(key, now);
+    res.json({ ok: true, level });
+  } catch (error) {
+    console.error('Error en alarma de presión:', error);
+    res.status(500).json({ message: 'No se pudo registrar la alarma' });
   }
 };
 
