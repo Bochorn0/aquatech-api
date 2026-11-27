@@ -3,6 +3,31 @@
 
 import { query, getClient } from '../../config/postgres.config.js';
 
+function parsedMeta(meta) {
+  if (!meta) return null;
+  if (typeof meta === 'string') {
+    try { return JSON.parse(meta); } catch { return null; }
+  }
+  return typeof meta === 'object' ? meta : null;
+}
+
+function productTypeOf(row) {
+  const meta = parsedMeta(row?.meta);
+  const value = String(row?.product_type || meta?.product_type || '').trim();
+  return value || null;
+}
+
+/** Keep the punto type in meta so existing rows do not need a new column. */
+export function mergeProductType(meta, productType) {
+  if (productType === undefined) return meta;
+  const base = parsedMeta(meta) || {};
+  const next = { ...base };
+  const type = String(productType || '').trim();
+  if (type) next.product_type = type;
+  else delete next.product_type;
+  return Object.keys(next).length ? next : null;
+}
+
 /**
  * PuntoVenta Model
  * Handles all database operations for the puntoVenta table
@@ -428,7 +453,8 @@ class PuntoVentaModel {
       meta: row.meta ? (typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta) : null,
       dev_mode: row.dev_mode === true,
       ciudadId: row.ciudad_id ? String(row.ciudad_id) : null,
-      source_type: row.source_type || 'mqtt'
+      source_type: row.source_type || 'mqtt',
+      product_type: productTypeOf(row)
     };
   }
 }

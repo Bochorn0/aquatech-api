@@ -21,7 +21,9 @@ const HYDRAULIC_CODES = new Set([
 ]);
 
 /** TIWater clásico conserva su tipo. El equipo de presiones, flujos y relevadores es todo_en_uno. */
-function resolveReportedProductType(osmosis, matchingProduct) {
+function resolveReportedProductType(osmosis, matchingProduct, puntoType) {
+  const punto = String(puntoType || '').trim();
+  if (punto === 'todo_en_uno') return 'todo_en_uno';
   const linked = String(matchingProduct?.product_type || osmosis?.product_type || '').trim();
   if (linked === 'todo_en_uno') return 'todo_en_uno';
   if (linked === 'Osmosis' || linked === 'TIWater') return linked;
@@ -885,6 +887,7 @@ export const getPuntosVentaV2 = async (req, res) => {
           controladores: [], // Controllers would need to be queried separately if needed
           online,
           source_type: sourceType,
+          product_type: pv.product_type || null,
           products_count,
           status: pv.status || 'active',
           sensors_count,
@@ -1221,6 +1224,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       region: regionData ? { id: String(regionData.id), code: regionData.code, name: regionData.name, color: regionData.color || null } : null,
       ciudad: ciudadData ? { id: String(ciudadData.id), name: ciudadData.name, regionId: ciudadData.regionId } : null,
       source_type: (puntoFromPG.source_type || 'mqtt').toString().toLowerCase(),
+      product_type: puntoFromPG.product_type || null,
       toObject: function() {
         return {
           _id: this._id,
@@ -1244,7 +1248,9 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
           meta: this.meta,
           dev_mode: this.dev_mode,
           region: this.region,
-          ciudad: this.ciudad
+          ciudad: this.ciudad,
+          source_type: this.source_type,
+          product_type: this.product_type
         };
       }
     };
@@ -1765,7 +1771,7 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
       );
       
       // Determine product type based on resourceType / Tuya enrichment / hydraulic readings
-      const productType = resolveReportedProductType(osmosis, matchingProduct);
+      const productType = resolveReportedProductType(osmosis, matchingProduct, punto.product_type);
       osmosis.product_type = productType;
       const defaultName = productType === 'todo_en_uno'
         ? `Todo en uno ${index + 1}`
