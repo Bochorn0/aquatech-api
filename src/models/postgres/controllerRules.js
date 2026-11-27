@@ -1,13 +1,12 @@
-const INPUT_PINS = [4, 16, 17, 19, 22];
-const FLOW_PINS = [4, 19];
+const INPUT_PINS = [16, 22];
 const FLUSH_EVERY_MS = 12 * 60 * 60 * 1000;
 
 const FLOW_SLOTS = [
-  { role: 'gate', name: 'Agua cruda', optionalDevice: false },
-  { role: 'chlorine', name: 'Cruda a tienda', optionalDevice: false },
-  { role: 'calc', name: 'Rechazo', optionalDevice: true },
-  { role: 'calc', name: 'Produccion', optionalDevice: true },
-  { role: 'read', name: 'Pura a tienda', optionalDevice: true },
+  { role: 'read', name: 'Entrada cruda', origin: 'platform', optionalDevice: true },
+  { role: 'chlorine', name: 'Tienda cruda', origin: 'pin', pin: 19 },
+  { role: 'calc', name: 'Produccion', origin: 'pin', pin: 4 },
+  { role: 'calc', name: 'Rechazo', origin: 'pin', pin: 17 },
+  { role: 'read', name: 'Tda purificada', origin: 'platform', optionalDevice: true },
 ];
 
 function fail(message) {
@@ -42,23 +41,24 @@ function sourceRelay(src, legacy, id) {
 }
 
 /**
- * Cuatro relevadores y cinco flujos.
- * 1 interruptor: la válvula arranca la bomba de agua cruda.
- * 2 timer: flush, 12 horas si el portal no manda otro periodo.
- * 3 flujo: la bomba de cloro sigue al agua cruda que va a la tienda.
- * 4 interruptor: la bomba de agua purificada.
- * El flujo de agua cruda es la condición para que arranque cualquier relevador.
+ * Tres relevadores y cinco flujos.
+ * 1 interruptor: la bomba.
+ * 2 flujo: la bomba de cloro sigue a tienda cruda (GPIO 19).
+ * 3 timer o interruptor: flush.
+ * Flujos 1 y 5 son medidores digitales. 3 y 4 son pulsos en GPIO 4 y 17.
  */
 export function normalizeControllerRules(input) {
   const src = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   const legacy = isLegacy(src);
-  const raw = sourceRelay(src, legacy, 1);
-  const flush = sourceRelay(src, legacy, 2);
-  const chlorine = sourceRelay(src, legacy, 3);
-  const purified = sourceRelay(src, legacy, 4);
+  const relaysIn = Array.isArray(src.relays) ? src.relays : [];
+  const byId = (id) => relaysIn.find((relay) => Number(relay?.id) === id) || {};
+  const oldShape = !legacy && byId(2).mode === 'timer' && byId(3).mode === 'flow';
+  const raw = legacy ? sourceRelay(src, true, 1) : byId(1);
+  const chlorine = legacy ? sourceRelay(src, true, 3) : (oldShape ? byId(3) : byId(2));
+  const flush = legacy ? sourceRelay(src, true, 2) : (oldShape ? byId(2) : byId(3));
   const rawPin = inputPin(raw.input_a, 16);
-  const purifiedPin = inputPin(purified.input_a, 22);
-  if (purifiedPin === rawPin) fail('La bomba de cruda y la de purificada no pueden usar el mismo interruptor');
+  const flushPin = inputPin(oldShape ? byId(4).input_a : flush.input_a, 22);
+  if (flushPin === rawPin) fail('La bomba y el flush no pueden usar el mismo interruptor');
 
   const relays = [
     {
@@ -68,15 +68,8 @@ export function normalizeControllerRules(input) {
       on: Boolean(raw.on),
       input_a: rawPin,
     },
-    normalizeFlush(flush),
     normalizeChlorine(chlorine),
-    {
-      id: 4,
-      enabled: Boolean(purified.enabled),
-      mode: 'manual',
-      on: Boolean(purified.on),
-      input_a: purifiedPin,
-    },
+    normalizeFlush({ ...flush, input_a: flushPin }),
   ];
 
   return {
@@ -96,7 +89,7 @@ function hexColor(value, fallback) {
 function normalizePressureAlarms(input) {
   const src = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   const sensorsIn = Array.isArray(src.sensors) ? src.sensors : [];
-  const sensors = [1, 2, 3, 4].map((sensor) => {
+  const sensors = [1, 2, 3, 4, 5].map((sensor) => {
     const found = sensorsIn.find((item) => Number(item?.sensor) === sensor) || {};
     let minPsi = clampNumber(found.min_psi, 20);
     let maxPsi = clampNumber(found.max_psi, 80);
@@ -133,11 +126,12 @@ function normalizeFlush(relay) {
   if (interval < 60000 || interval > 10080 * 60000) fail('El periodo del flush va de 1 minuto a 7 días');
   if (duration >= interval) fail('La duración del flush tiene que ser menor que el periodo');
   return {
-    id: 2,
+    id: 3,
     enabled: Boolean(relay.enabled),
     mode: 'timer',
     duration_ms: duration,
     interval_ms: interval,
+    input_a: inputPin(relay.input_a, 22),
   };
 }
 
@@ -149,7 +143,7 @@ function normalizeChlorine(relay) {
   if (hyst < 0) hyst = 0;
   if (hyst > 1000) hyst = 1000;
   return {
-    id: 3,
+    id: 2,
     enabled: Boolean(relay.enabled),
     mode: 'flow',
     meter: 1,
@@ -192,23 +186,14 @@ function normalizeFlows(input) {
     let name = String(flow.name || '').trim().slice(0, 15);
     if (!name || /^Medidor \d+$/.test(name)) name = slot.name;
 
-    let origin = index < 2 ? 'pin' : 'platform';
-    if (flow.origin === 'pin' || flow.origin === 'platform') origin = flow.origin;
-    else if (flow.device_code || flow.deviceCode) origin = 'platform';
-    else if (flow.pin != null) origin = 'pin';
-
-    if (origin === 'pin') {
-      const pin = Number(flow.pin);
-      if (!FLOW_PINS.includes(pin)) {
-        fail(`Flujo ${index + 1} (${slot.name}): elige GPIO 4 o GPIO 19`);
-      }
+    if (slot.origin === 'pin') {
       let liters = clampNumber(flow.liters_per_pulse, 1 / 330);
-      if (liters <= 0 || liters > 100) liters = 0.1;
+      if (!(liters > 0) || liters > 100) liters = 1 / 330;
       return {
         name,
         origin: 'pin',
         role: slot.role,
-        pin,
+        pin: slot.pin,
         liters_per_pulse: liters,
         alarm: normalizeFlowAlarm(flow.alarm),
       };
@@ -229,7 +214,7 @@ function normalizeFlows(input) {
 
   const pins = flows.filter((flow) => flow.origin === 'pin').map((flow) => flow.pin);
   if (new Set(pins).size !== pins.length) {
-    fail('GPIO 4 y GPIO 19 no se pueden repetir entre flujos');
+    fail('Los pines de flujo 19, 4 y 17 no se pueden repetir');
   }
   return flows;
 }
