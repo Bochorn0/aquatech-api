@@ -2161,7 +2161,8 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
  */
 export const getSensorTimeSeries = async (req, res) => {
   try {
-    const { codigoTienda, resourceId, sensorName, startDate, endDate, interval = '1 hour' } = req.query;
+    const { codigoTienda, resourceId, sensorName, startDate, endDate, interval = '1 hour', resourceType } = req.query;
+    const seriesResource = String(resourceType || 'osmosis').toLowerCase();
 
     if (!codigoTienda || !sensorName) {
       return res.status(400).json({
@@ -2181,11 +2182,11 @@ export const getSensorTimeSeries = async (req, res) => {
       FROM sensores s INNER JOIN sensores_message m ON s.sensores_message_id = m.id
       WHERE m.codigotienda = $2
         AND s.name = $3
-        AND m.resourcetype = 'osmosis'
+        AND m.resourcetype = $4
     `;
 
-    const params = [interval, codigoTienda.toUpperCase(), sensorName];
-    let paramIndex = 4;
+    const params = [interval, codigoTienda.toUpperCase(), sensorName, seriesResource];
+    let paramIndex = 5;
 
     if (resourceId) {
       timeSeriesQuery += ` AND m.resourceid = $${paramIndex}`;
