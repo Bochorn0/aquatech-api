@@ -9,6 +9,31 @@ import ClientModel from '../models/postgres/client.model.js';
 /** Sonora (no DST). Used for historico day boundaries (matches chart labels). */
 const APP_TZ = 'America/Hermosillo';
 
+const CLASSIC_TIWATER_CODES = new Set([
+  'level_purificada', 'electronivel_purificada', 'level_recuperada', 'electronivel_recuperada',
+  'level_cruda', 'electronivel_cruda', 'nivel_purificada_absoluto', 'nivel_cruda_absoluto',
+  'eficiencia', 'tds_out', 'vida', 'corriente_ch1', 'flowrate_speed_1', 'flowrate_speed_2',
+  'flowrate_recuperacion', 'presion_co2',
+]);
+
+const HYDRAULIC_CODES = new Set([
+  'pressure_in', 'pressure_out', 'caudal_cruda', 'caudal_cruda_lmin', 'acumulado_cruda',
+]);
+
+/** TIWater clásico conserva su tipo. El equipo de presiones, flujos y relevadores es todo_en_uno. */
+function resolveReportedProductType(osmosis, matchingProduct) {
+  const linked = String(matchingProduct?.product_type || osmosis?.product_type || '').trim();
+  if (linked === 'todo_en_uno') return 'todo_en_uno';
+  if (linked === 'Osmosis' || linked === 'TIWater') return linked;
+  const resourceType = String(osmosis?.resourceType || '').toLowerCase();
+  if (resourceType !== 'tiwater') return linked || 'Osmosis';
+  const codes = new Set((osmosis?.status || []).map((sensor) => String(sensor?.code || '').toLowerCase()));
+  const classic = [...codes].some((code) => CLASSIC_TIWATER_CODES.has(code));
+  const hydraulic = [...codes].some((code) => HYDRAULIC_CODES.has(code));
+  if (hydraulic && !classic) return 'todo_en_uno';
+  return 'TIWater';
+}
+
 function isValidYmd(s) {
   if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
   const [y, m, d] = s.split('-').map(Number);
@@ -1736,14 +1761,16 @@ export const getPuntoVentaDetalleV2 = async (req, res) => {
         p.device_id === osmosis.resourceId
         || p.id === osmosis.resourceId
         || String(p._id) === String(osmosis.productDbId)
-        || ((p.product_type === 'Osmosis' || p.product_type === 'TIWater') && !osmosis.source)
+        || ((p.product_type === 'Osmosis' || p.product_type === 'TIWater' || p.product_type === 'todo_en_uno') && !osmosis.source)
       );
       
-      // Determine product type based on resourceType / Tuya enrichment
-      const productType = osmosis.product_type
-        || (osmosis.resourceType === 'tiwater' ? 'TIWater' : 'Osmosis');
-      const defaultName = osmosis.resourceType === 'tiwater' 
-        ? `Sistema TIWater ${index + 1}` 
+      // Determine product type based on resourceType / Tuya enrichment / hydraulic readings
+      const productType = resolveReportedProductType(osmosis, matchingProduct);
+      osmosis.product_type = productType;
+      const defaultName = productType === 'todo_en_uno'
+        ? `Todo en uno ${index + 1}`
+        : osmosis.resourceType === 'tiwater'
+        ? `Sistema TIWater ${index + 1}`
         : `Sistema Osmosis ${index + 1}`;
       
       // Para productos TIWater, agregar histórico de niveles si tienen datos de nivel
