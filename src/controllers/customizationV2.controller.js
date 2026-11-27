@@ -5,7 +5,7 @@ import MetricModel from '../models/postgres/metric.model.js';
 import MetricAlertModel from '../models/postgres/metricAlert.model.js';
 import ClientModel from '../models/postgres/client.model.js';
 import CityModel from '../models/postgres/city.model.js';
-import PuntoVentaModel from '../models/postgres/puntoVenta.model.js';
+import PuntoVentaModel, { mergeProductType } from '../models/postgres/puntoVenta.model.js';
 import PuntoVentaV1Model from '../models/postgres/puntoVentaV1.model.js';
 import PuntoVentaSensorModel from '../models/postgres/puntoVentaSensor.model.js';
 import SensoresModel from '../models/postgres/sensores.model.js';
@@ -1348,7 +1348,10 @@ export const addPuntoVentaV2 = async (req, res) => {
     // Strip dev_mode from meta - column is sole source, never persist in JSON
     if (puntoVentaData.meta && typeof puntoVentaData.meta === 'object') {
       const { dev_mode: _dm, devMode: _dm2, ...metaClean } = puntoVentaData.meta;
-      puntoVentaData.meta = Object.keys(metaClean).length ? JSON.stringify(metaClean) : null;
+      puntoVentaData.meta = Object.keys(metaClean).length ? metaClean : null;
+    }
+    if (puntoVentaData.product_type !== undefined) {
+      puntoVentaData.meta = mergeProductType(puntoVentaData.meta, puntoVentaData.product_type);
     }
     
     // Extract codigo_tienda if provided
@@ -1508,6 +1511,12 @@ export const updatePuntoVentaV2 = async (req, res) => {
     }
 
     const existingBeforeUpdate = await PuntoVentaModel.findById(parseInt(id, 10));
+    if (puntoVentaData.product_type !== undefined) {
+      puntoVentaData.meta = mergeProductType(
+        puntoVentaData.meta ?? existingBeforeUpdate?.meta,
+        puntoVentaData.product_type
+      );
+    }
     if (!existingBeforeUpdate) {
       return res.status(404).json({
         success: false,
